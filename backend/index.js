@@ -4,10 +4,16 @@ const db = require('./bd');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const pdf = require('pdf-parse'); 
+const pdf = require('pdf-parse');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
+
+// Módulos del Bot PRO
+const { detectarIntencion, respuestaIA } = require('./bot_ia');
+const { procesarMensaje, consultarEstatus } = require('./bot_flujos');
+const { ejecutarRecordatorios } = require('./bot_recordatorios');
+
 
 const app = express();
 const port = 3001; 
@@ -54,49 +60,6 @@ app.get('/api/stats', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Variables globales para estado de WhatsApp
-let currentQR = '';
-let isClientConnected = false;
-
-app.get('/api/whatsapp/status', (req, res) => {
-    res.json({ connected: isClientConnected, qr: currentQR });
-});
-
-app.post('/api/whatsapp/reset', async (req, res) => {
-    try {
-        console.log('♻️ Solicitud de reinicio de sesión WhatsApp...');
-        if (client) {
-            try {
-                await client.destroy();
-            } catch (e) { console.log("Aviso: Error destruyendo cliente (podría no estar activo)"); }
-        }
-
-        // Borrar carpetas de sesión y caché
-        const authPath = path.join(__dirname, '.wwebjs_auth');
-        const cachePath = path.join(__dirname, '.wwebjs_cache');
-        
-        if (fs.existsSync(authPath)) {
-            fs.rmSync(authPath, { recursive: true, force: true });
-            console.log('✅ Carpeta .wwebjs_auth eliminada');
-        }
-        if (fs.existsSync(cachePath)) {
-            fs.rmSync(cachePath, { recursive: true, force: true });
-        }
-
-        currentQR = '';
-        isClientConnected = false;
-        
-        // Esperar un poco antes de re-inicializar
-        setTimeout(() => {
-            client.initialize().catch(err => console.error("Error al re-inicializar después de reset:", err));
-        }, 2000);
-
-        res.json({ success: true, message: 'Sesión reiniciada. Generando nuevo QR...' });
-    } catch (err) {
-        console.error('❌ Error en reset WhatsApp:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
 
 app.get('/api/heatmap', async (req, res) => {
     try {
@@ -410,88 +373,340 @@ app.post('/api/leer-pdf', upload.single('archivoPdf'), async (req, res) => {
 
 app.listen(port, () => console.log(`🚀 API en http://localhost:${port}`));
 
-// --- BOT WHATSAPP ---
-const client = new Client({ 
-    authStrategy: new LocalAuth(), 
-    puppeteer: { 
-        headless: true,
-        args: [
-            '--no-sandbox', 
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
-            '--disable-gpu'
-        ], 
-        handleSIGINT: false 
-    } 
-});
-
-client.on('qr', qr => {
-    currentQR = qr;
-    isClientConnected = false;
-    qrcode.generate(qr, { small: true });
-});
-
-client.on('ready', () => {
-    console.log('✅ Bot Activo');
-    currentQR = '';
-    isClientConnected = true;
-});
-
+// ============================================================
+// BOT WHATSAPP — Sistema de Auto-Recuperación Inteligente
+// ============================================================
 const { MessageMedia } = require('whatsapp-web.js');
+
+let botClient = null;
+let isClientConnected = false;
+let currentQR = '';
+let intentosReinicio = 0;
+const MAX_INTENTOS = 3;
+
+/**
+ * Limpia todas las carpetas de sesión de WhatsApp Web
+ */
+function limpiarSesion() {
+    const authPath = path.join(__dirname, '.wwebjs_auth');
+    const cachePath = path.join(__dirname, '.wwebjs_cache');
+    try {
+        if (fs.existsSync(authPath)) { fs.rmSync(authPath, { recursive: true, force: true }); console.log('🧹 .wwebjs_auth eliminado'); }
+        if (fs.existsSync(cachePath)) { fs.rmSync(cachePath, { recursive: true, force: true }); }
+    } catch (e) { console.error('Error al limpiar sesión:', e.message); }
+}
+
+/**
+ * Crea e inicializa el cliente de WhatsApp.
+ * Si falla por sesión corrupta, limpia y reintenta automáticamente.
+ * @param {boolean} sesionLimpia - Si true, ya se limpió la sesión previamente
+ */
+function iniciarBot(sesionLimpia = false) {
+    console.log(`🤖 Iniciando bot WhatsApp${sesionLimpia ? ' (sesión limpia)' : ''}... Intento ${intentosReinicio + 1}/${MAX_INTENTOS}`);
+
+    // Si ya existe un cliente anterior, destruirlo silenciosamente
+    if (botClient) {
+        try { botClient.destroy(); } catch (e) { /* ignorar */ }
+        botClient = null;
+    }
+
+    botClient = new Client({
+        authStrategy: new LocalAuth(),
+        puppeteer: {
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-gpu'
+            ],
+            handleSIGINT: false
+        }
+    });
+
+    botClient.on('qr', qr => {
+        currentQR = qr;
+        isClientConnected = false;
+        intentosReinicio = 0; // Reset del contador al recibir QR (arrancó bien)
+        qrcode.generate(qr, { small: true });
+        console.log('📱 QR generado — escanear en WhatsApp > Dispositivos vinculados');
+    });
+
+    botClient.on('ready', () => {
+        console.log('✅ Bot WhatsApp ACTIVO');
+        currentQR = '';
+        isClientConnected = true;
+        intentosReinicio = 0; // Reset del contador al conectar exitosamente
+    });
+
+    botClient.on('disconnected', (reason) => {
+        console.log('❌ Bot desconectado:', reason);
+        currentQR = '';
+        isClientConnected = false;
+        // Reconexión con sesión existente (desconexión normal, no corrupta)
+        setTimeout(() => {
+            if (intentosReinicio < MAX_INTENTOS) {
+                intentosReinicio++;
+                iniciarBot(false);
+            } else {
+                console.log('⚠️ Reintentos agotados. Limpiando sesión y reintentando una última vez...');
+                limpiarSesion();
+                intentosReinicio = 0;
+                setTimeout(() => iniciarBot(true), 3000);
+            }
+        }, 5000);
+    });
+
+    botClient.on('message', async msg => {
+        // Ignorar mensajes de grupos y estados
+        if (msg.from.includes('@g.us') || msg.from === 'status@broadcast') return;
+        
+        const numeroUser = msg.from;
+        const textoRecibido = msg.body ? msg.body.trim() : '';
+        if (!textoRecibido) return;
+
+        try {
+            // Registrar mensaje en historial
+            await db.query(
+                'INSERT INTO chat_mensajes (cliente_whatsapp, mensaje, tipo) VALUES (?, ?, "entrante") ON DUPLICATE KEY UPDATE message = message',
+                [numeroUser, textoRecibido]
+            ).catch(() => {}); // No interrumpir si la tabla no existe
+
+            // Verificar si la sesión del usuario necesita número de OC (flujo legacy)
+            const [sesion] = await db.query('SELECT * FROM sesiones WHERE cliente_whatsapp = ?', [numeroUser]);
+            const nodoActual = sesion[0]?.nodo_actual_id;
+
+            // Consulta de estatus por OC (compatibilidad con flujo anterior)
+            if (nodoActual === 5 || /^OC-|^COT-/i.test(textoRecibido)) {
+                const respuestaEstatus = await consultarEstatus(numeroUser, textoRecibido);
+                await botClient.sendMessage(numeroUser, respuestaEstatus);
+                if (nodoActual === 5) {
+                    await db.query('UPDATE sesiones SET nodo_actual_id = 1 WHERE cliente_whatsapp = ?', [numeroUser]);
+                }
+                return;
+            }
+
+            // Motor PRO: procesar mensaje con IA y flujos
+            const respuesta = await procesarMensaje(
+                numeroUser, 
+                textoRecibido, 
+                detectarIntencion, 
+                respuestaIA
+            );
+
+            if (respuesta) {
+                await botClient.sendMessage(numeroUser, respuesta);
+            }
+
+        } catch (err) { 
+            console.error('Error en mensaje bot:', err.message);
+            try {
+                await botClient.sendMessage(numeroUser, '⚠️ Ocurrió un error temporal. Por favor intenta de nuevo o escribe *0* para el menú.');
+            } catch (e2) { /* silenciar */ }
+        }
+    });
+
+    // Inicializar y capturar fallo de sesión corrupta
+    botClient.initialize().catch(err => {
+        console.error('💥 Error al inicializar bot:', err.message);
+        isClientConnected = false;
+        currentQR = '';
+
+        if (intentosReinicio < MAX_INTENTOS) {
+            intentosReinicio++;
+            const esSesionCorrupta = err.message?.includes('Target closed') ||
+                                     err.message?.includes('TargetCloseError') ||
+                                     err.message?.includes('Execution context') ||
+                                     err.message?.includes('Session closed');
+            if (esSesionCorrupta) {
+                console.log('🧹 Sesión corrupta detectada — limpiando y reintentando en 5s...');
+                limpiarSesion();
+                setTimeout(() => iniciarBot(true), 5000);
+            } else {
+                console.log(`⏳ Reintentando en 10s (intento ${intentosReinicio}/${MAX_INTENTOS})...`);
+                setTimeout(() => iniciarBot(false), 10000);
+            }
+        } else {
+            console.log('🛑 Máximo de reintentos alcanzado. El bot permanecerá inactivo hasta un reset manual desde el CRM.');
+            intentosReinicio = 0;
+        }
+    });
+}
+
+// ─── API de control del bot ───────────────────────────────────────────────────
+
+app.get('/api/whatsapp/status', (req, res) => {
+    res.json({ connected: isClientConnected, qr: currentQR });
+});
+
+app.post('/api/whatsapp/reset', async (req, res) => {
+    try {
+        console.log('♻️ Reset manual solicitado desde CRM...');
+        isClientConnected = false;
+        currentQR = '';
+        intentosReinicio = 0;
+        if (botClient) {
+            try { await botClient.destroy(); } catch (e) { /* ignorar */ }
+            botClient = null;
+        }
+        limpiarSesion();
+        setTimeout(() => iniciarBot(true), 2000);
+        res.json({ success: true, message: 'Sesión reiniciada. Generando nuevo QR...' });
+    } catch (err) {
+        console.error('Error en reset:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 app.post('/api/whatsapp/send-media', upload.single('archivo'), async (req, res) => {
     try {
-        if (!isClientConnected) return res.status(400).json({error: 'Bot no conectado'});
-        if (!req.file) return res.status(400).json({error: 'No se incluyó archivo'});
-        const numero = req.body.numero; // Formato ej: 5215512345678@c.us
-        if (!numero) return res.status(400).json({error: 'Número requerido'});
-
+        if (!isClientConnected) return res.status(400).json({ error: 'Bot no conectado' });
+        if (!req.file) return res.status(400).json({ error: 'No se incluyó archivo' });
+        const numero = req.body.numero;
+        if (!numero) return res.status(400).json({ error: 'Número requerido' });
         const media = new MessageMedia(req.file.mimetype, req.file.buffer.toString('base64'), req.file.originalname);
-        await client.sendMessage(numero, media);
-        res.json({success: true});
-    } catch(err) { res.status(500).json({error: err.message}); }
+        await botClient.sendMessage(numero, media);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-client.on('disconnected', (reason) => {
-    console.log('❌ Bot Desconectado:', reason);
-    currentQR = '';
-    isClientConnected = false;
-    // Evitar bucle inmediato de crash si hay problemas de sesión
-    setTimeout(() => {
-        client.initialize().catch(err => console.error("Error al re-inicializar:", err));
-    }, 5000);
-});
-client.on('message', async msg => {
-    const numeroUser = msg.from;
-    const textoRecibido = msg.body.trim().toUpperCase(); 
+// ─── ENDPOINTS BOT PRO ────────────────────────────────────────────────────────
+
+// Equipos del cliente
+app.get('/api/equipos-cliente', async (req, res) => {
     try {
-        const [sesion] = await db.query('SELECT * FROM sesiones WHERE cliente_whatsapp = ?', [numeroUser]);
-        if (sesion.length === 0) {
-            const [nodo] = await db.query('SELECT mensaje_texto FROM nodos WHERE id = 1');
-            await client.sendMessage(numeroUser, nodo[0].mensaje_texto);
-            await db.query('INSERT INTO sesiones (cliente_whatsapp, nodo_actual_id) VALUES (?, 1)', [numeroUser]);
-        } else {
-            const nodoActual = sesion[0].nodo_actual_id;
-            if (nodoActual === 5) {
-                const [info] = await db.query('SELECT * FROM instrumentos_estatus WHERE orden_cotizacion = ?', [textoRecibido]);
-                if (info.length > 0) {
-                    const res = `🔍 *SICAMET*\n📦 *Equipo:* ${info[0].nombre_instrumento}\n🚩 *Estatus:* ${info[0].estatus_actual}\n📅 *Ingreso:* ${new Date(info[0].fecha_ingreso).toLocaleDateString()}`;
-                    await client.sendMessage(numeroUser, res);
-                    await db.query('UPDATE sesiones SET nodo_actual_id = 1 WHERE cliente_whatsapp = ?', [numeroUser]);
-                } else { await client.sendMessage(numeroUser, '❌ Orden o Cotización no encontrada.'); }
-                return;
-            }
-            const [opc] = await db.query('SELECT nodo_destino_id FROM opciones WHERE nodo_origen_id = ? AND entrada_usuario = ?', [nodoActual, textoRecibido]);
-            if (opc.length > 0) {
-                const [next] = await db.query('SELECT mensaje_texto FROM nodos WHERE id = ?', [opc[0].nodo_destino_id]);
-                await client.sendMessage(numeroUser, next[0].mensaje_texto);
-                await db.query('UPDATE sesiones SET nodo_actual_id = ? WHERE cliente_whatsapp = ?', [opc[0].nodo_destino_id, numeroUser]);
-            }
-        }
-    } catch (err) { console.error(err); }
+        const [rows] = await db.query('SELECT * FROM equipos_cliente WHERE activo = 1 ORDER BY proxima_calibracion ASC');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
-client.initialize();
+
+app.post('/api/equipos-cliente', async (req, res) => {
+    try {
+        const { cliente_whatsapp, nombre_empresa, nombre_equipo, marca, modelo, rango, ultima_calibracion, periodicidad_meses } = req.body;
+        if (!cliente_whatsapp || !nombre_equipo) return res.status(400).json({ error: 'Faltan datos obligatorios' });
+        
+        let proximaFecha = null;
+        if (ultima_calibracion && periodicidad_meses) {
+            const ultima = new Date(ultima_calibracion);
+            ultima.setMonth(ultima.getMonth() + parseInt(periodicidad_meses));
+            proximaFecha = ultima.toISOString().split('T')[0];
+        }
+        
+        const [result] = await db.query(
+            'INSERT INTO equipos_cliente (cliente_whatsapp, nombre_empresa, nombre_equipo, marca, modelo, rango, ultima_calibracion, periodicidad_meses, proxima_calibracion) VALUES (?,?,?,?,?,?,?,?,?)',
+            [cliente_whatsapp, nombre_empresa || '', nombre_equipo, marca || '', modelo || '', rango || '', ultima_calibracion || null, periodicidad_meses || 12, proximaFecha]
+        );
+        res.json({ success: true, id: result.insertId });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/equipos-cliente/:id', async (req, res) => {
+    try {
+        await db.query('UPDATE equipos_cliente SET activo = 0 WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Cotizaciones generadas por el bot
+app.get('/api/cotizaciones-bot', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM cotizaciones_bot ORDER BY created_at DESC LIMIT 100');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/cotizaciones-bot/:id/estatus', async (req, res) => {
+    try {
+        const { estatus } = req.body;
+        await db.query('UPDATE cotizaciones_bot SET estatus = ? WHERE id = ?', [estatus, req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Escalados a agente humano
+app.get('/api/escalados', async (req, res) => {
+    try {
+        const [rows] = await db.query("SELECT * FROM escalados ORDER BY created_at DESC LIMIT 50");
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/escalados/:id/resolver', async (req, res) => {
+    try {
+        const { agente } = req.body;
+        await db.query(
+            "UPDATE escalados SET estatus = 'resuelto', agente_asignado = ?, resuelto_at = NOW() WHERE id = ?",
+            [agente || 'CRM', req.params.id]
+        );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Recordatorios manuales / cron
+app.post('/api/bot/ejecutar-recordatorios', async (req, res) => {
+    try {
+        const resultado = await ejecutarRecordatorios(botClient, isClientConnected);
+        res.json(resultado);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Estadísticas del bot PRO para Dashboard
+app.get('/api/bot/stats', async (req, res) => {
+    try {
+        const [[cots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE DATE(created_at) = CURDATE()");
+        const [[escalados]] = await db.query("SELECT COUNT(*) as total FROM escalados WHERE estatus = 'pendiente'");
+        const [[equipos]] = await db.query("SELECT COUNT(*) as total FROM equipos_cliente WHERE activo = 1");
+        const [[cacheHits]] = await db.query("SELECT SUM(hits) as total FROM cache_ia WHERE expires_at > NOW()");
+        const [[proximosVencer]] = await db.query("SELECT COUNT(*) as total FROM equipos_cliente WHERE activo = 1 AND proxima_calibracion BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)");
+        res.json({
+            cotizacionesHoy: cots.total || 0,
+            escaladosPendientes: escalados.total || 0,
+            equiposRegistrados: equipos.total || 0,
+            cacheHitsTotal: cacheHits.total || 0,
+            proximosVencer30d: proximosVencer.total || 0
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Caché IA — administración
+app.get('/api/bot/cache', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT id, pregunta_texto, hits, created_at, expires_at FROM cache_ia WHERE expires_at > NOW() ORDER BY hits DESC LIMIT 50');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/bot/cache', async (req, res) => {
+    try {
+        await db.query('DELETE FROM cache_ia WHERE expires_at <= NOW()');
+        res.json({ success: true, message: 'Caché expirado eliminado' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── CRON: Recordatorios diarios (cada día a las 9:00 AM) ────────────────────
+function programarRecordatoriosDiarios() {
+    const ahora = new Date();
+    const maniana = new Date(ahora);
+    maniana.setDate(maniana.getDate() + 1);
+    maniana.setHours(9, 0, 0, 0);
+    const msHasta9AM = maniana - ahora;
+
+    setTimeout(() => {
+        ejecutarRecordatorios(botClient, isClientConnected);
+        // Repetir cada 24 horas
+        setInterval(() => {
+            ejecutarRecordatorios(botClient, isClientConnected);
+        }, 24 * 60 * 60 * 1000);
+    }, msHasta9AM);
+
+    console.log(`🔔 Recordatorios automáticos programados para las 9:00 AM (en ${Math.round(msHasta9AM / 3600000)}h)`);
+}
+
+// Arrancar el bot y el cron de recordatorios
+iniciarBot();
+programarRecordatoriosDiarios();
+
