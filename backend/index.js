@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const db = require('./bd');
@@ -10,18 +11,35 @@ const fs = require('fs');
 const path = require('path');
 
 // Módulos del Bot PRO
-const { detectarIntencion, respuestaIA } = require('./bot_ia');
-const { procesarMensaje, consultarEstatus } = require('./bot_flujos');
+const botIA = require('./bot_ia');
+const botFlujos = require('./bot_flujos');
 const { ejecutarRecordatorios } = require('./bot_recordatorios');
 
+// Autenticación
+const { generarToken, verificarToken, verificarPassword } = require('./auth');
 
 const app = express();
-const port = 3001; 
+const port = 3001;
 
+// Multer en memoria (para PDFs/Excel) y en disco (para media del bot)
 const upload = multer({ storage: multer.memoryStorage() });
+const uploadsDir = path.join(__dirname, 'uploads', 'bot');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const uploadDisk = multer({
+    storage: multer.diskStorage({
+        destination: (req, file, cb) => cb(null, uploadsDir),
+        filename: (req, file, cb) => {
+            const ext = path.extname(file.originalname);
+            cb(null, `media_${Date.now()}${ext}`);
+        }
+    }),
+    limits: { fileSize: 20 * 1024 * 1024 } // 20MB max
+});
 
 app.use(cors());
 app.use(express.json());
+// Servir archivos subidos públicamente
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // --- ESTADÍSTICAS ---
 app.get('/api/stats', async (req, res) => {
@@ -391,8 +409,8 @@ function limpiarSesion() {
     const authPath = path.join(__dirname, '.wwebjs_auth');
     const cachePath = path.join(__dirname, '.wwebjs_cache');
     try {
-        if (fs.existsSync(authPath)) { fs.rmSync(authPath, { recursive: true, force: true }); console.log('🧹 .wwebjs_auth eliminado'); }
-        if (fs.existsSync(cachePath)) { fs.rmSync(cachePath, { recursive: true, force: true }); }
+        if (fs.existsSync(authPath)) { fs.rmSync(authPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 }); console.log('🧹 .wwebjs_auth eliminado'); }
+        if (fs.existsSync(cachePath)) { fs.rmSync(cachePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 }); }
     } catch (e) { console.error('Error al limpiar sesión:', e.message); }
 }
 
@@ -411,20 +429,22 @@ function iniciarBot(sesionLimpia = false) {
     }
 
     botClient = new Client({
-        authStrategy: new LocalAuth(),
+        authStrategy: new LocalAuth({ clientId: 'sicamet-v10-final' }),
         puppeteer: {
             headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
                 '--no-first-run',
-                '--no-zygote',
-                '--single-process',
-                '--disable-gpu'
+                '--no-default-browser-check',
+                '--disable-infobars',
+                '--disable-web-security'
             ],
-            handleSIGINT: false
+            handleSIGINT: false,
+            executablePath: fs.existsSync('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe') 
+                ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' 
+                : undefined
         }
     });
 
@@ -440,7 +460,8 @@ function iniciarBot(sesionLimpia = false) {
         console.log('✅ Bot WhatsApp ACTIVO');
         currentQR = '';
         isClientConnected = true;
-        intentosReinicio = 0; // Reset del contador al conectar exitosamente
+        intentosReinicio = 0;
+        global.botClient = botClient; // Acceso global para notificaciones
     });
 
     botClient.on('disconnected', (reason) => {
@@ -482,20 +503,20 @@ function iniciarBot(sesionLimpia = false) {
 
             // Consulta de estatus por OC (compatibilidad con flujo anterior)
             if (nodoActual === 5 || /^OC-|^COT-/i.test(textoRecibido)) {
-                const respuestaEstatus = await consultarEstatus(numeroUser, textoRecibido);
-                await botClient.sendMessage(numeroUser, respuestaEstatus);
+                const resp = await botFlujos.consultarEstatusLogic(numeroUser, textoRecibido);
+                await botClient.sendMessage(numeroUser, resp.text);
                 if (nodoActual === 5) {
-                    await db.query('UPDATE sesiones SET nodo_actual_id = 1 WHERE cliente_whatsapp = ?', [numeroUser]);
+                    await db.query('UPDATE sesiones SET nodo_actual_id = NULL WHERE cliente_whatsapp = ?', [numeroUser]);
                 }
                 return;
             }
 
             // Motor PRO: procesar mensaje con IA y flujos
-            const respuesta = await procesarMensaje(
+            const respuesta = await botFlujos.procesarMensaje(
                 numeroUser, 
                 textoRecibido, 
-                detectarIntencion, 
-                respuestaIA
+                botIA.detectarIntencion, 
+                botIA.respuestaIA
             );
 
             if (respuesta) {
@@ -697,7 +718,6 @@ function programarRecordatoriosDiarios() {
 
     setTimeout(() => {
         ejecutarRecordatorios(botClient, isClientConnected);
-        // Repetir cada 24 horas
         setInterval(() => {
             ejecutarRecordatorios(botClient, isClientConnected);
         }, 24 * 60 * 60 * 1000);
@@ -706,7 +726,282 @@ function programarRecordatoriosDiarios() {
     console.log(`🔔 Recordatorios automáticos programados para las 9:00 AM (en ${Math.round(msHasta9AM / 3600000)}h)`);
 }
 
-// Arrancar el bot y el cron de recordatorios
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
+
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+
+        const [rows] = await db.query('SELECT * FROM usuarios WHERE email = ? AND activo = 1', [email.trim().toLowerCase()]);
+        if (rows.length === 0) return res.status(401).json({ error: 'Credenciales incorrectas' });
+
+        const usuario = rows[0];
+        const ok = await verificarPassword(password, usuario.password_hash);
+        if (!ok) return res.status(401).json({ error: 'Credenciales incorrectas' });
+
+        const token = generarToken(usuario);
+        res.json({
+            token,
+            usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol }
+        });
+    } catch (err) {
+        console.error('Error en login:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+app.get('/api/auth/me', verificarToken(), (req, res) => {
+    res.json({ usuario: req.usuario });
+});
+
+// Gestión de usuarios (solo admin)
+app.get('/api/usuarios', verificarToken(['admin']), async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT id, nombre, email, rol, activo, created_at FROM usuarios ORDER BY created_at DESC');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/usuarios', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { nombre, email, password, rol } = req.body;
+        if (!nombre || !email || !password) return res.status(400).json({ error: 'Faltan datos' });
+        const bcrypt = require('bcryptjs');
+        const hash = await bcrypt.hash(password, 12);
+        const [r] = await db.query(
+            'INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)',
+            [nombre, email.toLowerCase(), hash, rol || 'recepcionista']
+        );
+        res.json({ success: true, id: r.insertId });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/usuarios/:id/activo', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { activo } = req.body;
+        await db.query('UPDATE usuarios SET activo = ? WHERE id = ?', [activo ? 1 : 0, req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── BOT: MENSAJES EDITABLES ──────────────────────────────────────────────────
+
+app.get('/api/bot/mensajes', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM bot_mensajes ORDER BY clave ASC');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/bot/mensajes/:clave', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { texto } = req.body;
+        await db.query('UPDATE bot_mensajes SET texto = ? WHERE clave = ?', [texto, req.params.clave]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── BOT: FAQ ────────────────────────────────────────────────────────────────
+
+app.get('/api/bot/faq', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM bot_faq ORDER BY hits DESC, id ASC');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/bot/faq', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { pregunta, respuesta } = req.body;
+        if (!pregunta || !respuesta) return res.status(400).json({ error: 'Pregunta y respuesta requeridas' });
+        const [r] = await db.query('INSERT INTO bot_faq (pregunta, respuesta) VALUES (?, ?)', [pregunta, respuesta]);
+        res.json({ success: true, id: r.insertId });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/bot/faq/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { pregunta, respuesta, activo } = req.body;
+        await db.query('UPDATE bot_faq SET pregunta = ?, respuesta = ?, activo = ? WHERE id = ?',
+            [pregunta, respuesta, activo !== undefined ? activo : 1, req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/bot/faq/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        await db.query('DELETE FROM bot_faq WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── BOT: CONFIG ──────────────────────────────────────────────────────────────
+
+app.get('/api/bot/config', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM bot_config');
+        // Convertir array a objeto { clave: valor }
+        const config = {};
+        rows.forEach(r => { config[r.clave] = { valor: r.valor, descripcion: r.descripcion }; });
+        res.json(config);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/bot/config', verificarToken(['admin']), async (req, res) => {
+    try {
+        const cambios = req.body;
+        for (const [clave, valor] of Object.entries(cambios)) {
+            await db.query(
+                'INSERT INTO bot_config (clave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)',
+                [clave, valor]
+            );
+        }
+        botFlujos.invalidarCacheConfig(); // Invalida cache en memoria
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── BOT: UPLOAD MEDIA ─────────────────────────────────────────────────────
+app.post('/api/bot/upload-media', verificarToken(['admin']), uploadDisk.single('archivo'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No se subio ningún archivo' });
+        const url = `http://localhost:${port}/uploads/bot/${req.file.filename}`;
+        res.json({ success: true, url, filename: req.file.filename, size: req.file.size });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── BOT: NODO RAIZ (Mensaje de bienvenida) ───────────────────────────────────
+app.get('/api/bot/nodo-raiz', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query("SELECT valor FROM bot_config WHERE clave = 'mensaje_bienvenida'");
+        const nodos = (await db.query('SELECT * FROM bot_nodos ORDER BY orden ASC, id ASC'))[0];
+        res.json({
+            mensaje_bienvenida: rows[0]?.valor || '',
+            nodos
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/bot/nodo-raiz', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { mensaje_bienvenida } = req.body;
+        await db.query(
+            "INSERT INTO bot_config (clave, valor) VALUES ('mensaje_bienvenida', ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+            [mensaje_bienvenida]
+        );
+        botFlujos.invalidarCacheConfig();
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── BOT: CONVERSACIONES ──────────────────────────────────────────────────────
+app.get('/api/bot/conversaciones', verificarToken(), async (req, res) => {
+    try {
+        const { wa } = req.query;
+        if (wa) {
+            const [rows] = await db.query(
+                'SELECT * FROM bot_conversaciones WHERE cliente_whatsapp = ? ORDER BY created_at ASC LIMIT 50',
+                [wa]
+            );
+            return res.json(rows);
+        }
+        // Lista de chats únicos
+        const [rows] = await db.query(`
+            SELECT cliente_whatsapp, MAX(created_at) as ultimo_mensaje,
+                   COUNT(*) as total_mensajes,
+                   (SELECT mensaje FROM bot_conversaciones bc2 WHERE bc2.cliente_whatsapp = bc.cliente_whatsapp ORDER BY created_at DESC LIMIT 1) as ultimo_texto
+            FROM bot_conversaciones bc
+            GROUP BY cliente_whatsapp
+            ORDER BY ultimo_mensaje DESC
+            LIMIT 50
+        `);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── BOT: NODOS Y FLUJOS (DINÁMICO) ──────────────────────────────────────────
+
+app.get('/api/bot/nodos', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM bot_nodos ORDER BY orden ASC, id ASC');
+        for (let node of rows) {
+            const [opts] = await db.query('SELECT * FROM bot_opciones WHERE nodo_id = ?', [node.id]);
+            node.opciones = opts;
+        }
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/bot/nodos', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { nombre, mensaje, tipo, accion, orden, media_url, media_tipo } = req.body;
+        const [r] = await db.query(
+            'INSERT INTO bot_nodos (nombre, mensaje, tipo, accion, orden, media_url, media_tipo) VALUES (?,?,?,?,?,?,?)',
+            [nombre, mensaje, tipo || 'mensaje', accion || null, orden || 0, media_url || null, media_tipo || null]
+        );
+        res.json({ success: true, id: r.insertId });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/bot/nodos/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { nombre, mensaje, tipo, accion, orden, media_url, media_tipo } = req.body;
+        await db.query(
+            'UPDATE bot_nodos SET nombre=?, mensaje=?, tipo=?, accion=?, orden=?, media_url=?, media_tipo=? WHERE id=?',
+            [nombre, mensaje, tipo, accion, orden, media_url, media_tipo, req.params.id]
+        );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/bot/nodos/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        if (req.params.id === '0') return res.status(400).json({ error: 'No se puede eliminar el nodo principal' });
+        await db.query('DELETE FROM bot_nodos WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/bot/nodos/:id/opciones', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { opciones } = req.body; // Array de { texto_opcion, nodo_destino_id }
+        await db.query('DELETE FROM bot_opciones WHERE nodo_id = ?', [req.params.id]);
+        for (let opt of opciones) {
+            await db.query('INSERT INTO bot_opciones (nodo_id, texto_opcion, nodo_destino_id) VALUES (?,?,?)',
+                [req.params.id, opt.texto_opcion, opt.nodo_destino_id]);
+        }
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── BOT: SIMULADOR REAL ───────────────────────────────────────────────────
+
+app.post('/api/bot/chat', verificarToken(), async (req, res) => {
+    try {
+        const { wa, texto } = req.body;
+        if (!wa || !texto) return res.status(400).json({ error: 'WhatsApp y texto requeridos' });
+
+        // Usamos la misma lógica que el bot real
+        try {
+            const respuesta = await botFlujos.procesarMensaje(
+                wa, 
+                texto, 
+                botIA.detectarIntencion, 
+                botIA.respuestaIA
+            );
+            res.json({ respuesta });
+        } catch (innerErr) {
+            console.error('Error procesarMensaje en simulador:', innerErr.message);
+            res.status(200).json({ respuesta: '⚠️ El motor del bot está procesando tu mensaje pero hubo un detalle interno. Por favor intenta de nuevo.' });
+        }
+    } catch (err) {
+        console.error('Error en endpoint simulador:', err.message);
+        res.status(503).json({ error: 'Servicio temporalmente no disponible. El bot se está reiniciando.' });
+    }
+});
+
+// ─── ARRANCAR ─────────────────────────────────────────────────────────────────
 iniciarBot();
 programarRecordatoriosDiarios();
 

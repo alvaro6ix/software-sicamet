@@ -1,350 +1,572 @@
 /**
- * Motor de Flujos Conversacionales — SICAMET Bot PRO
- * Maneja los estados de cotización, registro de equipos y escalado.
+ * Motor de Flujos Conversacionales — SICAMET Bot PRO v3
+ * ─────────────────────────────────────────────────────
+ * - Nodos dinámicos desde BD (bot_nodos, bot_opciones)
+ * - IA contextual: responde según el nodo activo (sin confusiones)
+ * - Cache de IA por nodo (no se mezclan respuestas entre temas)
+ * - Anti-loop: detecta y rompe ciclos de navegación
+ * - Menú de bienvenida editable desde la BD
+ * - Múltiples números de notificación
+ * - Soporte de archivos adjuntos (URL directa o subida local)
  */
+
 const db = require('./bd');
+const { guardarEnHistorial } = require('./bot_ia');
 
-// Estado en memoria de conversaciones activas (para flujos multi-paso)
-// { "whatsapp_id": { flujo: "COTIZACION", paso: 1, datos: {} } }
-const estadosConversacion = new Map();
+// ─── CACHÉ EN MEMORIA (10 min) ────────────────────────────────────────────────
+let cacheConfigHorario = null;
 
-// Mensajes de respuesta rápida con botones numerados
-const MENU_PRINCIPAL = `¡Hola! 👋 Soy el asistente virtual de *SICAMET*.\n\n¿En qué te podemos ayudar hoy?\n\n*1️⃣* 📋 Solicitar cotización de calibración\n*2️⃣* 🔍 Consultar estatus de mi equipo\n*3️⃣* 📅 Mis equipos y recordatorios\n*4️⃣* 🎓 Servicios y acreditaciones\n*5️⃣* 📞 Contacto y ubicaciones\n*6️⃣* 🧑‍💼 Hablar con un asesor\n\n_Puedes tocar o escribir el número de tu opción_`;
+async function getConfigHorario() {
+    if (!cacheConfigHorario || Date.now() - cacheConfigHorario._ts > 10 * 60 * 1000) {
+        try {
+            const [rows] = await db.query('SELECT clave, valor FROM bot_config');
+            const cfg = {};
+            rows.forEach(r => { cfg[r.clave] = r.valor; });
+            cacheConfigHorario = { ...cfg, _ts: Date.now() };
+        } catch {
+            cacheConfigHorario = {
+                horario_inicio: '08:00', horario_fin: '18:00',
+                dias_atencion: '1,2,3,4,5', modo_fuera_horario: 'auto',
+                _ts: Date.now()
+            };
+        }
+    }
+    return cacheConfigHorario;
+}
 
-const MENU_COTIZACION = `📋 *Cotización de Calibración*\n\nVamos a preparar tu solicitud. Primero dime:\n\n¿Qué tipo de equipo quieres calibrar?\n\n*1️⃣* 🌡️ Temperatura (termómetros, sensores RTD, termopares)\n*2️⃣* ⚡ Presión (manómetros, transmisores)\n*3️⃣* ⚖️ Masa / Fuerza (balanzas, dinamómetros)\n*4️⃣* 💡 Eléctrica (multímetros, calibradores)\n*5️⃣* 📏 Dimensional (calibradores, micrómetros)\n*6️⃣* 💧 Humedad / Flujo / Volumen\n*7️⃣* 🔧 Otro tipo de instrumento\n\n_O simplemente descríbelo con tus palabras_`;
+// Invalida el cache de config (llamar después de actualizar bot_config)
+function invalidarCacheConfig() { cacheConfigHorario = null; }
+
+async function estaEnHorario() {
+    const cfg = await getConfigHorario();
+    const ahora = new Date();
+    const dias = (cfg.dias_atencion || '1,2,3,4,5').split(',').map(Number);
+    if (!dias.includes(ahora.getDay())) return false;
+    const [hIni, mIni] = (cfg.horario_inicio || '08:00').split(':').map(Number);
+    const [hFin, mFin] = (cfg.horario_fin || '18:00').split(':').map(Number);
+    const ahMin = ahora.getHours() * 60 + ahora.getMinutes();
+    return ahMin >= hIni * 60 + mIni && ahMin < hFin * 60 + mFin;
+}
+
+// ─── SESIONES ────────────────────────────────────────────────────────────────
+
+async function getSesion(wa) {
+    let [rows] = await db.query('SELECT * FROM sesiones WHERE cliente_whatsapp = ?', [wa]);
+    if (rows.length === 0) {
+        await db.query(
+            'INSERT IGNORE INTO sesiones (cliente_whatsapp, nodo_actual_id, datos_temporales) VALUES (?, NULL, "{}")',
+            [wa]
+        );
+        [rows] = await db.query('SELECT * FROM sesiones WHERE cliente_whatsapp = ?', [wa]);
+    }
+    const s = rows[0];
+    let datos = {};
+    try { datos = s.datos_temporales ? JSON.parse(s.datos_temporales) : {}; } catch {}
+    return { ...s, datos };
+}
+
+async function guardarSesion(wa, nodo_id, datos) {
+    // 0 y null significan "menú raíz" (FK compatible)
+    const nodoGuardar = (!nodo_id && nodo_id !== false) ? null : nodo_id;
+    await db.query(
+        'UPDATE sesiones SET nodo_actual_id = ?, datos_temporales = ? WHERE cliente_whatsapp = ?',
+        [nodoGuardar, JSON.stringify(datos ?? {}), wa]
+    );
+}
+
+// ─── NODOS ────────────────────────────────────────────────────────────────────
+
+async function getNodo(id) {
+    if (!id) return null;
+    try {
+        const [n] = await db.query('SELECT * FROM bot_nodos WHERE id = ?', [id]);
+        if (n.length === 0) return null;
+        const [o] = await db.query('SELECT * FROM bot_opciones WHERE nodo_id = ? ORDER BY id ASC', [id]);
+        return { ...n[0], opciones: o || [] };
+    } catch { return null; }
+}
+
+async function getTodosNodos() {
+    const [rows] = await db.query('SELECT * FROM bot_nodos ORDER BY orden ASC, id ASC');
+    return rows || [];
+}
+
+// ─── MENÚ RAÍZ (BIENVENIDA) ──────────────────────────────────────────────────
+
+async function responderMenuPrincipal(wa, sesion) {
+    try {
+        const cfg = await getConfigHorario();
+        const nodos = await getTodosNodos();
+        const msgBase = cfg.mensaje_bienvenida ||
+            '👋 ¡Hola! Soy el asistente virtual de *SICAMET*.\n\n¿En qué te podemos ayudar hoy?';
+        
+        let texto = msgBase + '\n';
+        nodos.forEach((n, i) => {
+            texto += `\n*${i + 1}️⃣* ${n.nombre}`;
+        });
+        texto += '\n\n_Escribe el número de tu opción o cuéntame en qué te puedo ayudar._';
+
+        await guardarEnHistorial(wa, 'bot', texto);
+        return { text: texto };
+    } catch (e) {
+        console.error('Error responderMenuPrincipal:', e.message);
+        return { text: '👋 ¡Hola! ¿En qué te puedo ayudar hoy?\n\n_Escribe tu consulta o llama al *722 270 1584*._' };
+    }
+}
+
+// ─── RESPONDER NODO ──────────────────────────────────────────────────────────
+
+async function responderNodo(wa, id, sesion) {
+    const nodo = await getNodo(id);
+    if (!nodo) {
+        await guardarSesion(wa, null, {});
+        return await responderMenuPrincipal(wa, sesion);
+    }
+
+    let texto = nodo.mensaje || '';
+    // Reemplazar variables de plantilla
+    texto = texto
+        .replace(/\{nombre\}/g, sesion.nombre_cliente || '')
+        .replace(/\{empresa\}/g, sesion.nombre_empresa || '');
+
+    // Agregar opciones si las tiene
+    if (nodo.opciones && nodo.opciones.length > 0) {
+        texto += '\n\n' + nodo.opciones.map((o, i) => `*${i + 1}️⃣* ${o.texto_opcion}`).join('\n');
+    }
+
+    texto += '\n\n_Escribe *0* para volver al menú principal._';
+
+    await guardarEnHistorial(wa, 'bot', texto);
+    return { text: texto, mediaUrl: nodo.media_url || null, mediaTipo: nodo.media_tipo || null };
+}
+
+// ─── PROCESADOR PRINCIPAL ────────────────────────────────────────────────────
+
+async function procesarMensaje(wa, texto, detectarIntencion, respuestaIA) {
+    const textoLower = texto.toLowerCase().trim();
+    const sesion = await getSesion(wa);
+    await guardarEnHistorial(wa, 'user', texto);
+
+    // Verificar horario — si está fuera y modo=silent, no respond
+    const enHorario = await estaEnHorario();
+    const cfg = await getConfigHorario();
+
+    if (!enHorario && cfg.modo_fuera_horario === 'silent') return null;
+
+    if (!enHorario && cfg.modo_fuera_horario !== 'silent') {
+        const hFin = cfg.horario_fin || '18:00';
+        const hIni = cfg.horario_inicio || '08:00';
+        const txt = `⏰ Nuestro horario de atención es de *${hIni}* a *${hFin}* hrs (Lun-Vie).\n\nTu mensaje fue registrado. Te contactaremos en horario laboral. 🙏`;
+        await guardarEnHistorial(wa, 'bot', txt);
+        return { text: txt };
+    }
+
+    // ── Comandos especiales de navegación ────────────────────────────────────
+    if (['0', 'menu', 'inicio', 'reiniciar', 'hola', 'hi', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches'].includes(textoLower)) {
+        await guardarSesion(wa, null, {});
+        return await responderMenuPrincipal(wa, sesion);
+    }
+
+    // ── Estado de sesión ──────────────────────────────────────────────────────
+    const nodoActualId = sesion.nodo_actual_id || null;
+    let nodoActual = nodoActualId ? await getNodo(nodoActualId) : null;
+
+    // Si el nodo fue borrado o ya no existe, volver al menú
+    if (nodoActualId && !nodoActual) {
+        await guardarSesion(wa, null, {});
+        return await responderMenuPrincipal(wa, sesion);
+    }
+
+    // ── MENÚ RAÍZ (sin nodo activo) ──────────────────────────────────────────
+    if (!nodoActualId || !nodoActual) {
+        return await manejarMenuRaiz(wa, texto, textoLower, sesion, detectarIntencion, respuestaIA, cfg);
+    }
+
+    // ── DENTRO DE UN NODO ────────────────────────────────────────────────────
+    return await manejarNodoActivo(wa, texto, textoLower, sesion, nodoActual, nodoActualId, detectarIntencion, respuestaIA);
+}
+
+// ─── MENÚ RAÍZ ───────────────────────────────────────────────────────────────
+
+async function manejarMenuRaiz(wa, texto, textoLower, sesion, detectarIntencion, respuestaIA, cfg) {
+    const nodos = await getTodosNodos();
+
+    // 1. Selección numérica
+    const num = parseInt(textoLower);
+    if (!isNaN(num) && num >= 1 && num <= nodos.length) {
+        const destino = nodos[num - 1];
+        await guardarSesion(wa, destino.id, sesion.datos || {});
+        return await responderNodo(wa, destino.id, await getSesion(wa));
+    }
+
+    // 2. Detección de intención
+    const { accion, metodo } = await detectarIntencion(texto);
+
+    // Saludos → menú
+    if (['SALUDO'].includes(accion)) {
+        return await responderMenuPrincipal(wa, sesion);
+    }
+
+    // Mapa de intención a nodo (por accion guardada en bot_nodos)
+    const accionANodo = await mapearAccionANodo(accion, nodos);
+    if (accionANodo) {
+        await guardarSesion(wa, accionANodo.id, sesion.datos || {});
+        return await responderNodo(wa, accionANodo.id, await getSesion(wa));
+    }
+
+    // 3. Respuesta de IA con contexto de SICAMET (menú raíz = pregunta libre)
+    try {
+        const perfilStr = JSON.stringify(sesion.datos || {});
+        const resp = await respuestaIA(texto, `Ubicación en el bot: Menú Principal.\nDatos de Sesión: ${perfilStr}`, wa);
+        await guardarEnHistorial(wa, 'bot', resp);
+        const nodos2 = await getTodosNodos();
+        let sugerencia = '\n\n¿Puedo ayudarte en algo más? Escribe el número de una opción:';
+        nodos2.forEach((n, i) => { sugerencia += `\n*${i + 1}️⃣* ${n.nombre}`; });
+        return { text: resp + sugerencia };
+    } catch {
+        return await responderMenuPrincipal(wa, sesion);
+    }
+}
+
+// ─── NODO ACTIVO ─────────────────────────────────────────────────────────────
+
+async function manejarNodoActivo(wa, texto, textoLower, sesion, nodoActual, nodoActualId, detectarIntencion, respuestaIA) {
+    // NUEVA LÓGICA V4: Prioridad Global de Intención (Salida de emergencia del flujo ciego)
+    if (texto.length > 3) {
+        const { accion, confianza } = await detectarIntencion(texto);
+        if (confianza === 'alta' && ['ESCALAR', 'ESTATUS', 'CONTACTO'].includes(accion) && nodoActual.accion !== accion.toLowerCase() && nodoActual.accion !== 'escalar') {
+            const nodos = await getTodosNodos();
+            const accionANodo = await mapearAccionANodo(accion, nodos);
+            if (accionANodo) {
+                await guardarSesion(wa, accionANodo.id, {});
+                return await responderNodo(wa, accionANodo.id, await getSesion(wa));
+            }
+        }
+    }
+
+    // 1. Acciones especiales con su propia lógica de flujo conversacional (backend motor interno)
+    if (nodoActual.accion) {
+        const r = await ejecutarAccionEspecial(wa, texto, nodoActual, sesion);
+        if (r) return r;
+    }
+
+    // 2. Nodo tipo OPCIONES: el usuario elige un botón
+    if (nodoActual.tipo === 'opciones') {
+        // Buscar por número
+        const num = parseInt(textoLower);
+        if (!isNaN(num) && num >= 1 && num <= nodoActual.opciones.length) {
+            const opt = nodoActual.opciones[num - 1];
+            await guardarSesion(wa, opt.nodo_destino_id, sesion.datos || {});
+            return await responderNodo(wa, opt.nodo_destino_id, await getSesion(wa));
+        }
+        // Buscar por texto del botón
+        const optTexto = nodoActual.opciones.find(o =>
+            o.texto_opcion.toLowerCase().includes(textoLower) ||
+            textoLower.includes(o.texto_opcion.toLowerCase().substring(0, 6))
+        );
+        if (optTexto) {
+            await guardarSesion(wa, optTexto.nodo_destino_id, sesion.datos || {});
+            return await responderNodo(wa, optTexto.nodo_destino_id, await getSesion(wa));
+        }
+        // No coincide → reiterar el menú del nodo
+        return await responderNodo(wa, nodoActualId, sesion);
+    }
+
+    // 3. Nodo tipo MENSAJE (informativo) — responder con IA contextual al tema del nodo
+    if (nodoActual.tipo === 'mensaje') {
+        // Detectar si el usuario quiere ir a otro flujo
+        const { accion } = await detectarIntencion(texto);
+
+        // ANTI-LOOP: si la intención mapea al mismo nodo actual, no redirigir
+        const nodos = await getTodosNodos();
+        const accionANodo = await mapearAccionANodo(accion, nodos);
+        const mismoNodo = accionANodo && accionANodo.id === nodoActualId;
+
+        if (accionANodo && !mismoNodo && !['SALUDO', 'OTRO', 'NORMATIVO'].includes(accion)) {
+            await guardarSesion(wa, accionANodo.id, sesion.datos || {});
+            return await responderNodo(wa, accionANodo.id, await getSesion(wa));
+        }
+
+        // Escalar si pide asesor
+        if (accion === 'ESCALAR') {
+            return await escalarAHumanoLogic(wa, texto);
+        }
+
+        // NORMATIVO, pregunta libre o MISMO NODO → IA con contexto del nodo
+        const contextoNodo = `El cliente está leyendo información sobre: "${nodoActual.nombre}".
+Contenido mostrado al cliente:
+${nodoActual.mensaje}
+
+Responde la pregunta del cliente en el contexto de SICAMET y de este tema específico. 
+Si el cliente pregunta sobre magnitudes, calibración, servicios o similar, responde con precisión técnica.
+Al final, ofrece opciones relevantes del menú si aplica.`;
+
+        try {
+            // Cache segmentado por nodo para evitar mezclar respuestas
+            const { buscarEnCache, guardarEnHistorial: _gh } = require('./bot_ia');
+            const cacheKeyNodo = `nodo_${nodoActualId}_${texto.toLowerCase().trim().substring(0, 80)}`;
+
+            const pw = JSON.stringify(sesion.datos || {});
+            const resp = await respuestaIA(texto, `${contextoNodo}\nDatos perfil cliente: ${pw}`, wa);
+            await guardarEnHistorial(wa, 'bot', resp);
+            return { text: resp + '\n\n_Escribe *0* para volver al menú principal._' };
+        } catch {
+            // Si IA falla, mostrar el nodo de nuevo con un hint
+            return { text: nodoActual.mensaje + '\n\n_¿Tienes más preguntas? Escribe *0* para más opciones._' };
+        }
+    }
+
+    // 4. Nodo tipo INPUT: esperar dato del usuario (manejado por accion especial)
+    return await responderNodo(wa, nodoActualId, sesion);
+}
+
+// ─── MAPEO DE INTENCIÓN A NODO ───────────────────────────────────────────────
+
+async function mapearAccionANodo(accion, nodos) {
+    // Mapa directo por accion registrada en bot_nodos
+    const accionMap = {
+        'COTIZACION': 'cotizacion',
+        'ESTATUS': 'consultar_estatus',
+        'RECORDATORIO': 'registrar_equipo',
+        'ESCALAR': 'escalar',
+        'SERVICIOS': null, // No tiene accion propia, buscar por nombre
+        'CONTACTO': null,
+        'NORMATIVO': null,
+    };
+
+    if (!(accion in accionMap)) return null;
+
+    const accionBD = accionMap[accion];
+    if (accionBD) {
+        return nodos.find(n => n.accion === accionBD) || null;
+    }
+
+    // Buscar por nombre aproximado
+    const nombreMap = { 'SERVICIOS': 'Servicios', 'CONTACTO': 'Contacto', 'NORMATIVO': 'Servicios' };
+    const nombreBuscar = nombreMap[accion];
+    if (nombreBuscar) {
+        return nodos.find(n => n.nombre.toLowerCase().includes(nombreBuscar.toLowerCase())) || null;
+    }
+
+    return null;
+}
+
+// ─── ACCIONES ESPECIALES ──────────────────────────────────────────────────────
+
+async function ejecutarAccionEspecial(wa, texto, nodo, sesion) {
+    if (nodo.accion === 'consultar_estatus') return await consultarEstatusLogic(wa, texto);
+    if (nodo.accion === 'cotizacion') return await flujosCotizacionLogic(wa, texto, sesion);
+    if (nodo.accion === 'registrar_equipo') return await flujosRegistroEquipoLogic(wa, texto, sesion);
+    if (nodo.accion === 'escalar') return await escalarAHumanoLogic(wa, texto);
+    return null;
+}
+
+// ─── FLUJO COTIZACIÓN ────────────────────────────────────────────────────────
 
 const TIPOS_EQUIPO = {
-    '1': 'Temperatura', '2': 'Presión', '3': 'Masa / Fuerza',
-    '4': 'Eléctrica', '5': 'Dimensional', '6': 'Humedad / Flujo / Volumen', '7': 'Otro'
+    '1': '🌡️ Temperatura', '2': '🔩 Presión', '3': '⚖️ Masa / Fuerza',
+    '4': '⚡ Eléctrica', '5': '📏 Dimensional', '6': '💧 Humedad / Flujo / Volumen', '7': '🔬 Otro'
 };
 
-/**
- * Obtiene o crea el estado de la conversación de un usuario.
- */
-function getEstado(whatsapp) {
-    if (!estadosConversacion.has(whatsapp)) {
-        estadosConversacion.set(whatsapp, { flujo: null, paso: 0, datos: {} });
+async function flujosCotizacionLogic(wa, texto, sesion) {
+    const datos = sesion.datos || {};
+    const paso = datos.paso || 1;
+
+    switch (paso) {
+        case 1: {
+            const tipo = TIPOS_EQUIPO[texto.trim()] || texto.trim();
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 2, tipoEquipo: tipo });
+            return {
+                text: `✅ *${tipo}*\n\n¿Cuál es la *marca y modelo* del instrumento?\n\n_Ej: Fluke 726 | Vaisala HMT310 | WIKA P-30_\n_(Escribe "no sé" si no tienes el dato)_`
+            };
+        }
+        case 2:
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 3, marcaModelo: texto.trim() });
+            return { text: `✅ *${texto.trim()}*\n\n¿Cuántos instrumentos necesitas calibrar? (escribe el número)` };
+        case 3: {
+            const cant = parseInt(texto) || 1;
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 4, cantidad: cant });
+            return {
+                text: `✅ *${cant} instrumento(s)*\n\n¿El servicio es?\n\n*1️⃣* 🔬 In-Lab (lleva el equipo al laboratorio SICAMET)\n*2️⃣* 🏭 In-situ (nuestros técnicos van a tus instalaciones)\n*3️⃣* 💬 Aún no lo sé`
+            };
+        }
+        case 4: {
+            const tipoMap = { '1': 'In-Lab', '2': 'In-situ', '3': 'Por definir' };
+            const serv = tipoMap[texto.trim()] || texto.trim();
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 5, tipoServicio: serv });
+            return { text: `✅ *${serv}*\n\n¿Cuál es el nombre de tu empresa o razón social?` };
+        }
+        case 5:
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 6, empresa: texto.trim() });
+            return { text: `✅ *${texto.trim()}*\n\n¿Tienes alguna nota adicional? (urgencia, rango específico, etc.)\n\n_Escribe "ninguna" para continuar_` };
+        case 6: {
+            const notas = texto.toLowerCase() === 'ninguna' ? '' : texto.trim();
+            const d = { ...datos, notas };
+            await db.query(
+                'INSERT INTO cotizaciones_bot (cliente_whatsapp, nombre_empresa, tipo_equipo, marca, cantidad, tipo_servicio, notas) VALUES (?,?,?,?,?,?,?)',
+                [wa, d.empresa || '', d.tipoEquipo, d.marcaModelo, d.cantidad,
+                 (d.tipoServicio || '').toLowerCase().includes('lab') ? 'in-lab' : 'in-situ', notas]
+            );
+            // Notificar a múltiples números
+            await notificarNuevaCotizacion(d);
+            await guardarSesion(wa, null, {});
+            return {
+                text: `🎉 ¡Solicitud registrada exitosamente!\n\n📋 *Resumen:*\n• Equipo: *${d.tipoEquipo}*\n• Marca: *${d.marcaModelo || 'N/E'}*\n• Cantidad: *${d.cantidad}* unidad(es)\n• Servicio: *${d.tipoServicio}*\n• Empresa: *${d.empresa}*\n\nEn breve un especialista SICAMET se pondrá en contacto. ¡Gracias! 📧\n\n_Escribe *0* para volver al menú._`
+            };
+        }
+        default:
+            await guardarSesion(wa, null, {});
+            return await responderMenuPrincipal(wa, sesion);
     }
-    return estadosConversacion.get(whatsapp);
 }
 
-function setEstado(whatsapp, estado) {
-    estadosConversacion.set(whatsapp, estado);
-}
+// ─── NOTIFICAR COTIZACIÓN (múltiples números) ─────────────────────────────────
 
-function limpiarEstado(whatsapp) {
-    estadosConversacion.delete(whatsapp);
-}
-
-/**
- * Obtiene el perfil del cliente desde la BD
- */
-async function getPerfilCliente(whatsapp) {
+async function notificarNuevaCotizacion(d) {
     try {
-        const [sesion] = await db.query('SELECT * FROM sesiones WHERE cliente_whatsapp = ?', [whatsapp]);
-        const [equipos] = await db.query(
-            'SELECT * FROM equipos_cliente WHERE cliente_whatsapp = ? AND activo = 1 ORDER BY proxima_calibracion ASC LIMIT 3',
-            [whatsapp]
-        );
-        const [cotizaciones] = await db.query(
-            'SELECT COUNT(*) as total FROM cotizaciones_bot WHERE cliente_whatsapp = ?', [whatsapp]
-        );
-        return {
-            esConocido: sesion.length > 0,
-            sesion: sesion[0] || null,
-            equipos,
-            totalCotizaciones: cotizaciones[0]?.total || 0
-        };
-    } catch (err) {
-        return { esConocido: false, sesion: null, equipos: [], totalCotizaciones: 0 };
-    }
-}
+        const cfg = await getConfigHorario();
+        const numeros = [
+            ...(cfg.notif_numeros || '').split(','),
+            ...(cfg.notif_cotizacion_wa ? [cfg.notif_cotizacion_wa] : [])
+        ].map(n => n.trim()).filter(n => n.length > 5);
 
-/**
- * Procesador principal de mensajes del bot.
- * Devuelve el texto de respuesta (o array de respuestas).
- */
-async function procesarMensaje(whatsapp, texto, detectarIntencion, respuestaIA) {
-    const textoLower = texto.toLowerCase().trim();
-    const estado = getEstado(whatsapp);
-
-    // ── Si hay un flujo activo, continuarlo ─────────────────────────────────
-    if (estado.flujo === 'COTIZACION') {
-        return await flujosCotizacion(whatsapp, texto, estado);
-    }
-    if (estado.flujo === 'REGISTRO_EQUIPO') {
-        return await flujosRegistroEquipo(whatsapp, texto, estado);
-    }
-
-    // ── Comandos directos (siempre disponibles) ──────────────────────────────
-    if (['0', 'menu', 'menú', 'inicio', 'start', 'reiniciar'].includes(textoLower)) {
-        limpiarEstado(whatsapp);
-        return MENU_PRINCIPAL;
-    }
-
-    // ── Menú principal por número ─────────────────────────────────────────────
-    if (textoLower === '1' || textoLower === '2' || textoLower === '3' ||
-        textoLower === '4' || textoLower === '5' || textoLower === '6') {
-        return await manejarMenuPrincipal(whatsapp, textoLower, estado);
-    }
-
-    // ── Detección de intención con IA ─────────────────────────────────────────
-    const { accion } = await detectarIntencion(texto);
-    
-    // Saludo con contexto personalizado
-    if (accion === 'SALUDO') {
-        const perfil = await getPerfilCliente(whatsapp);
-        if (perfil.esConocido && perfil.equipos.length > 0) {
-            const empresa = perfil.sesion?.nombre_empresa || '';
-            const equipo = perfil.equipos[0];
-            return `¡Bienvenido de regreso${empresa ? `, *${empresa}*` : ''}! 👋\n\nRegistramos tu equipo *${equipo.nombre_equipo}* con vencimiento próximo. ¿Qué necesitas hoy?\n\n${MENU_PRINCIPAL.split('\n').slice(2).join('\n')}`;
+        if (numeros.length === 0 || !global.botClient) return;
+        const msg = `🔔 *Nueva cotización recibida*\n\n🏢 Empresa: *${d.empresa}*\n🔧 Equipo: *${d.tipoEquipo}*\n🏷️ Marca: *${d.marcaModelo || 'N/E'}*\n📦 Cantidad: *${d.cantidad}*\n🔬 Servicio: *${d.tipoServicio}*`;
+        for (const num of numeros) {
+            await global.botClient.sendMessage(num, msg).catch(() => {});
         }
-        return MENU_PRINCIPAL;
+    } catch {}
+}
+
+// ─── FLUJO ESTATUS ────────────────────────────────────────────────────────────
+
+async function consultarEstatusLogic(wa, texto) {
+    const busqueda = texto.trim().toUpperCase();
+    const esOC = /^(OC|COT|COTI|ORDEN|ORD)[\s\-]?\d+/i.test(texto) || /\-\d{4}/.test(texto);
+
+    if (esOC) {
+        const [info] = await db.query(
+            'SELECT * FROM instrumentos_estatus WHERE UPPER(orden_cotizacion) LIKE ?',
+            [`%${busqueda}%`]
+        );
+        if (info.length > 0) return { text: formatearRespuestaEstatus(info[0]) };
+        return { text: `❌ No encontré la orden *${busqueda}*.\n\nVerifica que el número sea correcto, o escribe el nombre de tu empresa para buscar por nombre.\n\n_Escribe *0* para el menú principal._` };
     }
 
-    if (accion === 'COTIZACION') {
-        setEstado(whatsapp, { flujo: 'COTIZACION', paso: 1, datos: { textoOriginal: texto } });
-        return MENU_COTIZACION;
+    const [info] = await db.query(
+        `SELECT * FROM instrumentos_estatus
+         WHERE LOWER(persona) LIKE ? OR LOWER(empresa) LIKE ? OR LOWER(nombre_instrumento) LIKE ?
+         ORDER BY fecha_ingreso DESC LIMIT 5`,
+        [`%${texto.toLowerCase()}%`, `%${texto.toLowerCase()}%`, `%${texto.toLowerCase()}%`]
+    );
+
+    if (info.length === 0) {
+        return { text: `❌ No encontré equipos para *"${texto}"*.\n\nIntenta con el número de OC exacto (ej: *OC-2025-001*) o escribe *0* para el menú.` };
+    }
+    if (info.length === 1) {
+        return { text: formatearRespuestaEstatus(info[0]) };
     }
 
-    if (accion === 'ESTATUS') {
-        return '🔍 Por favor escríbeme el *número de orden o cotización* para consultar el estatus de tu equipo.\n\n_Ejemplo: OC-2025-001_';
-    }
+    let m = `🔍 Encontré *${info.length}* equipos para *"${texto}"*:\n\n`;
+    info.forEach((eq, i) => {
+        const etap = { 'Recepción': '📥', 'Laboratorio': '🔬', 'Certificación': '📋', 'Listo': '✅', 'Entregado': '📦' };
+        m += `*${i + 1}.* ${etap[eq.estatus_actual] || '🔷'} ${eq.nombre_instrumento} (OC: ${eq.orden_cotizacion || '—'})\n`;
+    });
+    m += `\nEscribe el número de OC exacto para ver el detalle completo.`;
+    return { text: m };
+}
 
-    if (accion === 'RECORDATORIO' || accion === 'REGISTRO_EQUIPO') {
-        const perfil = await getPerfilCliente(whatsapp);
-        if (perfil.equipos.length > 0) {
-            let msg = `📅 *Tus equipos registrados:*\n\n`;
-            perfil.equipos.forEach((e, i) => {
-                const fecha = e.proxima_calibracion ? new Date(e.proxima_calibracion).toLocaleDateString('es-MX') : 'No registrada';
-                msg += `*${i+1}.* ${e.nombre_equipo}${e.marca ? ` (${e.marca})` : ''}\n   📅 Vence: ${fecha}\n\n`;
-            });
-            msg += `¿Deseas registrar un nuevo equipo?\n*1️⃣* Sí, registrar equipo  *2️⃣* Volver al menú`;
-            setEstado(whatsapp, { flujo: 'REGISTRO_EQUIPO_CONFIRM', paso: 0, datos: {} });
-            return msg;
+function formatearRespuestaEstatus(eq) {
+    const etap = {
+        'Recepción': '📥 Recibido en SICAMET',
+        'Laboratorio': '🔬 En proceso de calibración',
+        'Certificación': '📋 Emitiendo certificado',
+        'Listo': '✅ ¡Listo para entrega!',
+        'Entregado': '📦 Entregado al cliente'
+    };
+    const fechaEntrega = eq.fecha_entrega
+        ? new Date(eq.fecha_entrega).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })
+        : 'Pendiente de confirmar';
+
+    return `🔍 *Estatus de Equipo*\n\n📦 *Instrumento:* ${eq.nombre_instrumento}\n🏭 *Cliente:* ${eq.empresa || eq.persona || '—'}\n🏷️ *Orden:* ${eq.orden_cotizacion || '—'}\n🚩 *Etapa actual:* ${etap[eq.estatus_actual] || eq.estatus_actual}\n📅 *Entrega:* ${fechaEntrega}\n\n_Escribe *0* para el menú principal._`;
+}
+
+// ─── FLUJO REGISTRO EQUIPO ────────────────────────────────────────────────────
+
+async function flujosRegistroEquipoLogic(wa, texto, sesion) {
+    const datos = sesion.datos || {};
+    const paso = datos.paso || 1;
+
+    switch (paso) {
+        case 1:
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 2, empresa: texto.trim() });
+            return { text: `✅ *${texto.trim()}*\n\n¿Cuál es el nombre del instrumento?\n\n_Ej: Termómetro digital, Manómetro Bourdon, Balanza analítica_` };
+        case 2:
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 3, nombreEquipo: texto.trim() });
+            return { text: `✅ *${texto.trim()}*\n\n¿Cuál es la marca y modelo? (escribe "no sé" si no lo tienes)` };
+        case 3:
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 4, marcaModelo: texto.trim() });
+            return { text: `✅ *${texto.trim()}*\n\n¿Cuándo fue su última calibración?\n\n_Escribe la fecha en formato DD/MM/AAAA_\n_Ej: 15/03/2024 — Escribe "no sé" si no tienes el dato_` };
+        case 4: {
+            let f = null;
+            if (texto.trim().toLowerCase() !== 'no sé' && texto.trim().toLowerCase() !== 'no se') {
+                const p = texto.trim().split('/');
+                if (p.length === 3) f = `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+            }
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 5, fechaUltima: f });
+            return {
+                text: `✅ Fecha registrada\n\n¿Con qué frecuencia se calibra este equipo?\n\n*1️⃣* Cada 6 meses\n*2️⃣* Cada 1 año (recomendado)\n*3️⃣* Cada 2 años`
+            };
         }
-        setEstado(whatsapp, { flujo: 'REGISTRO_EQUIPO', paso: 1, datos: {} });
-        return `📅 *Registro de Equipos para Recordatorios*\n\nAún no tienes equipos registrados. Puedo avisarte antes de que venza tu certificado de calibración. 🔔\n\n¿Cuál es el nombre de tu empresa o tu nombre?`;
-    }
-
-    if (accion === 'ESCALAR') {
-        return await escalarAHumano(whatsapp, texto);
-    }
-
-    if (accion === 'NORMATIVO') {
-        return await respuestaIA(texto, 'El cliente pregunta sobre normas, acreditaciones o requisitos de calibración para auditorías.');
-    }
-
-    if (accion === 'SERVICIOS') {
-        return `🏆 *Servicios SICAMET*\n\n✅ *Calibración In-Lab* — Trae tus equipos al laboratorio\n✅ *Calibración In-situ* — Vamos a tus instalaciones\n✅ *Calibración personalizada* — Adaptada a tus puntos críticos\n✅ *Calificación de equipos* — DQ/IQ/OQ/PQ (ISO 17025)\n✅ *Consultoría y capacitación* — Metrología aplicada\n✅ *Partner Vaisala* — Servicio oficial en México\n\n📍 Sedes: Toluca · CDMX · Querétaro · Guadalajara\n✨ 12 acreditaciones internacionales · 21 años de experiencia\n\n_Escribe *1* para solicitar cotización_`;
-    }
-
-    if (accion === 'CONTACTO') {
-        return `📞 *Contáctanos*\n\n🏢 *Officina Principal — Toluca*\nJuan Aldama Sur 1135, Col. Universidad, C.P. 50130\n\n📱 *Teléfonos:*\n722 270 1584\n722 212 0722\n\n📧 *Email:* sclientes@sicamet.net\n🌐 *Web:* sicamet.mx\n\n⏰ *Horario:* Lunes a Viernes 8:00–18:00\n\n_Escribe *1* para cotizar o *6* para hablar con un asesor_`;
-    }
-
-    // Fallback: respuesta de IA contextual
-    return await respuestaIA(texto);
-}
-
-/**
- * Maneja las selecciones del menú principal (1-6).
- */
-async function manejarMenuPrincipal(whatsapp, opcion, estado) {
-    switch(opcion) {
-        case '1':
-            setEstado(whatsapp, { flujo: 'COTIZACION', paso: 1, datos: {} });
-            return MENU_COTIZACION;
-        case '2':
-            return '🔍 Escribe el *número de orden o cotización* para consultar:\n\n_Ejemplo: OC-2025-001 o COT-2025-123_';
-        case '3':
-            setEstado(whatsapp, { flujo: 'REGISTRO_EQUIPO', paso: 1, datos: {} });
-            return `📅 *Registro de Equipos*\n\nVoy a registrar tu equipo para enviarte recordatorios antes de que venza tu certificado. 🔔\n\n¿Cuál es el nombre de tu empresa o tu nombre?`;
-        case '4':
-            return `🏆 *Servicios SICAMET*\n\n✅ Calibración In-Lab / In-situ / Personalizada\n✅ Calificación DQ/IQ/OQ/PQ (ISO 17025)\n✅ Consultoría y Capacitación en Metrología\n✅ Partner Oficial Vaisala en México\n\n*Magnitudes acreditadas:*\nPresión · Temperatura · Fuerza · Masa · Eléctrica\nDimensional · Flujo · Humedad · Óptica · Volumen\n\n12 Acreditaciones Internacionales · EMA · PJLA\n21 años de trayectoria\n\n_Escribe *1* para cotizar_`;
-        case '5':
-            return `📞 *Información de Contacto*\n\n📍 Toluca · CDMX · Querétaro · Guadalajara\n\n📱 722 270 1584 | 722 212 0722\n📧 sclientes@sicamet.net\n🌐 sicamet.mx\n\n⏰ Lun–Vie 8:00–18:00`;
-        case '6':
-            return await escalarAHumano(whatsapp, 'Solicitud desde menú principal');
-        default:
-            return MENU_PRINCIPAL;
-    }
-}
-
-/**
- * Flujo paso a paso de cotización automática.
- */
-async function flujosCotizacion(whatsapp, texto, estado) {
-    const { paso, datos } = estado;
-    let respuesta = '';
-
-    switch(paso) {
-        case 1: // Tipo de equipo
-            const tipoSeleccionado = TIPOS_EQUIPO[texto.trim()] || texto;
-            setEstado(whatsapp, { flujo: 'COTIZACION', paso: 2, datos: { ...datos, tipoEquipo: tipoSeleccionado } });
-            respuesta = `✅ *${tipoSeleccionado}*\n\n¿Cuál es la *marca y modelo* del instrumento?\n\n_Ejemplo: Fluke 726 | Vaisala HMT310 | WIKA P-30_\n_(Escribe "no sé" si no tienes el dato)_`;
-            break;
-        case 2: // Marca y modelo
-            setEstado(whatsapp, { flujo: 'COTIZACION', paso: 3, datos: { ...datos, marcaModelo: texto } });
-            respuesta = `✅ *${texto}*\n\n¿Cuántos instrumentos necesitas calibrar?`;
-            break;
-        case 3: // Cantidad
-            const cantidad = parseInt(texto) || 1;
-            setEstado(whatsapp, { flujo: 'COTIZACION', paso: 4, datos: { ...datos, cantidad } });
-            respuesta = `✅ *${cantidad} instrumento(s)*\n\n¿El servicio es?\n\n*1️⃣* 🔬 En el laboratorio SICAMET (In-Lab)\n*2️⃣* 🏭 En tus instalaciones (In-situ)\n*3️⃣* 💬 Aún no lo sé`;
-            break;
-        case 4: // Tipo de servicio
-            const tiposServicio = { '1': 'In-Lab', '2': 'In-situ', '3': 'Por definir' };
-            const tipoServicio = tiposServicio[texto.trim()] || texto;
-            setEstado(whatsapp, { flujo: 'COTIZACION', paso: 5, datos: { ...datos, tipoServicio } });
-            respuesta = `✅ *${tipoServicio}*\n\n¿Cuál es el nombre de tu empresa o razón social?`;
-            break;
-        case 5: // Empresa
-            setEstado(whatsapp, { flujo: 'COTIZACION', paso: 6, datos: { ...datos, empresa: texto } });
-            respuesta = `✅ *${texto}*\n\n¿Alguna nota adicional? (rango de medición, urgencia, ubicación, etc.)\n\n_Escribe "ninguna" para omitir_`;
-            break;
-        case 6: // Notas y guardar
-            const notas = texto.toLowerCase() === 'ninguna' ? '' : texto;
-            const datosFinales = { ...datos, notas };
-            
-            // Guardar en BD
-            try {
-                await db.query(
-                    `INSERT INTO cotizaciones_bot (cliente_whatsapp, nombre_empresa, tipo_equipo, marca, cantidad, tipo_servicio, notas)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        whatsapp,
-                        datosFinales.empresa || '',
-                        datosFinales.tipoEquipo || '',
-                        datosFinales.marcaModelo || '',
-                        datosFinales.cantidad || 1,
-                        datosFinales.tipoServicio === 'In-Lab' ? 'in-lab' : datosFinales.tipoServicio === 'In-situ' ? 'in-situ' : 'por-definir',
-                        datosFinales.notas || ''
-                    ]
-                );
-                console.log(`💰 Nueva cotización bot: ${whatsapp} — ${datosFinales.tipoEquipo}`);
-            } catch (e) {
-                console.error('Error guardando cotización:', e.message);
-            }
-
-            limpiarEstado(whatsapp);
-            respuesta = `✅ *¡Solicitud de cotización recibida!*\n\n📋 *Resumen:*\n• Equipo: *${datosFinales.tipoEquipo}*\n• Marca/Modelo: *${datosFinales.marcaModelo || 'No especificado'}*\n• Cantidad: *${datosFinales.cantidad}*\n• Servicio: *${datosFinales.tipoServicio}*\n• Empresa: *${datosFinales.empresa}*\n\n🤝 Un asesor de SICAMET te contactará en breve con tu cotización personalizada.\n\n📞 *722 270 1584* | 📧 *sclientes@sicamet.net*\n\n_Escribe *0* para volver al menú_`;
-            break;
-        default:
-            limpiarEstado(whatsapp);
-            respuesta = MENU_PRINCIPAL;
-    }
-    return respuesta;
-}
-
-/**
- * Flujo de registro de equipos para recordatorios.
- */
-async function flujosRegistroEquipo(whatsapp, texto, estado) {
-    const { paso, datos } = estado;
-
-    switch(paso) {
-        case 1: // Empresa
-            setEstado(whatsapp, { flujo: 'REGISTRO_EQUIPO', paso: 2, datos: { empresa: texto } });
-            return `✅ *${texto}*\n\n¿Cuál es el nombre del instrumento?\n\n_Ejemplo: Termómetro digital | Manómetro diferencial | Balanza analítica_`;
-        case 2: // Nombre del equipo
-            setEstado(whatsapp, { flujo: 'REGISTRO_EQUIPO', paso: 3, datos: { ...datos, nombreEquipo: texto } });
-            return `✅ *${texto}*\n\n¿Cuál es la marca y modelo? _(o escribe "no sé")_`;
-        case 3: // Marca/Modelo
-            setEstado(whatsapp, { flujo: 'REGISTRO_EQUIPO', paso: 4, datos: { ...datos, marcaModelo: texto } });
-            return `✅ *${texto}*\n\n¿Cuándo fue su *última calibración*?\n\n_Formato: DD/MM/AAAA — o escribe "no sé"_`;
-        case 4: // Última calibración
-            let fechaUltima = null;
-            if (texto.toLowerCase() !== 'no sé' && texto.toLowerCase() !== 'no se') {
-                const partes = texto.split('/');
-                if (partes.length === 3) {
-                    fechaUltima = `${partes[2]}-${partes[1].padStart(2,'0')}-${partes[0].padStart(2,'0')}`;
-                }
-            }
-            setEstado(whatsapp, { flujo: 'REGISTRO_EQUIPO', paso: 5, datos: { ...datos, fechaUltima } });
-            return `✅ *${texto}*\n\n¿Cada cuánto debe calibrarse este instrumento?\n\n*1️⃣* 6 meses\n*2️⃣* 1 año _(más común)_\n*3️⃣* 2 años\n*4️⃣* Otro período`;
-        case 5: // Periodicidad
+        case 5: {
             const periodos = { '1': 6, '2': 12, '3': 24 };
-            const meses = periodos[texto.trim()] || 12;
-            
-            // Calcular próxima calibración
-            let proximaFecha = null;
+            const ms = periodos[texto.trim()] || 12;
+            let prox = null;
             if (datos.fechaUltima) {
-                const ultima = new Date(datos.fechaUltima);
-                ultima.setMonth(ultima.getMonth() + meses);
-                proximaFecha = ultima.toISOString().split('T')[0];
+                const u = new Date(datos.fechaUltima);
+                u.setMonth(u.getMonth() + ms);
+                prox = u.toISOString().split('T')[0];
             }
-
-            try {
-                await db.query(
-                    `INSERT INTO equipos_cliente 
-                     (cliente_whatsapp, nombre_empresa, nombre_equipo, marca, ultima_calibracion, periodicidad_meses, proxima_calibracion)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        whatsapp,
-                        datos.empresa || '',
-                        datos.nombreEquipo,
-                        datos.marcaModelo || '',
-                        datos.fechaUltima || null,
-                        meses,
-                        proximaFecha
-                    ]
-                );
-            } catch (e) {
-                console.error('Error registrando equipo:', e.message);
-            }
-
-            limpiarEstado(whatsapp);
-            const fechaDisplay = proximaFecha ? new Date(proximaFecha).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }) : 'No calculada';
-            return `✅ *¡Equipo registrado exitosamente!*\n\n📦 *${datos.nombreEquipo}*\n📅 Próxima calibración: *${fechaDisplay}*\n🔔 Te avisaré 30 y 7 días antes del vencimiento\n\n_Escribe *3* para ver todos tus equipos_\n_Escribe *0* para volver al menú_`;
+            await db.query(
+                'INSERT INTO equipos_cliente (cliente_whatsapp, nombre_empresa, nombre_equipo, marca, ultima_calibracion, periodicidad_meses, proxima_calibracion) VALUES (?,?,?,?,?,?,?)',
+                [wa, datos.empresa, datos.nombreEquipo, datos.marcaModelo, datos.fechaUltima, ms, prox]
+            );
+            await guardarSesion(wa, null, {});
+            const proxFmt = prox ? new Date(prox).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' }) : 'No definida';
+            return {
+                text: `✅ *¡Equipo registrado exitosamente!*\n\n📋 *${datos.nombreEquipo}* (${datos.marcaModelo})\n🏢 Empresa: *${datos.empresa}*\n📅 Próxima calibración: *${proxFmt}*\n\nTe enviaré un recordatorio antes del vencimiento. 🔔\n\n_Escribe *0* para el menú principal._`
+            };
+        }
         default:
-            limpiarEstado(whatsapp);
-            return MENU_PRINCIPAL;
+            await guardarSesion(wa, null, {});
+            return await responderMenuPrincipal(wa, sesion);
     }
 }
 
-/**
- * Escala la conversación a un agente humano.
- */
-async function escalarAHumano(whatsapp, motivoTexto) {
+// ─── ESCALAR A HUMANO ─────────────────────────────────────────────────────────
+
+async function escalarAHumanoLogic(wa, texto) {
     try {
-        // Registrar escalado en BD
         await db.query(
             'INSERT INTO escalados (cliente_whatsapp, motivo, estatus) VALUES (?, ?, "pendiente")',
-            [whatsapp, motivoTexto.substring(0, 499)]
+            [wa, texto.substring(0, 400)]
         );
-    } catch (e) { /* no interrumpir */ }
-
-    return `🧑‍💼 *Transferiendo con un asesor SICAMET...*\n\nUn especialista revisará tu consulta y te contactará en breve.\n\n📞 También puedes llamarnos directamente:\n*722 270 1584 | 722 212 0722*\n\n📧 *sclientes@sicamet.net*\n⏰ Lun–Vie 8:00–18:00\n\n_Escribe *0* para volver al menú_`;
+    } catch {}
+    await guardarSesion(wa, null, {});
+    return {
+        text: '🧑‍💼 *Conectando con un asesor SICAMET...*\n\nUn representante se pondrá en contacto contigo muy pronto.\n\n📞 Si es urgente, llama directamente al *722 270 1584*\n\n_Escribe *0* cuando quieras volver al menú principal._'
+    };
 }
 
-/**
- * Maneja la consulta de estatus de equipo por número de O.S.
- */
-async function consultarEstatus(whatsapp, texto) {
-    try {
-        const busqueda = texto.trim().toUpperCase();
-        const [info] = await db.query(
-            'SELECT * FROM instrumentos_estatus WHERE orden_cotizacion = ?',
-            [busqueda]
-        );
-        if (info.length > 0) {
-            const eq = info[0];
-            const fechaIngreso = new Date(eq.fecha_ingreso).toLocaleDateString('es-MX');
-            const fechaEntrega = eq.fecha_entrega ? new Date(eq.fecha_entrega).toLocaleDateString('es-MX') : 'Por confirmar';
-            return `🔍 *Estatus de Equipo — SICAMET*\n\n📦 *Equipo:* ${eq.nombre_instrumento}\n🚩 *Estatus:* ${eq.estatus_actual}\n📅 *Ingreso:* ${fechaIngreso}\n📦 *Entrega estimada:* ${fechaEntrega}\n\n_¿Más dudas? Escribe *6* para hablar con un asesor_`;
-        }
-        return `❌ No encontramos la orden *${busqueda}* en nuestro sistema.\n\nVerifica el número o escribe *6* para que un asesor te ayude.\n\n📞 722 270 1584`;
-    } catch (e) {
-        return '❌ Error consultando el estatus. Por favor contacta directamente al 722 270 1584.';
-    }
-}
+// ─── EXPORTS ──────────────────────────────────────────────────────────────────
 
-module.exports = { 
-    procesarMensaje, 
-    consultarEstatus, 
-    getEstado, 
-    limpiarEstado, 
-    MENU_PRINCIPAL,
-    estadosConversacion
+module.exports = {
+    procesarMensaje,
+    consultarEstatusLogic,
+    escalarAHumanoLogic,
+    responderMenuPrincipal,
+    getConfigHorario,
+    invalidarCacheConfig,
+    getEstado: getSesion,
+    limpiarEstado: wa => guardarSesion(wa, null, {})
 };

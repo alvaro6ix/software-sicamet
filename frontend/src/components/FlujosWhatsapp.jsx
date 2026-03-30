@@ -14,15 +14,9 @@ const OPCIONES_MENU = [
   { id: '6', label: '🧑‍💼 Hablar con un asesor', color: 'rose' },
 ];
 
-const MENSAJES_INICIALES = [
-  {
-    tipo: 'bot',
-    text: '¡Hola! 👋 Soy el asistente virtual de *SICAMET*.\n\n¿En qué te podemos ayudar hoy?',
-    esMenu: true
-  }
-];
+const MENSAJES_INICIALES = []; // Se cargarán del simulador real
 
-const FlujosWhatsapp = ({ darkMode }) => {
+const FlujosWhatsapp = ({ darkMode, usuario }) => {
   const [pestana, setPestana] = useState('simulador');
   const [mensajes, setMensajes] = useState(MENSAJES_INICIALES);
   const [inputMsg, setInputMsg] = useState('');
@@ -33,7 +27,20 @@ const FlujosWhatsapp = ({ darkMode }) => {
   const [escalados, setEscalados] = useState([]);
   const [equipos, setEquipos] = useState([]);
   const [cacheIA, setCacheIA] = useState([]);
+  const [botNodos, setBotNodos] = useState([]);
+  const [mensajeBienvenida, setMensajeBienvenida] = useState('');
+  const [editandoBienvenida, setEditandoBienvenida] = useState(false);
+  const [editandoBienvenidaTexto, setEditandoBienvenidaTexto] = useState('');
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [editandoNodo, setEditandoNodo] = useState(null);
+  const [waSimulado, setWaSimulado] = useState(`sim_${Math.floor(Math.random() * 10000)}`);
+  const [botFaq, setBotFaq] = useState([]);
+  const [faqForm, setFaqForm] = useState({ pregunta: '', respuesta: '', id: null });
+  const [botConfig, setBotConfig] = useState({});
+  const [configForm, setConfigForm] = useState({});
   const chatRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const esAdmin = usuario?.rol === 'admin';
 
   // Colores por tema
   const box = darkMode ? 'bg-[#253916] border-[#C9EA63]/20' : 'bg-white border-gray-100 shadow-lg';
@@ -53,6 +60,10 @@ const FlujosWhatsapp = ({ darkMode }) => {
     if (pestana === 'escalados') fetchEscalados();
     if (pestana === 'equipos') fetchEquipos();
     if (pestana === 'cache') fetchCache();
+    if (pestana === 'mensajes') fetchBotNodos();
+    if (pestana === 'faq') fetchBotFaq();
+    if (pestana === 'config') fetchBotConfig();
+    if (pestana === 'simulador' && mensajes.length === 0) resetChat();
   }, [pestana]);
 
   useEffect(() => {
@@ -68,6 +79,112 @@ const FlujosWhatsapp = ({ darkMode }) => {
   const fetchCotizaciones = async () => {
     try { const { data } = await axios.get(`${API}/api/cotizaciones-bot`); setCotizaciones(data); } catch {}
   };
+  const fetchBotNodos = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const { data } = await axios.get(`${API}/api/bot/nodo-raiz`, { headers: { Authorization: `Bearer ${token}` } });
+      setMensajeBienvenida(data.mensaje_bienvenida);
+      setBotNodos(data.nodos || []);
+    } catch (err) { console.error('Error fetching nodos:', err); }
+  };
+  const fetchBotFaq = async () => {
+    try { const { data } = await axios.get(`${API}/api/bot/faq`); setBotFaq(data); } catch {}
+  };
+  const fetchBotConfig = async () => {
+    try {
+      const { data } = await axios.get(`${API}/api/bot/config`);
+      setBotConfig(data);
+      const form = {};
+      Object.entries(data).forEach(([k, v]) => { form[k] = v.valor; });
+      setConfigForm(form);
+    } catch {}
+  };
+  const guardarNodoRaiz = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`${API}/api/bot/nodo-raiz`, { mensaje_bienvenida: editandoBienvenidaTexto }, { headers: { Authorization: `Bearer ${token}` } });
+      setMensajeBienvenida(editandoBienvenidaTexto);
+      setEditandoBienvenida(false);
+      alert('✅ Mensaje de bienvenida guardado');
+    } catch { alert('Error al guardar mensaje'); }
+  };
+
+  const guardarNodo = async (nodo) => {
+    try {
+      const token = localStorage.getItem('token');
+      const config = { headers: { Authorization: `Bearer ${token}` } };
+      if (nodo.id !== undefined && nodo.id !== null && !nodo.isNew) {
+        await axios.put(`${API}/api/bot/nodos/${nodo.id}`, nodo, config);
+      } else {
+        const { id, isNew, ...payload } = nodo;
+        await axios.post(`${API}/api/bot/nodos`, payload, config);
+      }
+      setEditandoNodo(null);
+      fetchBotNodos();
+      alert('✅ Nodo guardado correctamente');
+    } catch { alert('Error al guardar el nodo'); }
+  };
+
+  const handleUploadMedia = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadingMedia(true);
+    const formData = new FormData();
+    formData.append('archivo', file);
+    try {
+      const token = localStorage.getItem('token');
+      const { data } = await axios.post(`${API}/api/bot/upload-media`, formData, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+      });
+      if (data.success && data.url) {
+        setEditandoNodo(prev => ({ ...prev, media_url: data.url }));
+        alert('✅ Archivo subido y enlazado correctamente');
+      }
+    } catch (err) { alert('Hooray! Error al subir archivo: ' + err.message); }
+    setUploadingMedia(false);
+  };
+
+  const eliminarNodo = async (id) => {
+    if (id === 0) return alert('No puedes eliminar el menú principal');
+    if (!confirm('¿Eliminar este paso del flujo? Esto borrará sus opciones asociadas.')) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API}/api/bot/nodos/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      fetchBotNodos();
+    } catch { alert('Error al eliminar'); }
+  };
+
+  const guardarOpciones = async (nodoId, opciones) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API}/api/bot/nodos/${nodoId}/opciones`, { opciones }, { headers: { Authorization: `Bearer ${token}` } });
+      fetchBotNodos();
+      alert('✅ Ramificaciones actualizadas');
+    } catch { alert('Error al guardar opciones'); }
+  };
+  const guardarFaq = async () => {
+    try {
+      if (faqForm.id) {
+        await axios.put(`${API}/api/bot/faq/${faqForm.id}`, faqForm);
+      } else {
+        await axios.post(`${API}/api/bot/faq`, faqForm);
+      }
+      setFaqForm({ pregunta: '', respuesta: '', id: null });
+      fetchBotFaq();
+      alert('✅ FAQ guardado correctamente');
+    } catch { alert('Error al guardar FAQ'); }
+  };
+  const eliminarFaq = async (id) => {
+    if (!window.confirm && !confirm('¿Eliminar esta respuesta?')) return;
+    try { await axios.delete(`${API}/api/bot/faq/${id}`); fetchBotFaq(); } catch {}
+  };
+  const guardarConfig = async () => {
+    try {
+      await axios.put(`${API}/api/bot/config`, configForm);
+      fetchBotConfig();
+      alert('✅ Configuración guardada');
+    } catch { alert('Error al guardar configuración'); }
+  };
   const fetchEscalados = async () => {
     try { const { data } = await axios.get(`${API}/api/escalados`); setEscalados(data); } catch {}
   };
@@ -78,54 +195,80 @@ const FlujosWhatsapp = ({ darkMode }) => {
     try { const { data } = await axios.get(`${API}/api/bot/cache`); setCacheIA(data); } catch {}
   };
 
-  // Simulador de chat con lógica local
+  // Detecta si el texto del bot contiene un menú con opciones numeradas
+  const esTextoMenu = (text) => text && (/\*\d+[️⃣]*\*|\d+\)/.test(text) && text.includes('\n'));
+
+  // Extrae opciones numeradas del texto del bot para mostrar como botones
+  const extraerBotones = (text) => {
+    if (!text) return [];
+    const lines = text.split('\n').filter(l => /^\*?\d+[️⃣]*\*?[.)\s]/.test(l.trim()));
+    return lines.slice(0, 8).map((l, i) => ({
+      id: String(i + 1),
+      label: l.replace(/^\*?\d+[️⃣]*\*?[.)\s]+/, '').trim()
+    })).filter(b => b.label.length > 0);
+  };
+
+  // Simulador de chat — conectado al mismo motor del bot real
   const enviarMensaje = async (texto) => {
-    if (!texto.trim()) return;
+    if (!texto.trim() || cargandoBot) return;
     const userMsg = texto.trim();
     setInputMsg('');
     setMensajes(prev => [...prev, { tipo: 'user', text: userMsg }]);
     setCargandoBot(true);
 
     try {
-      const respuesta = await simularRespuestaBot(userMsg);
+      const token = localStorage.getItem('token');
+      const { data } = await axios.post(`${API}/api/bot/chat`,
+        { wa: waSimulado, texto: userMsg },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
       setTimeout(() => {
-        setMensajes(prev => [...prev, ...respuesta]);
+        const botResp = data.respuesta;
+        if (botResp && botResp.text) {
+          const botones = extraerBotones(botResp.text);
+          setMensajes(prev => [...prev, {
+            tipo: 'bot',
+            text: botResp.text,
+            mediaUrl: botResp.mediaUrl,
+            mediaTipo: botResp.mediaTipo,
+            botones: botones.length > 0 ? botones : null
+          }]);
+        }
         setCargandoBot(false);
       }, 700);
-    } catch {
+    } catch (err) {
+      console.error('Error en simulador:', err);
       setCargandoBot(false);
+      setMensajes(prev => [...prev, { tipo: 'bot', text: '❌ Error al conectar con el backend. Verifica que el servidor esté corriendo.' }]);
     }
   };
 
-  const simularRespuestaBot = async (texto) => {
-    const t = texto.toLowerCase().trim();
-
-    if (['0', 'menu', 'menú', 'inicio'].includes(t)) {
-      return [{ tipo: 'bot', text: '¡Claro! Aquí el menú principal 👇', esMenu: true }];
-    }
-
-    if (t === '1') return [{ tipo: 'bot', text: '📋 *Cotización de Calibración*\n\n¿Qué tipo de equipo quieres calibrar?', esOpciones: true, opciones: [
-      { id: 'temp', label: '🌡️ Temperatura' }, { id: 'pres', label: '⚡ Presión' },
-      { id: 'masa', label: '⚖️ Masa / Fuerza' }, { id: 'elec', label: '💡 Eléctrica' },
-      { id: 'dim', label: '📏 Dimensional' }, { id: 'otro', label: '🔧 Otro' }
-    ]}];
-
-    if (t === '2') return [{ tipo: 'bot', text: '🔍 Escribe el número de orden o cotización:\n\n_Ejemplo: OC-2025-001_' }];
-    if (t === '3') return [{ tipo: 'bot', text: '📅 *Registro de Equipos*\n\nPuedo avisarte antes de que venza tu certificado de calibración. 🔔\n\n¿Cuál es el nombre de tu empresa?' }];
-    if (t === '4') return [{ tipo: 'bot', text: '🏆 *Servicios SICAMET*\n\n✅ Calibración In-Lab / In-situ\n✅ Calificación DQ/IQ/OQ/PQ\n✅ Consultoría y Capacitación\n✅ Vaisala Partner\n\n*12 Acreditaciones · EMA · PJLA · 21 años*' }];
-    if (t === '5') return [{ tipo: 'bot', text: '📞 *Contacto SICAMET*\n\n📍 Toluca · CDMX · Querétaro · GDL\n📱 722 270 1584\n📧 sclientes@sicamet.net\n🌐 sicamet.mx\n⏰ Lun–Vie 8:00–18:00' }];
-    if (t === '6') return [{ tipo: 'bot', text: '🧑‍💼 *Transfiriendo con un asesor...*\n\n📞 722 270 1584 · 722 212 0722\n📧 sclientes@sicamet.net\n\n_Escribe *0* para volver al menú_' }];
-
-    // Respuesta IA (simulada en el preview)
-    const keywordsCot = ['calibrar', 'cotización', 'precio', 'costo', 'manómetro', 'termómetro', 'balanza'];
-    if (keywordsCot.some(k => t.includes(k))) {
-      return [{ tipo: 'bot', text: '📋 Perfecto, puedo ayudarte con una cotización. ¿Qué tipo de equipo necesitas calibrar?', esOpciones: true, opciones: [
-        { id: '1', label: '🌡️ Temperatura' }, { id: '2', label: '⚡ Presión' },
-        { id: '3', label: '⚖️ Masa / Fuerza' }, { id: '7', label: '🔧 Otro' }
-      ]}];
-    }
-
-    return [{ tipo: 'bot', text: `🤖 *Modo Simulador*\n\nEn producción, la IA de SICAMET analizaría: _"${texto}"_ y respondería de forma inteligente.\n\nEscribe un número del menú para probar los flujos:`, esMenu: true }];
+  const resetChat = () => {
+    const nuevoWa = `sim_${Date.now()}`;
+    setMensajes([]);
+    setWaSimulado(nuevoWa);
+    // Enviar 'hola' → el backend mostrará el menú dinámico
+    setTimeout(() => {
+      setMensajes([]);
+      setCargandoBot(true);
+      const token = localStorage.getItem('token');
+      axios.post(`${API}/api/bot/chat`,
+        { wa: nuevoWa, texto: 'hola' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      ).then(({ data }) => {
+        const botResp = data.respuesta;
+        if (botResp && botResp.text) {
+          const botones = extraerBotones(botResp.text);
+          setMensajes([{
+            tipo: 'bot',
+            text: botResp.text,
+            botones: botones.length > 0 ? botones : null
+          }]);
+        }
+        setCargandoBot(false);
+      }).catch(() => setCargandoBot(false));
+    }, 300);
   };
 
   const clickBoton = (id) => enviarMensaje(id);
@@ -152,7 +295,7 @@ const FlujosWhatsapp = ({ darkMode }) => {
     } catch {}
   };
 
-  const resetChat = () => setMensajes(MENSAJES_INICIALES);
+
 
   const TABS = [
     { id: 'simulador', label: '💬 Simulador', icon: Smartphone },
@@ -160,6 +303,11 @@ const FlujosWhatsapp = ({ darkMode }) => {
     { id: 'escalados', label: '🧑‍💼 Escalados', icon: AlertCircle },
     { id: 'equipos', label: '📅 Equipos', icon: Package },
     { id: 'cache', label: '🧠 Caché IA', icon: Zap },
+    ...(esAdmin ? [
+      { id: 'mensajes', label: '🌳 Gestor de Flujos', icon: Edit2 },
+      { id: 'faq', label: '❓ FAQ / Respuestas', icon: MessageSquare },
+      { id: 'config', label: '⚙️ Configuración', icon: RefreshCw },
+    ] : []),
   ];
 
   return (
@@ -229,35 +377,50 @@ const FlujosWhatsapp = ({ darkMode }) => {
           <div ref={chatRef} className={`h-[400px] overflow-y-auto p-4 space-y-3 ${darkMode ? 'bg-[#1a2e10]/50' : 'bg-slate-50'}`}>
             {mensajes.map((msg, i) => (
               <div key={i} className={`flex ${msg.tipo === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] space-y-2`}>
-                  <div className={`px-4 py-2.5 rounded-2xl text-sm whitespace-pre-wrap shadow-sm ${
+                <div className={`max-w-[85%] space-y-2`}>
+                  {/* Burbuja de mensaje */}
+                  <div className={`px-4 py-3 rounded-2xl text-sm whitespace-pre-wrap leading-relaxed ${
                     msg.tipo === 'user'
-                      ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-blue-600 text-white') + ' rounded-br-sm'
-                      : (darkMode ? 'bg-[#253916] text-[#F2F6F0]' : 'bg-white text-slate-800 border border-gray-100') + ' rounded-bl-sm'
+                      ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-blue-600 text-white') + ' rounded-br-sm shadow-sm'
+                      : (darkMode ? 'bg-[#253916] text-[#F2F6F0]' : 'bg-white text-slate-800 border border-gray-100 shadow-sm') + ' rounded-bl-sm'
                   }`}>
-                    {msg.text.replace(/\*(.*?)\*/g, '$1').replace(/_(.*?)_/g, '$1')}
+                    {(msg.text || '')
+                      .replace(/\*([^*]+)\*/g, '$1')
+                      .replace(/_([^_]+)_/g, '$1')}
                   </div>
 
-                  {/* Botones de respuesta rápida */}
-                  {msg.esMenu && (
-                    <div className="grid grid-cols-2 gap-1.5 mt-1">
-                      {OPCIONES_MENU.map(op => (
+                  {/* Botones dinámicos extraídos de la respuesta del bot */}
+                  {msg.tipo === 'bot' && msg.botones && msg.botones.length > 0 && (
+                    <div className="grid grid-cols-1 gap-1.5 mt-1">
+                      {msg.botones.map(op => (
                         <button key={op.id} onClick={() => clickBoton(op.id)}
-                          className={`text-left text-xs px-3 py-2 rounded-lg font-medium transition-all border ${darkMode ? 'bg-[#253916] border-[#C9EA63]/30 text-[#F2F6F0] hover:bg-[#314a1c]' : 'bg-white border-gray-200 text-slate-700 hover:bg-slate-50'} flex items-center gap-1.5`}>
-                          <ChevronRight size={10} className="opacity-50 flex-shrink-0" />
+                          className={`text-left text-xs px-3 py-2.5 rounded-xl font-semibold transition-all border flex items-center gap-2
+                            ${darkMode
+                              ? 'bg-[#1a2e10] border-[#C9EA63]/20 text-[#F2F6F0] hover:bg-[#253916] hover:border-[#C9EA63]/40'
+                              : 'bg-slate-50 border-gray-200 text-slate-700 hover:bg-white hover:border-blue-300 hover:shadow-sm'}`}>
+                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0
+                            ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-blue-100 text-blue-600'}`}>
+                            {op.id}
+                          </span>
                           {op.label}
                         </button>
                       ))}
                     </div>
                   )}
-                  {msg.esOpciones && msg.opciones && (
-                    <div className="flex flex-wrap gap-1.5 mt-1">
-                      {msg.opciones.map(op => (
-                        <button key={op.id} onClick={() => clickBoton(op.id)}
-                          className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all border ${darkMode ? 'bg-[#253916] border-[#C9EA63]/30 text-[#F2F6F0] hover:bg-[#314a1c]' : 'bg-white border-blue-200 text-blue-700 hover:bg-blue-50'}`}>
-                          {op.label}
-                        </button>
-                      ))}
+
+                  {/* Adjuntos */}
+                  {msg.mediaUrl && (
+                    <div className="mt-2 rounded-lg overflow-hidden border border-white/10">
+                      {msg.mediaTipo === 'image' ? (
+                        <img src={msg.mediaUrl} alt="Adjunto" className="max-w-full h-auto" />
+                      ) : (
+                        <div className={`p-3 text-xs flex items-center gap-2 ${darkMode ? 'bg-white/5' : 'bg-slate-100'}`}>
+                          <Package size={14} className={textMuted} /> 
+                          <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer" className={`font-bold hover:underline ${darkMode ? 'text-[#C9EA63]' : 'text-blue-600'}`}>
+                            Archivo adjunto: {msg.mediaUrl.split('/').pop()}
+                          </a>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -448,6 +611,430 @@ const FlujosWhatsapp = ({ darkMode }) => {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── MENSAJES DEL BOT (SOLO ADMIN) ────────────────────────────── */}
+      {pestana === 'mensajes' && esAdmin && (
+        <div className="space-y-6">
+          <div className={`${box} rounded-2xl p-6`}>
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className={`text-xl font-bold flex items-center gap-2 ${textPrimary}`}>
+                  <Bot className={darkMode ? 'text-[#C9EA63]' : 'text-blue-600'} size={24} /> 
+                  Constructor de Flujos Dinámicos
+                </h3>
+                <p className={`text-sm mt-1 ${textMuted}`}>Define los pasos de la conversación y la inteligencia del bot.</p>
+              </div>
+              <button 
+                onClick={() => setEditandoNodo({ isNew: true, nombre: 'Nuevo Paso', mensaje: '', tipo: 'mensaje', orden: botNodos.length + 1, opciones: [] })}
+                className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0cc5a]' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+              >
+                <Plus size={18} /> Añadir Paso
+              </button>
+            </div>
+
+            <div className="grid gap-4">
+              {/* NODO RAIZ EDITABLE */}
+              <div className={`p-5 rounded-2xl border ${darkMode ? 'border-amber-500/20 bg-amber-500/5' : 'border-amber-200 bg-amber-50'}`}>
+                <div className="flex justify-between items-start">
+                  <div className="flex gap-4">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg ${darkMode ? 'bg-amber-500 text-[#141F0B]' : 'bg-amber-500 text-white'}`}>
+                      0
+                    </div>
+                    <div>
+                      <h4 className={`font-bold ${textPrimary}`}>Menú Principal (Bienvenida)</h4>
+                      <div className="flex gap-2 mt-1">
+                        <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-500 text-amber-900 border border-amber-400">PUNTO DE ENTRADA</span>
+                      </div>
+                    </div>
+                  </div>
+                  {!editandoBienvenida && (
+                    <button onClick={() => { setEditandoBienvenida(true); setEditandoBienvenidaTexto(mensajeBienvenida); }} className="p-2 rounded-lg hover:bg-amber-500/10 text-amber-500 text-sm font-bold flex items-center gap-2">
+                       <Edit2 size={16} /> Editar Mensaje
+                    </button>
+                  )}
+                </div>
+
+                {editandoBienvenida ? (
+                  <div className="mt-4">
+                    <textarea 
+                      rows={4} 
+                      value={editandoBienvenidaTexto} 
+                      onChange={e => setEditandoBienvenidaTexto(e.target.value)} 
+                      className={`w-full p-3 rounded-xl border text-sm focus:ring-2 focus:ring-amber-500 outline-none ${inputCls}`} 
+                      placeholder="Ej: Hola! Bienvenido a SICAMET..."
+                    />
+                    <div className="flex justify-end gap-2 mt-2">
+                      <button onClick={() => setEditandoBienvenida(false)} className={`px-4 py-1.5 rounded-lg text-sm font-bold ${textMuted}`}>Cancelar</button>
+                      <button onClick={guardarNodoRaiz} className={`px-4 py-1.5 rounded-lg text-sm font-bold ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-blue-600 text-white'}`}>Guardar</button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className={`mt-3 text-sm whitespace-pre-wrap leading-relaxed ${textMuted}`}>
+                    {mensajeBienvenida || '👋 ¡Hola! Soy el asistente virtual de *SICAMET*.'}
+                  </p>
+                )}
+                
+                <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-amber-500/20">
+                  <span className={`text-[11px] font-bold ${textMuted}`}>Generado automáticamente según los nodos activos:</span>
+                  {botNodos.map((n, i) => (
+                    <span key={n.id} className={`px-2 py-0.5 rounded-md text-[10px] uppercase font-bold ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63]' : 'bg-gray-200 text-gray-600'}`}>
+                      {i + 1}️⃣ {n.nombre}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* LISTA DE NODOS (1-N) */}
+              {botNodos.map((nodo, idx) => (
+                <div key={nodo.id} className={`p-5 rounded-2xl border transition-all ${editandoNodo?.id === nodo.id ? (darkMode ? 'border-[#C9EA63] bg-[#C9EA63]/5' : 'border-blue-500 bg-blue-50') : (darkMode ? 'border-white/5 bg-white/5' : 'border-gray-100 bg-white shadow-sm')}`}>
+                  <div className="flex justify-between items-start">
+                    <div className="flex gap-4">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-blue-100 text-blue-600'}`}>
+                        {nodo.id}
+                      </div>
+                      <div>
+                        <h4 className={`font-bold ${textPrimary}`}>{nodo.nombre}</h4>
+                        <div className="flex gap-2 mt-1">
+                          <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${darkMode ? 'bg-white/10 text-white/60' : 'bg-gray-100 text-gray-500'}`}>{nodo.tipo}</span>
+                          {nodo.accion && <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500">Acción: {nodo.accion}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => setEditandoNodo({...nodo})} className={`p-2 rounded-lg hover:bg-blue-500/10 text-blue-500`}><Edit2 size={16} /></button>
+                      {nodo.id !== 0 && <button onClick={() => eliminarNodo(nodo.id)} className={`p-2 rounded-lg hover:bg-rose-500/10 text-rose-500`}><Trash2 size={16} /></button>}
+                    </div>
+                  </div>
+
+                  <p className={`mt-3 text-sm line-clamp-2 ${textMuted}`}>{nodo.mensaje}</p>
+                  
+                  {nodo.opciones?.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {nodo.opciones.map(opt => (
+                        <div key={opt.id} className={`px-3 py-1 rounded-full text-[11px] font-bold border ${darkMode ? 'border-[#C9EA63]/20 text-[#C9EA63]/80' : 'border-blue-100 text-blue-600 bg-blue-50'}`}>
+                          {opt.texto_opcion} → Step {opt.nodo_destino_id}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Modal / Editor de Nodo */}
+          {editandoNodo && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className={`${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-gray-100'} border rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]`}>
+                <div className={`p-6 border-b ${darkMode ? 'border-white/10' : 'border-gray-100'} flex justify-between items-center shrink-0`}>
+                  <h3 className={`text-xl font-bold flex items-center gap-2 ${textPrimary}`}>
+                    {editandoNodo.isNew ? <><Plus size={20} className="text-emerald-500"/> Nuevo Paso de Flujo</> : <><Edit2 size={20} className="text-blue-500"/> Editando Paso {editandoNodo.id}</>}
+                  </h3>
+                  <button onClick={() => setEditandoNodo(null)} className={`hover:bg-rose-500/10 hover:text-rose-500 p-2 rounded-full transition-colors ${textMuted}`}><X size={20} /></button>
+                </div>
+                
+                <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                  {/* Fila 1 */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={`text-[10px] uppercase font-bold tracking-wider mb-1 block flex items-center gap-1 ${textMuted}`}>
+                        Nombre del nodo <span className="text-rose-500">*</span>
+                      </label>
+                      <input type="text" value={editandoNodo.nombre} onChange={e => setEditandoNodo({...editandoNodo, nombre: e.target.value})} className={`w-full p-3 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-[#C9EA63]/50 focus:border-[#C9EA63] transition-all ${inputCls}`} placeholder="Ej: Cotizacion Paso 2" />
+                    </div>
+                    <div>
+                      <label className={`text-[10px] uppercase font-bold tracking-wider mb-1 block flex items-center gap-1 ${textMuted}`}>
+                        Comportamiento IA / Tipo <span className="text-rose-500">*</span>
+                      </label>
+                      <select value={editandoNodo.tipo} onChange={e => setEditandoNodo({...editandoNodo, tipo: e.target.value})} className={`w-full p-3 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-[#C9EA63]/50 focus:border-[#C9EA63] transition-all ${inputCls}`}>
+                        <option value="mensaje">Mensaje Informativo (IA contextual)</option>
+                        <option value="opciones">Menú de Opciones (Botones fijos)</option>
+                        <option value="input">Esperar dato del usuario (Programable)</option>
+                      </select>
+                      <p className={`text-[10px] mt-1 ${textMuted}`}>{editandoNodo.tipo === 'mensaje' ? 'Gemini responderá preguntas usando este texto como base.' : 'Navegación tradicional sin usar IA para responder.'}</p>
+                    </div>
+                  </div>
+
+                  {/* Fila 2 - Mensaje */}
+                  <div>
+                    <label className={`text-[10px] uppercase font-bold tracking-wider mb-1 block flex items-center justify-between ${textMuted}`}>
+                      <span>Mensaje de WhatsApp <span className="text-rose-500">*</span></span>
+                      <span className="text-[10px] text-emerald-500 font-medium normal-case">Formatos: *negrita* _cursiva_</span>
+                    </label>
+                    <textarea rows={5} value={editandoNodo.mensaje} onChange={e => setEditandoNodo({...editandoNodo, mensaje: e.target.value})} className={`w-full p-4 rounded-xl border text-sm leading-relaxed outline-none resize-none focus:ring-2 focus:ring-[#C9EA63]/50 focus:border-[#C9EA63] transition-all ${inputCls}`} placeholder="Escribe el mensaje exacto que enviará el bot al usuario. \n\nEjemplo:\n¡Excelente! Con gusto te explico nuestros servicios..." />
+                  </div>
+
+                  {/* Fila 3 - Archivos Adjuntos Upload Local */}
+                  <div className={`p-4 rounded-2xl border ${darkMode ? 'border-white/10 bg-white/5' : 'border-gray-200 bg-gray-50'}`}>
+                    <label className={`text-[10px] uppercase font-bold tracking-wider mb-2 block flex items-center justify-between ${textMuted}`}>
+                       <span>Archivo Multimedia Adjunto</span>
+                    </label>
+                    <div className="flex flex-col md:flex-row gap-3 items-center">
+                       <input type="text" value={editandoNodo.media_url || ''} onChange={e => setEditandoNodo({...editandoNodo, media_url: e.target.value})} className={`flex-1 w-full p-3 rounded-xl border text-sm outline-none ${inputCls}`} placeholder="https://ejemplo.com/archivo.pdf (o URL pública)" />
+                       <span className={`hidden md:block text-xs font-bold ${textMuted}`}>O</span>
+                       
+                       <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,application/pdf" onChange={handleUploadMedia} />
+                       <button onClick={() => fileInputRef.current?.click()} disabled={uploadingMedia} className={`whitespace-nowrap px-4 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 border transition-colors ${darkMode ? 'bg-[#141F0B] border-[#C9EA63]/30 text-[#C9EA63] hover:bg-[#C9EA63]/10' : 'bg-white border-blue-200 text-blue-600 hover:bg-blue-50'}`}>
+                         {uploadingMedia ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />} 
+                         {uploadingMedia ? 'Subiendo...' : 'Subir Archivo Local'}
+                       </button>
+                    </div>
+                    {editandoNodo.media_url && (
+                        <div className="flex gap-4 mt-3">
+                           {['image', 'video', 'document'].map(t => (
+                             <label key={t} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border cursor-pointer transition-colors ${editandoNodo.media_tipo === t ? (darkMode ? 'bg-[#C9EA63]/20 border-[#C9EA63] text-[#F2F6F0]' : 'bg-blue-100 border-blue-400 text-blue-800') : (darkMode ? 'border-white/10 text-white/50 hover:bg-white/5' : 'border-gray-200 text-gray-500 hover:bg-gray-100')}`}>
+                               <input type="radio" name="media_tipo" className="hidden" checked={editandoNodo.media_tipo === t} onChange={() => setEditandoNodo({...editandoNodo, media_tipo: t})} />
+                               <span className="text-xs font-bold capitalize">{t === 'document' ? 'PDF/Doc' : t}</span>
+                             </label>
+                           ))}
+                        </div>
+                    )}
+                  </div>
+
+                  {/* Fila 4 */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={`text-[10px] uppercase font-bold tracking-wider mb-1 block ${textMuted}`}>Conectar a Motor Interno</label>
+                      <select value={editandoNodo.accion || ''} onChange={e => setEditandoNodo({...editandoNodo, accion: e.target.value || null})} className={`w-full p-3 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-[#C9EA63]/50 focus:border-[#C9EA63] ${inputCls}`}>
+                        <option value="">-- Ninguna / Estándar --</option>
+                        <option value="consultar_estatus">🔍 Motor Búsqueda Estatus (Kanban)</option>
+                        <option value="cotizacion">📋 Motor Flujo Cotización Compleja</option>
+                        <option value="registrar_equipo">📅 Motor Registro Próxima Calibración</option>
+                        <option value="escalar">🧑‍💼 Motor Escalar a Asesor Humano</option>
+                      </select>
+                      <p className={`text-[10px] mt-1 ${textMuted}`}>Llama a código especializado en el backend si se selecciona.</p>
+                    </div>
+                    <div>
+                      <label className={`text-[10px] uppercase font-bold tracking-wider mb-1 block ${textMuted}`}>Orden de Visualización</label>
+                      <input type="number" value={editandoNodo.orden} onChange={e => setEditandoNodo({...editandoNodo, orden: parseInt(e.target.value)})} className={`w-full p-3 rounded-xl border text-sm outline-none ${inputCls}`} />
+                    </div>
+                  </div>
+
+                  {/* Editor de Opciones/Ramificaciones */}
+                  {editandoNodo.tipo === 'opciones' && (
+                    <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-gray-200'}`}>
+                      <h4 className={`text-sm font-bold mb-4 ${textPrimary}`}>Ramificaciones (Botones)</h4>
+                      <div className="space-y-3">
+                        {(editandoNodo.opciones || []).map((opt, oIdx) => (
+                          <div key={oIdx} className="flex gap-2 items-center">
+                            <input type="text" placeholder="Texto del botón" value={opt.texto_opcion} onChange={e => {
+                              const newOpts = [...editandoNodo.opciones];
+                              newOpts[oIdx].texto_opcion = e.target.value;
+                              setEditandoNodo({...editandoNodo, opciones: newOpts});
+                            }} className={`flex-1 p-2 rounded-lg border text-xs ${inputCls}`} />
+                            <select value={opt.nodo_destino_id} onChange={e => {
+                              const newOpts = [...editandoNodo.opciones];
+                              newOpts[oIdx].nodo_destino_id = parseInt(e.target.value);
+                              setEditandoNodo({...editandoNodo, opciones: newOpts});
+                            }} className={`w-32 p-2 rounded-lg border text-xs ${inputCls}`}>
+                              <option value="">Destino...</option>
+                              {botNodos.map(n => <option key={n.id} value={n.id}>Paso {n.id}: {n.nombre}</option>)}
+                            </select>
+                            <button onClick={() => {
+                              const newOpts = editandoNodo.opciones.filter((_, i) => i !== oIdx);
+                              setEditandoNodo({...editandoNodo, opciones: newOpts});
+                            }} className="text-rose-500 p-1"><X size={16} /></button>
+                          </div>
+                        ))}
+                        <button 
+                          onClick={() => setEditandoNodo({...editandoNodo, opciones: [...(editandoNodo.opciones || []), { texto_opcion: '', nodo_destino_id: 0 }]})}
+                          className={`w-full py-2 border-2 border-dashed rounded-xl text-xs font-bold ${darkMode ? 'border-white/10 text-[#C9EA63] hover:bg-[#C9EA63]/5' : 'border-gray-200 text-blue-600 hover:bg-blue-50'}`}
+                        >
+                          + Añadir Opción
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className={`text-xs font-bold mb-1 block ${textMuted}`}>URL de Archivo Adjunto (Opcional)</label>
+                    <input type="text" value={editandoNodo.media_url || ''} onChange={e => setEditandoNodo({...editandoNodo, media_url: e.target.value})} className={`w-full p-3 rounded-xl border text-sm ${inputCls}`} placeholder="https://ejemplo.com/archivo.pdf" />
+                    <div className="flex gap-4 mt-2">
+                       {['image', 'video', 'document'].map(t => (
+                         <label key={t} className="flex items-center gap-1.5 text-xs">
+                           <input type="radio" name="media_tipo" checked={editandoNodo.media_tipo === t} onChange={() => setEditandoNodo({...editandoNodo, media_tipo: t})} />
+                           {t}
+                         </label>
+                       ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-6 border-t border-white/10 flex justify-end gap-3 bg-white/5">
+                  <button onClick={() => setEditandoNodo(null)} className={`px-6 py-2.5 rounded-xl text-sm font-bold ${textMuted}`}>Cancelar</button>
+                  <button 
+                    onClick={async () => {
+                      await guardarNodo(editandoNodo);
+                      if (editandoNodo.tipo === 'opciones' && !editandoNodo.isNew) {
+                         await guardarOpciones(editandoNodo.id, editandoNodo.opciones);
+                      }
+                    }} 
+                    className={`px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-[#C9EA63]/20' : 'bg-blue-600 text-white shadow-blue-600/20'}`}
+                  >
+                    {editandoNodo.isNew ? 'Crear Paso' : 'Guardar Cambios'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── FAQ / RESPUESTAS (SOLO ADMIN) ────────────────────────────── */}
+      {pestana === 'faq' && esAdmin && (
+        <div className="space-y-6">
+          <div className={`rounded-2xl border ${box} p-6`}>
+            <h3 className={`font-bold mb-4 ${textPrimary}`}>{faqForm.id ? 'Editar Respuesta' : 'Nueva Respuesta Frecuente (FAQ)'}</h3>
+            <div className="space-y-4">
+              <div>
+                <label className={`text-xs font-bold mb-1 block ${textMuted}`}>Pregunta / Palabras clave</label>
+                <input
+                  type="text"
+                  value={faqForm.pregunta}
+                  onChange={e => setFaqForm({ ...faqForm, pregunta: e.target.value })}
+                  placeholder="Ej: ¿Qué magnitudes calibran?"
+                  className={`w-full p-3 rounded-xl border text-sm outline-none ${inputCls}`}
+                />
+              </div>
+              <div>
+                <label className={`text-xs font-bold mb-1 block ${textMuted}`}>Respuesta del Bot</label>
+                <textarea
+                  value={faqForm.respuesta}
+                  onChange={e => setFaqForm({ ...faqForm, respuesta: e.target.value })}
+                  rows={3}
+                  placeholder="Respuesta que el bot dará al detectar la pregunta..."
+                  className={`w-full p-3 rounded-xl border text-sm outline-none ${inputCls}`}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                {faqForm.id && <button onClick={() => setFaqForm({ pregunta: '', respuesta: '', id: null })} className="px-4 py-2 text-sm font-bold text-rose-500">Cancelar</button>}
+                <button onClick={guardarFaq} className={`px-6 py-2 rounded-xl text-sm font-bold shadow-lg ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-[#C9EA63]/10' : 'bg-blue-600 text-white shadow-blue-600/20'}`}>
+                  {faqForm.id ? 'Actualizar' : 'Agregar FAQ'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className={`rounded-2xl border ${box} overflow-hidden`}>
+            <div className="p-4 border-b border-[#C9EA63]/10 flex justify-between items-center">
+              <h3 className={`font-bold ${textPrimary}`}>Biblioteca de Respuestas</h3>
+              <button onClick={fetchBotFaq} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-[#314a1c]' : 'hover:bg-slate-100'}`}><RefreshCw size={14} /></button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className={darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}>
+                  <tr>
+                    <th className={`px-4 py-3 text-left font-semibold ${textMuted}`}>Pregunta</th>
+                    <th className={`px-4 py-3 text-left font-semibold ${textMuted}`}>Respuesta</th>
+                    <th className={`px-4 py-3 text-center font-semibold ${textMuted}`}>Hits</th>
+                    <th className={`px-4 py-3 text-right font-semibold ${textMuted}`}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {botFaq.map(f => (
+                    <tr key={f.id} className={`border-t ${darkMode ? 'border-[#C9EA63]/10' : 'border-gray-100'}`}>
+                      <td className={`px-4 py-3 ${textPrimary} font-bold`}>{f.pregunta}</td>
+                      <td className={`px-4 py-3 ${textMuted} text-xs max-w-xs truncate`}>{f.respuesta}</td>
+                      <td className={`px-4 py-3 text-center ${darkMode ? 'text-[#C9EA63]' : 'text-blue-600'} font-bold`}>{f.hits}</td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setFaqForm({ ...f })} className="p-2 rounded-lg hover:bg-blue-500/10 text-blue-500"><Edit2 size={14} /></button>
+                          <button onClick={() => eliminarFaq(f.id)} className="p-2 rounded-lg hover:bg-rose-500/10 text-rose-500"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── CONFIGURACIÓN (SOLO ADMIN) ────────────────────────────── */}
+      {pestana === 'config' && esAdmin && (
+        <div className={`rounded-2xl border ${box} p-8 max-w-2xl mx-auto shadow-2xl`}>
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 rounded-3xl bg-[#C9EA63]/10 flex items-center justify-center mx-auto mb-4 border border-[#C9EA63]/20">
+              <RefreshCw className="text-[#C9EA63]" size={32} />
+            </div>
+            <h3 className={`text-2xl font-black ${textPrimary} tracking-tight`}>Configuración del Bot</h3>
+            <p className={`text-sm mt-1 ${textMuted}`}>Personaliza horarios y comportamientos del sistema</p>
+          </div>
+
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={`text-xs font-bold mb-2 block uppercase tracking-widest ${textMuted}`}>Hora Inicio</label>
+                <input
+                  type="time"
+                  value={configForm.horario_inicio || '08:00'}
+                  onChange={e => setConfigForm({ ...configForm, horario_inicio: e.target.value })}
+                  className={`w-full p-3 rounded-xl border font-bold ${inputCls}`}
+                />
+              </div>
+              <div>
+                <label className={`text-xs font-bold mb-2 block uppercase tracking-widest ${textMuted}`}>Hora Fin</label>
+                <input
+                  type="time"
+                  value={configForm.horario_fin || '18:00'}
+                  onChange={e => setConfigForm({ ...configForm, horario_fin: e.target.value })}
+                  className={`w-full p-3 rounded-xl border font-bold ${inputCls}`}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className={`text-xs font-bold mb-2 block uppercase tracking-widest ${textMuted}`}>Días de Atención (1=Lun, 5=Vie)</label>
+              <input
+                type="text"
+                value={configForm.dias_atencion || '1,2,3,4,5'}
+                onChange={e => setConfigForm({ ...configForm, dias_atencion: e.target.value })}
+                placeholder="Ej: 1,2,3,4,5"
+                className={`w-full p-3 rounded-xl border font-mono ${inputCls}`}
+              />
+            </div>
+
+            <div>
+              <label className={`text-xs font-bold mb-2 block uppercase tracking-widest ${textMuted}`}>WhatsApp(s) para Notificaciones del Sistema</label>
+              <textarea
+                rows={3}
+                value={configForm.notif_numeros || ''}
+                onChange={e => setConfigForm({ ...configForm, notif_numeros: e.target.value })}
+                placeholder="Ej: 527221234567@c.us,527229876543@c.us"
+                className={`w-full p-3 rounded-xl border font-mono ${inputCls}`}
+              />
+              <p className="text-[10px] mt-1 text-emerald-500 font-medium">Puedes escribir varios números separados por comas (,). Estos números recibirán notificaciones de pre-cotizaciones.</p>
+            </div>
+
+            <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-slate-50 border-gray-200'}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className={`text-sm font-bold ${textPrimary}`}>Modo Fuera de Horario</p>
+                  <p className={`text-xs ${textMuted}`}>Determina si el bot responde fuera de turno laboral</p>
+                </div>
+                <select
+                  value={configForm.modo_fuera_horario || 'auto'}
+                  onChange={e => setConfigForm({ ...configForm, modo_fuera_horario: e.target.value })}
+                  className={`p-2 rounded-lg border text-sm font-bold outline-none ${inputCls}`}
+                >
+                  <option value="auto">Auto (Bot responde con mensaje fuera de horario)</option>
+                  <option value="silent">Silencioso (Bot no responde)</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={guardarConfig}
+              className={`w-full py-4 rounded-2xl font-black text-lg transition-all shadow-xl flex items-center justify-center gap-3 ${
+                darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-[#C9EA63]/20 hover:scale-[1.02]' : 'bg-blue-600 text-white shadow-blue-600/20 hover:bg-blue-700'
+              }`}
+            >
+              <Save size={20} /> Guardar Configuración
+            </button>
           </div>
         </div>
       )}

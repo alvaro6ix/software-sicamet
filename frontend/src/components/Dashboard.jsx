@@ -244,8 +244,8 @@ const Dashboard = ({ darkMode }) => {
         <div className={`p-6 rounded-2xl border ${boxBg}`}>
             <h3 className={`text-lg font-black mb-1 ${textValue}`}>Tendencia de Operación (7 días)</h3>
             <p className={`text-xs mb-6 ${textBody}`}>Equipos recibidos y entregados</p>
-            <div className="h-64 w-full">
-                <ResponsiveContainer width="99%" height="100%">
+            <div className="h-64 w-full mt-4">
+                <ResponsiveContainer width="100%" height={250}>
                     <AreaChart data={stats.chartData} margin={{ top: 5, right: 0, bottom: 0, left: -20 }}>
                         <defs>
                             <linearGradient id="colorIngresos" x1="0" y1="0" x2="0" y2="1">
