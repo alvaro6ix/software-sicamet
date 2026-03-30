@@ -5,7 +5,7 @@ import { Package, Clock, FileCheck, CheckCircle, Truck, AlertTriangle } from 'lu
 const columnasEstatus = [
     { id: 'Recepción', icono: Package, color: 'text-indigo-500', bg: 'bg-indigo-500/10', border: 'border-indigo-500' },
     { id: 'Laboratorio', icono: Clock, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500' },
-    { id: 'Certificación', icono: FileCheck, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500' },
+    { id: 'Certificación', icono: FileCheck, color: 'text-emerald-500', bg: 'bg-emerald-500/10', border: 'border-emerald-500' },
     { id: 'Listo', icono: CheckCircle, color: 'text-emerald-500', bg: 'bg-emerald-500/10', border: 'border-emerald-500' },
     { id: 'Entregado', icono: Truck, color: 'text-gray-500', bg: 'bg-gray-500/10', border: 'border-gray-500' }
 ];

@@ -117,7 +117,7 @@ const Registro = ({ darkMode }) => {
   const textTitle = darkMode ? 'text-[#F2F6F0]' : 'text-slate-800';
   const headerBg = darkMode ? 'bg-[#141f0b]' : 'bg-slate-50';
   const labelText = darkMode ? 'text-[#C9EA63]' : 'text-slate-500';
-  const inputBg = darkMode ? 'bg-[#253916] border-[#C9EA63]/40 text-[#F2F6F0] focus:border-[#C9EA63]' : 'bg-white border-gray-300 text-slate-800 focus:border-blue-500';
+  const inputBg = darkMode ? 'bg-[#253916] border-[#C9EA63]/40 text-[#F2F6F0] focus:border-[#C9EA63]' : 'bg-white border-gray-300 text-slate-800 focus:border-emerald-500';
 
   const selectStyles = {
     control: (base) => ({
@@ -150,7 +150,7 @@ const Registro = ({ darkMode }) => {
           
           <div>
             <h2 className={`text-2xl font-bold flex items-center gap-3 ${textTitle}`}>
-              <ClipboardList className={darkMode ? 'text-[#C9EA63]' : 'text-blue-600'} /> 
+              <ClipboardList className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} /> 
               Ingreso de Instrumentos
             </h2>
             <p className={`mt-2 text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
@@ -161,13 +161,13 @@ const Registro = ({ darkMode }) => {
           <div className={`flex rounded-xl p-1 ${darkMode ? 'bg-[#141f0b]' : 'bg-slate-100'}`}>
             <button 
               onClick={() => { setModoRegistro('manual'); if(partidas.length===0) agregarPartidaManual(); }} 
-              className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-all ${modoRegistro === 'manual' ? (darkMode ? 'bg-[#65D067] text-[#141f0b] shadow-md' : 'bg-white text-blue-700 shadow-md') : (darkMode ? 'text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'text-slate-500 hover:text-slate-800')}`}
+              className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-all ${modoRegistro === 'manual' ? (darkMode ? 'bg-[#65D067] text-[#141f0b] shadow-md' : 'bg-white text-emerald-700 shadow-md') : (darkMode ? 'text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'text-slate-500 hover:text-slate-800')}`}
             >
               <Hand size={18}/> Manual
             </button>
             <button 
               onClick={() => setModoRegistro('pdf')}
-              className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-all ${modoRegistro === 'pdf' ? (darkMode ? 'bg-[#65D067] text-[#141f0b] shadow-md' : 'bg-white text-blue-700 shadow-md') : (darkMode ? 'text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'text-slate-500 hover:text-slate-800')}`}
+              className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-all ${modoRegistro === 'pdf' ? (darkMode ? 'bg-[#65D067] text-[#141f0b] shadow-md' : 'bg-white text-emerald-700 shadow-md') : (darkMode ? 'text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'text-slate-500 hover:text-slate-800')}`}
             >
               <FileUp size={18}/> PDF IA
             </button>
@@ -177,7 +177,7 @@ const Registro = ({ darkMode }) => {
         {modoRegistro === 'pdf' && (
           <div className="mb-8 flex justify-center">
              <input type="file" accept="application/pdf" ref={fileInputRef} onChange={handleSubirPDF} className="hidden" />
-             <button onClick={() => fileInputRef.current.click()} disabled={cargandoPdf} className={`px-8 py-4 rounded-xl flex flex-col items-center justify-center gap-3 border shadow-md transition-all w-full max-w-lg ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b] border-[#C9EA63]' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'}`}>
+             <button onClick={() => fileInputRef.current.click()} disabled={cargandoPdf} className={`px-8 py-4 rounded-xl flex flex-col items-center justify-center gap-3 border shadow-md transition-all w-full max-w-lg ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b] border-[#C9EA63]' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'}`}>
                {cargandoPdf ? <Loader2 className="animate-spin" size={32} /> : <FileUp size={32} />} 
                <span className="font-black text-lg">{cargandoPdf ? "Procesando documento con IA..." : "Sube el PDF de la O.S. o Cotización"}</span>
                {!cargandoPdf && <span className="text-sm opacity-80 font-medium">Extraemos Marca, Modelo, Serie y Servicio de forma automática</span>}
@@ -223,12 +223,12 @@ const Registro = ({ darkMode }) => {
                 </thead>
                 <tbody className={darkMode ? 'divide-y divide-[#C9EA63]/10' : 'divide-y divide-slate-100'}>
                   {partidas.map((partida, index) => (
-                    <tr key={index} className={`transition-colors ${darkMode ? 'bg-[#253916] hover:bg-[#314a1c]' : 'bg-white hover:bg-blue-50/50'}`}>
+                    <tr key={index} className={`transition-colors ${darkMode ? 'bg-[#253916] hover:bg-[#314a1c]' : 'bg-white hover:bg-emerald-50/50'}`}>
                       <td className={`px-3 py-2 font-bold ${darkMode ? 'text-[#C9EA63]/50' : 'text-slate-400'}`}>{index + 1}</td>
                       <td className="px-3 py-2"><input type="text" value={partida.nombre_instrumento} onChange={(e) => actualizarPartida(index, 'nombre_instrumento', e.target.value)} className={`w-full p-2 rounded font-semibold outline-none border ${inputBg}`} required /></td>
                       <td className="px-3 py-2"><input type="text" value={partida.marca} onChange={(e) => actualizarPartida(index, 'marca', e.target.value)} className={`w-full p-2 rounded outline-none border ${inputBg}`} required/></td>
                       <td className="px-3 py-2"><input type="text" value={partida.modelo} onChange={(e) => actualizarPartida(index, 'modelo', e.target.value)} className={`w-full p-2 rounded font-mono outline-none border ${inputBg}`} required/></td>
-                      <td className="px-3 py-2"><input type="text" value={partida.no_serie} onChange={(e) => actualizarPartida(index, 'no_serie', e.target.value)} className={`w-full p-2 rounded font-mono font-bold outline-none border ${darkMode ? 'bg-[#141f0b] text-[#65D067] border-[#65D067]/40 focus:border-[#65D067]' : 'bg-slate-50 text-blue-700 border-gray-300 focus:border-blue-500'}`} required/></td>
+                      <td className="px-3 py-2"><input type="text" value={partida.no_serie} onChange={(e) => actualizarPartida(index, 'no_serie', e.target.value)} className={`w-full p-2 rounded font-mono font-bold outline-none border ${darkMode ? 'bg-[#141f0b] text-[#65D067] border-[#65D067]/40 focus:border-[#65D067]' : 'bg-slate-50 text-emerald-700 border-gray-300 focus:border-emerald-500'}`} required/></td>
                       <td className="px-3 py-2">
                         <select value={partida.tipo_servicio} onChange={(e) => actualizarPartida(index, 'tipo_servicio', e.target.value)} className={`w-full p-2 rounded text-xs cursor-pointer outline-none border ${inputBg}`}>
                           {opcionesServicio.map(srv => <option key={srv} value={srv}>{srv}</option>)}
@@ -242,7 +242,7 @@ const Registro = ({ darkMode }) => {
                 </tbody>
               </table>
               <div className={`p-3 border-t ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-slate-50 border-slate-200'}`}>
-                <button type="button" onClick={agregarPartidaManual} className={`text-sm font-bold hover:underline px-2 ${darkMode ? 'text-[#65D067]' : 'text-blue-600'}`}>
+                <button type="button" onClick={agregarPartidaManual} className={`text-sm font-bold hover:underline px-2 ${darkMode ? 'text-[#65D067]' : 'text-emerald-600'}`}>
                   + Agregar equipo manualmente
                 </button>
               </div>

@@ -136,7 +136,7 @@ const Clientes = ({ darkMode }) => {
         {/* ... */}
         <div>
           <h2 className={`text-3xl font-bold flex items-center gap-3 ${textTitle}`}>
-            <Users className={darkMode ? 'text-[#C9EA63]' : 'text-blue-600'} size={32} />
+            <Users className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} size={32} />
             Directorio de Clientes
           </h2>
           <p className={`mt-2 text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
@@ -152,7 +152,7 @@ const Clientes = ({ darkMode }) => {
           <div className="flex flex-col items-end gap-1">
             <div className="flex gap-2">
               <input type="file" accept=".xlsx, .xls" ref={excelInputRef} onChange={handleSubirExcel} className="hidden" />
-              <button onClick={() => excelInputRef.current.click()} disabled={cargandoExcel} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center gap-2 max-h-[36px] shadow-md ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-blue-600 text-white hover:bg-blue-700'} ${cargandoExcel ? 'opacity-50' : ''}`}>
+              <button onClick={() => excelInputRef.current.click()} disabled={cargandoExcel} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center gap-2 max-h-[36px] shadow-md ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'} ${cargandoExcel ? 'opacity-50' : ''}`}>
                 {cargandoExcel ? <Loader2 className="animate-spin" size={16} /> : <FileUp size={16} />} Cargar Excel
               </button>
               <button onClick={handleExportarExcel} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center gap-2 max-h-[36px] shadow-md ${darkMode ? 'bg-[#141f0b] text-[#C9EA63] border border-[#C9EA63]/50 hover:bg-[#314a1c]' : 'bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100'}`}>
@@ -196,15 +196,15 @@ const Clientes = ({ darkMode }) => {
             </thead>
             <tbody className={darkMode ? 'divide-y divide-[#C9EA63]/10' : 'divide-y divide-slate-100'}>
               {paginados.map(cli => (
-                <tr key={cli.id} className={`transition-colors group ${darkMode ? 'bg-[#253916] hover:bg-[#314a1c]' : 'bg-white hover:bg-blue-50/50'}`}>
+                <tr key={cli.id} className={`transition-colors group ${darkMode ? 'bg-[#253916] hover:bg-[#314a1c]' : 'bg-white hover:bg-emerald-50/50'}`}>
                   <td className="px-4 py-3 font-medium opacity-60">#{cli.id}</td>
                   <td className="px-4 py-3 font-bold">{cli.nombre}</td>
                   <td className="px-4 py-3 opacity-80">{cli.contacto}</td>
                   <td className="px-4 py-3 opacity-80 truncate max-w-xs">{cli.email}</td>
-                  <td className={`px-4 py-3 text-center sticky right-0 z-10 transition-colors ${darkMode ? 'bg-[#253916] group-hover:bg-[#314a1c]' : 'bg-white group-hover:bg-blue-50'} shadow-[inset_1px_0_0_rgba(0,0,0,0.1)]`}>
+                  <td className={`px-4 py-3 text-center sticky right-0 z-10 transition-colors ${darkMode ? 'bg-[#253916] group-hover:bg-[#314a1c]' : 'bg-white group-hover:bg-emerald-50'} shadow-[inset_1px_0_0_rgba(0,0,0,0.1)]`}>
                     <div className="flex justify-center gap-2">
-                      <button onClick={() => setViendoItem(cli)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-blue-900/40 text-blue-400' : 'hover:bg-blue-50 text-blue-500'}`}><Eye size={16} /></button>
-                      <button onClick={() => abrirModalEditar(cli)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#141f0b] text-[#C9EA63]' : 'hover:bg-blue-100 text-blue-600'}`}><Edit2 size={16} /></button>
+                      <button onClick={() => setViendoItem(cli)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-emerald-900/40 text-emerald-400' : 'hover:bg-emerald-50 text-emerald-500'}`}><Eye size={16} /></button>
+                      <button onClick={() => abrirModalEditar(cli)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#141f0b] text-[#C9EA63]' : 'hover:bg-emerald-100 text-emerald-600'}`}><Edit2 size={16} /></button>
                       <button onClick={() => abrirModalEliminar(cli.id)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-red-900/40 text-red-400' : 'hover:bg-red-50 text-red-500'}`}><Trash2 size={16} /></button>
                     </div>
                   </td>
@@ -240,7 +240,7 @@ const Clientes = ({ darkMode }) => {
 
       {modalAbierto && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100]">
-          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-blue-600'}`}>
+          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
             <button onClick={() => setModalAbierto(false)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
               <X size={24} />
             </button>
@@ -250,17 +250,17 @@ const Clientes = ({ darkMode }) => {
             <form onSubmit={handleGuardarManual} className="space-y-4">
               <div>
                 <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Empresa / Razón Social *</label>
-                <input required type="text" value={nuevoItem.empresa} onChange={(e) => setNuevoItem({ ...nuevoItem, empresa: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                <input required type="text" value={nuevoItem.empresa} onChange={(e) => setNuevoItem({ ...nuevoItem, empresa: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
               </div>
               <div>
                 <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Teléfono</label>
-                <input type="text" value={nuevoItem.contacto} onChange={(e) => setNuevoItem({ ...nuevoItem, contacto: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                <input type="text" value={nuevoItem.contacto} onChange={(e) => setNuevoItem({ ...nuevoItem, contacto: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
               </div>
               <div>
                 <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Email</label>
-                <input type="email" value={nuevoItem.email} onChange={(e) => setNuevoItem({ ...nuevoItem, email: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                <input type="email" value={nuevoItem.email} onChange={(e) => setNuevoItem({ ...nuevoItem, email: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
               </div>
-              <button type="submit" className={`w-full mt-4 font-bold py-3 px-4 rounded-lg flex justify-center items-center gap-2 transition-colors ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b]' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+              <button type="submit" className={`w-full mt-4 font-bold py-3 px-4 rounded-lg flex justify-center items-center gap-2 transition-colors ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b]' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
                 <Save size={20} /> Guardar
               </button>
             </form>
@@ -300,12 +300,12 @@ const Clientes = ({ darkMode }) => {
 
       {viendoItem && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100]">
-          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-blue-400' : 'bg-white border-blue-500'}`}>
-            <button onClick={() => setViendoItem(null)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-blue-400' : 'text-gray-400 hover:text-gray-800'}`}>
+          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-emerald-400' : 'bg-white border-emerald-500'}`}>
+            <button onClick={() => setViendoItem(null)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-emerald-400' : 'text-gray-400 hover:text-gray-800'}`}>
               <X size={24} />
             </button>
             <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-              <Eye className={darkMode ? 'text-blue-400' : 'text-blue-500'} /> Detalle de Cliente
+              <Eye className={darkMode ? 'text-emerald-400' : 'text-emerald-500'} /> Detalle de Cliente
             </h2>
             <div className="space-y-4">
               <div>

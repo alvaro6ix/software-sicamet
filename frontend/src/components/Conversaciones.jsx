@@ -68,7 +68,7 @@ const Conversaciones = ({ darkMode }) => {
       <div className={`w-full md:w-1/3 h-1/4 md:h-full border-b md:border-b-0 md:border-r flex flex-col shrink-0 overflow-y-auto ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'}`}>
         <div className="p-4 border-b border-inherit bg-inherit shrink-0">
             <h2 className={`font-bold text-lg flex items-center gap-2 mb-4 ${textTitle}`}>
-                <MessageSquare size={20} className={darkMode ? 'text-[#C9EA63]' : 'text-blue-500'} /> Chats Activos
+                <MessageSquare size={20} className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-500'} /> Chats Activos
             </h2>
             <div className={`flex items-center gap-2 w-full px-3 py-2 border rounded-xl ${inputBg}`}>
                 <Search size={16} className={darkMode ? 'text-[#F2F6F0]/50' : 'text-slate-400'} />
@@ -76,7 +76,7 @@ const Conversaciones = ({ darkMode }) => {
             </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-            <div className={`p-4 border-b cursor-pointer transition-colors ${darkMode ? 'border-[#C9EA63]/10 hover:bg-[#314a1c] bg-[#314a1c]/50' : 'border-slate-100 hover:bg-slate-50 bg-blue-50/30'}`}>
+            <div className={`p-4 border-b cursor-pointer transition-colors ${darkMode ? 'border-[#C9EA63]/10 hover:bg-[#314a1c] bg-[#314a1c]/50' : 'border-slate-100 hover:bg-slate-50 bg-emerald-50/30'}`}>
                 <div className="flex justify-between items-start mb-1">
                     <h4 className={`font-bold text-sm ${textTitle}`}>TechLab SA de CV</h4>
                     <span className="text-xs text-emerald-500 font-medium">10:42 AM</span>
@@ -153,7 +153,7 @@ const Conversaciones = ({ darkMode }) => {
                     onChange={(e) => setMensaje(e.target.value)}
                 />
                 
-                <button className={`p-2 rounded-full transition-transform hover:scale-105 shadow-sm ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-blue-600 text-white'}`}>
+                <button className={`p-2 rounded-full transition-transform hover:scale-105 shadow-sm ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white'}`}>
                     <Send size={16} className="ml-0.5" />
                 </button>
             </div>

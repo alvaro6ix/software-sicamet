@@ -117,16 +117,16 @@ const Dashboard = ({ darkMode }) => {
         </div>
 
         {/* Detenidos Laboratorio */}
-        <div onClick={() => window.location.href='/kanban'} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg border-blue-500 ${boxBg}`}>
+        <div onClick={() => window.location.href='/kanban'} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg border-emerald-500 ${boxBg}`}>
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black tracking-widest uppercase text-blue-500">🔵 Detenidos en Lab</p>
+                <p className="text-[10px] font-black tracking-widest uppercase text-emerald-500">🔵 Detenidos en Lab</p>
                 <div className="flex items-end gap-2 mt-1">
                     <h2 className={`text-3xl font-black ${textValue}`}>{stats.kpis.detenidos_laboratorio || 0}</h2>
-                    <span className="text-xs font-medium text-blue-500 mb-1">equipos &gt; 2 días</span>
+                    <span className="text-xs font-medium text-emerald-500 mb-1">equipos &gt; 2 días</span>
                 </div>
               </div>
-              <Clock size={24} className="text-blue-500/50" />
+              <Clock size={24} className="text-emerald-500/50" />
             </div>
         </div>
 
@@ -186,7 +186,7 @@ const Dashboard = ({ darkMode }) => {
                 {[
                     {label: 'Recepción', count: stats.kpis.pipeline?.recepcion || 0, max: 50, color: 'bg-indigo-500'},
                     {label: 'Laboratorio', count: stats.kpis.pipeline?.laboratorio || 0, max: 50, color: 'bg-amber-500'},
-                    {label: 'Certificación / Papelería', count: stats.kpis.pipeline?.certificacion || 0, max: 50, color: 'bg-blue-500'},
+                    {label: 'Certificación / Papelería', count: stats.kpis.pipeline?.certificacion || 0, max: 50, color: 'bg-emerald-500'},
                     {label: 'Listo / En Almacén', count: stats.kpis.pipeline?.listo || 0, max: 50, color: 'bg-emerald-500'}
                 ].map((fase) => (
                     <div key={fase.label}>

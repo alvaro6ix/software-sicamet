@@ -186,7 +186,7 @@ const Marcas = ({ darkMode }) => {
                             <td className="px-4 py-3 font-bold">{item.nombre}</td>
                             <td className="px-4 py-3 text-center">
                                 <div className="flex justify-center gap-2">
-                                    <button onClick={() => setViendoItem(item)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-blue-900/40 text-blue-400' : 'hover:bg-blue-50 text-blue-500'}`}><Eye size={16}/></button>
+                                    <button onClick={() => setViendoItem(item)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-emerald-900/40 text-emerald-400' : 'hover:bg-emerald-50 text-emerald-500'}`}><Eye size={16}/></button>
                                     <button onClick={() => abrirModalEditar(item)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#141f0b] text-[#C9EA63]' : 'hover:bg-orange-100 text-orange-600'}`}><Edit2 size={16}/></button>
                                     <button onClick={() => abrirModalEliminar(item.id)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-red-900/40 text-red-400' : 'hover:bg-red-50 text-red-500'}`}><Trash2 size={16}/></button>
                                 </div>
@@ -251,12 +251,12 @@ const Marcas = ({ darkMode }) => {
 
       {viendoItem && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100]">
-          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-blue-400' : 'bg-white border-blue-500'}`}>
-            <button onClick={() => setViendoItem(null)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-blue-400' : 'text-gray-400 hover:text-gray-800'}`}>
+          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-emerald-400' : 'bg-white border-emerald-500'}`}>
+            <button onClick={() => setViendoItem(null)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-emerald-400' : 'text-gray-400 hover:text-gray-800'}`}>
               <X size={24} />
             </button>
             <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-              <Eye className={darkMode ? 'text-blue-400' : 'text-blue-500'} /> Detalle de Marca
+              <Eye className={darkMode ? 'text-emerald-400' : 'text-emerald-500'} /> Detalle de Marca
             </h2>
             <div className="space-y-4">
               <div>

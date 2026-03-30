@@ -84,7 +84,7 @@ const ListaEquipos = ({ darkMode }) => {
 
   const estatusConfig = {
     'Recepción': { color: 'bg-gray-100 text-gray-700', icon: <Clock size={14} /> },
-    'Laboratorio': { color: 'bg-blue-100 text-blue-700', icon: <Activity size={14} /> },
+    'Laboratorio': { color: 'bg-emerald-100 text-emerald-700', icon: <Activity size={14} /> },
     'Certificación': { color: 'bg-purple-100 text-purple-700', icon: <AlertTriangle size={14} /> },
     'Listo': { color: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle size={14} /> },
     'Entregado': { color: 'bg-green-100 text-green-700', icon: <CheckCircle size={14} /> }
@@ -149,7 +149,7 @@ const ListaEquipos = ({ darkMode }) => {
             ) : (
               equiposFiltrados.map((eq) => (
                 <tr key={eq.id} style={{ backgroundColor: getOsaColor(eq.orden_cotizacion || eq.folio_rastreo, darkMode) }} className={`border-b transition-colors ${darkMode ? 'border-[#C9EA63]/10 hover:brightness-125' : 'border-gray-100 hover:brightness-95'}`}>
-                  <td className={`p-4 font-mono text-sm font-bold ${darkMode ? 'text-[#65d067]' : 'text-blue-600'}`}>{eq.folio_rastreo || eq.orden_cotizacion}</td>
+                  <td className={`p-4 font-mono text-sm font-bold ${darkMode ? 'text-[#65d067]' : 'text-emerald-600'}`}>{eq.folio_rastreo || eq.orden_cotizacion}</td>
                   <td className="p-4">
                     <p className={`font-semibold ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{eq.nombre_instrumento}</p>
                     <p className={`text-xs ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>S/N: {eq.no_serie} • {eq.marca}</p>
@@ -171,7 +171,7 @@ const ListaEquipos = ({ darkMode }) => {
                   </td>
 
                   <td className="p-4 flex justify-center gap-3">
-                    <button onClick={() => abrirModalVer(eq)} className={`transition-colors ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-blue-600'}`} title="Ver Expediente">
+                    <button onClick={() => abrirModalVer(eq)} className={`transition-colors ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-emerald-600'}`} title="Ver Expediente">
                       <Eye size={18} />
                     </button>
                     {/* AQUI CONECTAMOS EL BOTON EDITAR */}
@@ -192,17 +192,17 @@ const ListaEquipos = ({ darkMode }) => {
       {/* --- MODAL 1: VER EXPEDIENTE --- */}
       {modalAbierto && equipoSeleccionado && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100]">
-          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-lg relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-blue-600'}`}>
+          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-lg relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
             <button onClick={cerrarModalVer} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
               <X size={24} />
             </button>
             <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-              <FileText className={darkMode ? 'text-[#C9EA63]' : 'text-blue-600'} /> Expediente del Equipo
+              <FileText className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} /> Expediente del Equipo
             </h2>
             <div className="space-y-4">
               <div className={`p-4 rounded-lg ${darkMode ? 'bg-[#2a401c]' : 'bg-slate-50'}`}>
                 <p className={`text-sm uppercase font-bold ${darkMode ? 'text-[#C9EA63]' : 'text-gray-500'}`}>Orden de Servicio / Ref.</p>
-                <p className={`text-xl font-mono font-bold ${darkMode ? 'text-[#F2F6F0]' : 'text-blue-700'}`}>{equipoSeleccionado.folio_rastreo || equipoSeleccionado.orden_cotizacion}</p>
+                <p className={`text-xl font-mono font-bold ${darkMode ? 'text-[#F2F6F0]' : 'text-emerald-700'}`}>{equipoSeleccionado.folio_rastreo || equipoSeleccionado.orden_cotizacion}</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>Instrumento</p><p className={`font-medium ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.nombre_instrumento}</p></div>
