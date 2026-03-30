@@ -13,6 +13,7 @@ import Conversaciones from './components/Conversaciones';
 import PosiblesClientes from './components/PosiblesClientes';
 import WhatsappQR from './components/WhatsappQR';
 import TableroKanban from './components/TableroKanban';
+import GestionUsuarios from './components/GestionUsuarios';
 import Login from './components/Login';
 
 import { ToastContainer, toast } from 'react-toastify';
@@ -60,7 +61,7 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
     { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['admin', 'recepcionista'] },
     { name: 'Registro Ágil', path: '/registro', icon: FileText, roles: ['admin', 'recepcionista'] },
     { name: 'Lista Instrumentos', path: '/equipos', icon: List, roles: ['admin', 'recepcionista'] },
-    { name: 'Pipeline Kanban', path: '/kanban', icon: Package, roles: ['admin', 'recepcionista'] },
+    { name: 'Pipeline Kanban', path: '/kanban', icon: Package, roles: ['admin', 'recepcionista', 'operador'] },
     { name: 'Clientes', path: '/clientes', icon: Users, roles: ['admin', 'recepcionista'] },
     { name: 'Catálogo Inst.', path: '/catalogo-instrumentos', icon: BookOpen, roles: ['admin', 'recepcionista'] },
     { name: 'Catálogo Marcas', path: '/marcas', icon: Tag, roles: ['admin'] },
@@ -68,7 +69,8 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
     { name: 'Flujos WhatsApp', path: '/flujos-whatsapp', icon: Bot, roles: ['admin', 'recepcionista'] },
     { name: 'Conversaciones', path: '/conversaciones', icon: MessageSquare, roles: ['admin', 'recepcionista'] },
     { name: 'Posibles Clientes', path: '/leads', icon: Target, roles: ['admin', 'recepcionista'] },
-    { name: 'Vincular WhatsApp', path: '/whatsapp-qr', icon: ScanLine, roles: ['admin'] },
+    { name: 'Vincular WhatsApp', path: '/whatsapp-qr', icon: ScanLine, roles: ['admin', 'recepcionista'] },
+    { name: 'Gestión Usuarios', path: '/usuarios', icon: Users, roles: ['admin'] },
   ].filter(item => item.roles.includes(usuario?.rol || 'recepcionista'));
 
   const NavContent = () => (
@@ -79,7 +81,7 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
         </h2>
         <div className={`flex items-center gap-1.5 mt-1 ${darkMode ? 'text-[#C9EA63]/60' : 'text-[#253916]/50'} text-xs`}>
           <ShieldCheck size={12} />
-          <span>{esAdmin ? 'Administrador' : 'Recepcionista'}</span>
+          <span>{usuario?.rol === 'admin' ? 'Administrador' : (usuario?.rol === 'operador' ? 'Operador Pipeline' : 'Recepcionista')}</span>
         </div>
       </div>
 
@@ -203,7 +205,7 @@ const Layout = () => {
     );
   }
 
-  if (!usuario) return <Login onLogin={handleLogin} />;
+  if (!usuario) return <Login onLogin={handleLogin} darkMode={darkMode} setDarkMode={setDarkMode} />;
 
   return (
     <Router>
@@ -234,6 +236,7 @@ const Layout = () => {
               <Route path="/conversaciones" element={<Conversaciones darkMode={darkMode} />} />
               <Route path="/leads" element={<PosiblesClientes darkMode={darkMode} />} />
               <Route path="/whatsapp-qr" element={<WhatsappQR darkMode={darkMode} />} />
+              <Route path="/usuarios" element={<GestionUsuarios darkMode={darkMode} />} />
             </Routes>
           </main>
         </div>

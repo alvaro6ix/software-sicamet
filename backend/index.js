@@ -776,10 +776,40 @@ app.post('/api/usuarios', verificarToken(['admin']), async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.put('/api/usuarios/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { nombre, email, password, rol } = req.body;
+        const id = req.params.id;
+
+        let query = 'UPDATE usuarios SET nombre = ?, email = ?, rol = ?';
+        let params = [nombre, email.toLowerCase(), rol];
+
+        if (password && password.trim() !== "") {
+            const bcrypt = require('bcryptjs');
+            const hash = await bcrypt.hash(password, 12);
+            query += ', password_hash = ?';
+            params.push(hash);
+        }
+
+        query += ' WHERE id = ?';
+        params.push(id);
+
+        await db.query(query, params);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.put('/api/usuarios/:id/activo', verificarToken(['admin']), async (req, res) => {
     try {
         const { activo } = req.body;
         await db.query('UPDATE usuarios SET activo = ? WHERE id = ?', [activo ? 1 : 0, req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/usuarios/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        await db.query('DELETE FROM usuarios WHERE id = ?', [req.params.id]);
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });

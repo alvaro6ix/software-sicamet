@@ -58,7 +58,7 @@ const PosiblesClientes = ({ darkMode }) => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-6 border-opacity-20 border-[#C9EA63]">
         <div>
           <h2 className={`text-3xl font-bold flex items-center gap-3 ${textTitle}`}>
-            <Target className={darkMode ? 'text-[#C9EA63]' : 'text-amber-500'} size={32} /> 
+            <Target className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} size={32} /> 
             Posibles Clientes (Leads)
           </h2>
           <p className={`mt-2 text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
@@ -66,7 +66,7 @@ const PosiblesClientes = ({ darkMode }) => {
           </p>
         </div>
         
-        <button onClick={() => setModalAbierto(true)} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all focus:outline-none flex items-center gap-2 shadow-md ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-amber-500 text-white hover:bg-amber-600'}`}>
+        <button onClick={() => setModalAbierto(true)} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all focus:outline-none flex items-center gap-2 shadow-md ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
             <Plus size={16}/> Agregar Lead
         </button>
       </div>
@@ -89,7 +89,7 @@ const PosiblesClientes = ({ darkMode }) => {
                         <div className="flex justify-between items-start mb-3">
                             <span className={`px-2 py-1 text-[10px] uppercase font-bold tracking-wider rounded-md ${
                                 lead.estado === 'Convertido' ? 'bg-emerald-500 text-white' : 
-                                (darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-amber-100 text-amber-800')
+                                (darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-emerald-800')
                             }`}>
                                 {lead.estado}
                             </span>
@@ -150,7 +150,7 @@ const PosiblesClientes = ({ darkMode }) => {
                 </div>
                 <div className="flex gap-3 justify-end mt-6">
                     <button onClick={() => setModalAbierto(false)} className={`px-4 py-2 rounded-lg text-sm font-bold ${darkMode ? 'text-[#F2F6F0] hover:bg-[#141f0b]' : 'text-slate-600 hover:bg-slate-100'}`}>Cancelar</button>
-                    <button onClick={handleAgregarLead} className={`px-4 py-2 rounded-lg text-sm font-bold ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-amber-500 text-white'}`}>Guardar</button>
+                    <button onClick={handleAgregarLead} className={`px-4 py-2 rounded-lg text-sm font-bold ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>Guardar</button>
                 </div>
             </div>
         </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Package, Clock, FileCheck, CheckCircle, Truck, AlertTriangle } from 'lucide-react';
+import { Package, Clock, FileCheck, CheckCircle, Truck, AlertTriangle, X, Calendar, Hash, User, Info, Tag, BookOpen } from 'lucide-react';
 
 const columnasEstatus = [
     { id: 'Recepción', icono: Package, color: 'text-indigo-500', bg: 'bg-indigo-500/10', border: 'border-indigo-500' },
@@ -13,6 +13,8 @@ const columnasEstatus = [
 const TableroKanban = ({ darkMode }) => {
     const [equipos, setEquipos] = useState([]);
     const [cargando, setCargando] = useState(true);
+    const [modalDetalle, setModalDetalle] = useState(false);
+    const [equipoDetalle, setEquipoDetalle] = useState(null);
 
     const fetchEquipos = async () => {
         try {
@@ -117,8 +119,9 @@ const TableroKanban = ({ darkMode }) => {
                                         key={equipo.id}
                                         draggable
                                         onDragStart={(e) => onDragStart(e, equipo)}
+                                        onClick={() => { setEquipoDetalle(equipo); setModalDetalle(true); }}
                                         style={{ backgroundColor: getOsaColor(equipo.orden_cotizacion, darkMode) }}
-                                        className={`p-4 rounded-xl shadow-sm border cursor-grab active:cursor-grabbing hover:shadow-md transition-all relative overflow-hidden group ${darkMode ? 'border-[#C9EA63]/20 hover:brightness-125' : 'border-slate-200 hover:brightness-95'}`}
+                                        className={`p-4 rounded-xl shadow-sm border cursor-pointer hover:shadow-md transition-all relative overflow-hidden group ${darkMode ? 'border-[#C9EA63]/20 hover:brightness-125' : 'border-slate-200 hover:brightness-95'}`}
                                     >
                                         <div className={`absolute top-0 left-0 w-1 rounded-l-xl h-full ${columna.bg.split('/')[0]}`} />
                                         <div className="flex justify-between items-start mb-2">
@@ -146,6 +149,115 @@ const TableroKanban = ({ darkMode }) => {
                     );
                 })}
             </div>
+
+            {/* Modal de Detalle */}
+            {modalDetalle && equipoDetalle && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className={`w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border transition-all transform scale-100 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
+                        {/* Cabecera Modal */}
+                        <div className={`p-6 flex justify-between items-center border-b ${darkMode ? 'bg-[#253916] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`p-3 rounded-2xl ${darkMode ? 'bg-[#141f0b] text-[#C9EA63]' : 'bg-white text-emerald-600 shadow-sm'}`}>
+                                    <Package size={24} />
+                                </div>
+                                <div className="flex flex-col">
+                                    <h2 className={`text-xl font-black leading-tight ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoDetalle.nombre_instrumento}</h2>
+                                    <p className={`text-xs font-bold uppercase tracking-widest ${darkMode ? 'text-[#C9EA63]/70' : 'text-emerald-600'}`}>{equipoDetalle.orden_cotizacion}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setModalDetalle(false)} className={`p-2 rounded-xl transition-colors ${darkMode ? 'hover:bg-[#141f0b] text-[#F2F6F0]/60' : 'hover:bg-slate-200 text-slate-400'}`}>
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        {/* Contenido Modal */}
+                        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-6">
+                                <section>
+                                    <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos del Equipo</h4>
+                                    <div className="space-y-3">
+                                        <div className="flex items-center gap-3 text-sm">
+                                            <Tag size={16} className="opacity-40" />
+                                            <span className="font-bold w-20">Marca:</span>
+                                            <span className="opacity-80">{equipoDetalle.marca || 'N/A'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-sm">
+                                            <BookOpen size={16} className="opacity-40" />
+                                            <span className="font-bold w-20">Modelo:</span>
+                                            <span className="opacity-80">{equipoDetalle.modelo || 'N/A'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-sm">
+                                            <Hash size={16} className="opacity-40" />
+                                            <span className="font-bold w-20">Serie:</span>
+                                            <span className="opacity-80 font-mono text-xs">{equipoDetalle.no_serie || 'N/A'}</span>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section>
+                                    <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Cliente & Servicio</h4>
+                                    <div className="space-y-3">
+                                      <div className="flex items-start gap-3 text-sm">
+                                            <User size={16} className="opacity-40 mt-1" />
+                                            <div className="flex flex-col">
+                                              <span className="font-bold">{equipoDetalle.empresa}</span>
+                                              <span className="text-xs opacity-60">{equipoDetalle.persona || 'Sin contacto'}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-sm">
+                                            <Info size={16} className="opacity-40" />
+                                            <span className="font-bold">Servicio:</span>
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${darkMode ? 'bg-emerald-900/30 text-emerald-400' : 'bg-emerald-50 text-emerald-700'}`}>
+                                              {equipoDetalle.tipo_servicio || 'Calibración'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </section> section
+                            </div>
+
+                            <div className="space-y-6">
+                                <div className={`p-6 rounded-3xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
+                                    <h4 className="text-[10px] font-black uppercase tracking-widest mb-4 opacity-50">Tiempos y Estatus</h4>
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center">
+                                            <div className="flex items-center gap-2 text-sm">
+                                                <Calendar size={16} className="opacity-40" />
+                                                <span>Registro CRM:</span>
+                                            </div>
+                                            <span className="font-bold text-sm">
+                                                {new Date(equipoDetalle.fecha_ingreso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <div className="flex items-center gap-2 text-sm">
+                                                <Clock size={16} className="opacity-40" />
+                                                <span>SLA Prometido:</span>
+                                            </div>
+                                            <span className={`font-black text-sm ${equipoDetalle.sla <= 2 ? 'text-rose-500' : ''}`}>{equipoDetalle.sla} días</span>
+                                        </div>
+                                        <div className="pt-4 border-t border-inherit">
+                                            <div className="text-[10px] uppercase font-black tracking-widest mb-1 opacity-50 text-center">Estado Actual</div>
+                                            <div className={`text-center font-black py-2 rounded-xl text-xs ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>
+                                                {equipoDetalle.estatus_actual}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Pie Modal */}
+                        <div className={`p-6 border-t flex justify-end ${darkMode ? 'bg-[#253916] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
+                            <button 
+                                onClick={() => setModalDetalle(false)}
+                                className={`px-8 py-3 rounded-2xl font-black text-sm transition-all shadow-lg ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                            >
+                                Entendido
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
