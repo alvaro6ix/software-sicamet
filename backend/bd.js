@@ -16,7 +16,12 @@ async function probarConexion() {
     try {
         const connection = await pool.getConnection();
         console.log('✅ ¡Conexión exitosa a la base de datos MySQL (sicamet_crm)!');
-        connection.release(); // Liberamos la conexión para que no se quede colgada
+        
+        const [inst] = await connection.query('SELECT COUNT(*) as total FROM instrumentos_estatus');
+        const [chts] = await connection.query('SELECT COUNT(*) as total FROM whatsapp_chats');
+        console.log(`📊 Inventario de Datos: ${inst[0].total} instrumentos y ${chts[0].total} chats localizados.`);
+        
+        connection.release();
     } catch (error) {
         console.error('❌ Error al conectar a la base de datos:', error.message);
     }

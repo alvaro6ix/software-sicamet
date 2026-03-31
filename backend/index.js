@@ -23,9 +23,36 @@ const { Server } = require('socket.io');
 const io = new Server(httpServer, {
     cors: { origin: "*", methods: ["GET", "POST", "PUT"] }
 });
+
+io.on('connection', (socket) => {
+    console.log('🔗 Cliente conectado vía Socket:', socket.id);
+    // Enviar estado actual del bot al nuevo cliente IPX
+    socket.emit('bot_status', { connected: isClientConnected, qr: currentQR });
+});
+
 global.io = io;
 
 const port = 3001;
+
+// --- UTILS CRM ---
+async function registrarMensajeEnCRM(numero, cuerpo, tipo, direccion, url_media = null) {
+    try {
+        await db.query(
+            'INSERT INTO whatsapp_mensajes (numero_wa, cuerpo, tipo, url_media, direccion) VALUES (?, ?, ?, ?, ?)',
+            [numero, cuerpo || '', tipo || 'texto', url_media, direccion]
+        );
+        await db.query(
+            'INSERT INTO chat_mensajes (telefono, direccion, mensaje) VALUES (?, ?, ?)',
+            [numero, direccion === 'saliente' ? 'out' : 'in', cuerpo || '[Media]']
+        ).catch(() => {});
+        if (global.io) {
+            global.io.emit('nuevo_mensaje_whatsapp', {
+                numero_wa: numero, cuerpo, tipo, url_media, direccion, fecha: new Date()
+            });
+            global.io.emit('actualizacion_chat_whatsapp'); 
+        }
+    } catch (err) { console.error('Error registrarMensajeEnCRM:', err.message); }
+}
 
 // Multer en memoria (para PDFs/Excel) y en disco (para media del bot)
 const upload = multer({ storage: multer.memoryStorage() });
@@ -421,8 +448,6 @@ app.post('/api/leer-pdf', upload.single('archivoPdf'), async (req, res) => {
     }
 });
 
-httpServer.listen(port, () => console.log(`🚀 API + RealTime en http://localhost:${port}`));
-
 // ============================================================
 // BOT WHATSAPP — Sistema de Auto-Recuperación Inteligente
 // ============================================================
@@ -483,9 +508,10 @@ function iniciarBot(sesionLimpia = false) {
     botClient.on('qr', qr => {
         currentQR = qr;
         isClientConnected = false;
-        intentosReinicio = 0; // Reset del contador al recibir QR (arrancó bien)
+        intentosReinicio = 0;
         qrcode.generate(qr, { small: true });
         console.log('📱 QR generado — escanear en WhatsApp > Dispositivos vinculados');
+        if (global.io) global.io.emit('qr', qr);
     });
 
     botClient.on('ready', () => {
@@ -493,13 +519,15 @@ function iniciarBot(sesionLimpia = false) {
         currentQR = '';
         isClientConnected = true;
         intentosReinicio = 0;
-        global.botClient = botClient; // Acceso global para notificaciones
+        global.botClient = botClient;
+        if (global.io) global.io.emit('bot_status', { connected: true });
     });
 
     botClient.on('disconnected', (reason) => {
         console.log('❌ Bot desconectado:', reason);
         currentQR = '';
         isClientConnected = false;
+        if (global.io) global.io.emit('bot_status', { connected: false });
         // Reconexión con sesión existente (desconexión normal, no corrupta)
         setTimeout(() => {
             if (intentosReinicio < MAX_INTENTOS) {
@@ -520,30 +548,59 @@ function iniciarBot(sesionLimpia = false) {
         
         const numeroUser = msg.from;
         const textoRecibido = msg.body ? msg.body.trim() : '';
-        if (!textoRecibido) return;
+        
+        let mediaUrl = null;
+        let tipoMsg = 'texto';
+        
+        if (msg.hasMedia) {
+            try {
+                const media = await msg.downloadMedia();
+                if (media) {
+                    const ext = media.mimetype.split('/')[1].split(';')[0];
+                    const filename = `media_${Date.now()}.${ext}`;
+                    const fullPath = path.join(__dirname, 'uploads', 'bot', filename);
+                    fs.writeFileSync(fullPath, Buffer.from(media.data, 'base64'));
+                    mediaUrl = `/uploads/bot/${filename}`;
+                    tipoMsg = media.mimetype.startsWith('image/') ? 'imagen' : 'archivo';
+                }
+            } catch (e) { console.error('Error descargando media:', e.message); }
+        }
+
+        const esPropio = msg.fromMe;
+        const direccion = esPropio ? 'saliente' : 'entrante';
+        const numeroParaRegistro = esPropio ? msg.to : msg.from;
+
+        // Registrar entrada/propio
+        await registrarMensajeEnCRM(numeroParaRegistro, textoRecibido || (msg.hasMedia ? '[Media]' : ''), tipoMsg, direccion, mediaUrl);
+
+        // Actualizar chat metadata
+        const contact = await msg.getContact().catch(() => ({}));
+        await db.query(
+            'INSERT INTO whatsapp_chats (numero_wa, nombre_contacto, ultima_actividad) VALUES (?, ?, CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE ultima_actividad = CURRENT_TIMESTAMP, nombre_contacto = VALUES(nombre_contacto)',
+            [numeroParaRegistro, contact.pushname || contact.name || numeroParaRegistro]
+        ).catch(() => {});
+
+        if (esPropio) return;
+
+        const [chatCfg] = await db.query('SELECT bot_desactivado FROM whatsapp_chats WHERE numero_wa = ?', [numeroUser]);
+        if (chatCfg[0] && chatCfg[0].bot_desactivado) return;
+
+        if (!textoRecibido && !msg.hasMedia) return;
 
         try {
-            // Registrar mensaje en historial
-            await db.query(
-                'INSERT INTO chat_mensajes (cliente_whatsapp, mensaje, tipo) VALUES (?, ?, "entrante") ON DUPLICATE KEY UPDATE message = message',
-                [numeroUser, textoRecibido]
-            ).catch(() => {}); // No interrumpir si la tabla no existe
-
-            // Verificar si la sesión del usuario necesita número de OC (flujo legacy)
             const [sesion] = await db.query('SELECT * FROM sesiones WHERE cliente_whatsapp = ?', [numeroUser]);
             const nodoActual = sesion[0]?.nodo_actual_id;
 
-            // Consulta de estatus por OC (compatibilidad con flujo anterior)
             if (nodoActual === 5 || /^OC-|^COT-/i.test(textoRecibido)) {
                 const resp = await botFlujos.consultarEstatusLogic(numeroUser, textoRecibido);
                 await botClient.sendMessage(numeroUser, resp.text);
+                await registrarMensajeEnCRM(numeroUser, resp.text, 'texto', 'saliente');
                 if (nodoActual === 5) {
                     await db.query('UPDATE sesiones SET nodo_actual_id = NULL WHERE cliente_whatsapp = ?', [numeroUser]);
                 }
                 return;
             }
 
-            // Motor PRO: procesar mensaje con IA y flujos
             const respuesta = await botFlujos.procesarMensaje(
                 numeroUser, 
                 textoRecibido, 
@@ -552,13 +609,26 @@ function iniciarBot(sesionLimpia = false) {
             );
 
             if (respuesta) {
-                await botClient.sendMessage(numeroUser, respuesta);
+                // Si la respuesta es un objeto (v3), extraemos el texto y manejamos multimedia
+                const textoAEnviar = typeof respuesta === 'object' ? respuesta.text : respuesta;
+                
+                if (textoAEnviar) {
+                    await botClient.sendMessage(numeroUser, textoAEnviar);
+                    await registrarMensajeEnCRM(numeroUser, textoAEnviar, 'texto', 'saliente');
+                }
+
+                // Si hay multimedia en la respuesta, enviarla también (opcional)
+                if (typeof respuesta === 'object' && respuesta.mediaUrl) {
+                    // Aquí se podría implementar el envío de media si el flujo lo requiere
+                }
             }
 
         } catch (err) { 
-            console.error('Error en mensaje bot:', err.message);
+            console.error('Error en mensaje bot:', err);
             try {
-                await botClient.sendMessage(numeroUser, '⚠️ Ocurrió un error temporal. Por favor intenta de nuevo o escribe *0* para el menú.');
+                const errMsg = '⚠️ Ocurrió un error temporal en el motor del bot. Por favor intenta de nuevo o escribe *0* para el menú.';
+                await botClient.sendMessage(numeroUser, errMsg);
+                await registrarMensajeEnCRM(numeroUser, errMsg, 'texto', 'saliente');
             } catch (e2) { /* silenciar */ }
         }
     });
@@ -621,8 +691,82 @@ app.post('/api/whatsapp/send-media', upload.single('archivo'), async (req, res) 
         if (!req.file) return res.status(400).json({ error: 'No se incluyó archivo' });
         const numero = req.body.numero;
         if (!numero) return res.status(400).json({ error: 'Número requerido' });
+        
         const media = new MessageMedia(req.file.mimetype, req.file.buffer.toString('base64'), req.file.originalname);
-        await botClient.sendMessage(numero, media);
+        const sent = await botClient.sendMessage(numero, media);
+        
+        // Guardar en historial de salida si el envío fue exitoso
+        await db.query(
+            'INSERT INTO whatsapp_mensajes (numero_wa, cuerpo, tipo, url_media, direccion) VALUES (?, ?, ?, ?, "saliente")',
+            [numero, req.file.originalname, 'archivo', `/uploads/bot/${req.file.filename}`] 
+        ).catch(e => console.error('Error guardando media saliente:', e.message));
+
+        res.json({ success: true, message: sent });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// NUEVOS ENDPOINTS CRM WHATSAPP
+
+app.get('/api/whatsapp/chats', async (req, res) => {
+    try {
+        const [chats] = await db.query(`
+            SELECT * FROM whatsapp_chats 
+            ORDER BY es_favorito DESC, ultima_actividad DESC
+        `);
+        res.json(chats);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/whatsapp/chats/:numero/mensajes', async (req, res) => {
+    try {
+        const [mensajes] = await db.query(
+            'SELECT * FROM whatsapp_mensajes WHERE numero_wa = ? ORDER BY fecha ASC', 
+            [req.params.numero]
+        );
+        res.json(mensajes);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/whatsapp/enviar', upload.single('archivo'), async (req, res) => {
+    try {
+        const { numero, texto } = req.body;
+        if (!isClientConnected) return res.status(400).json({ error: 'Bot no conectado' });
+        
+        let media = null;
+        let tipo = 'texto';
+        let cuerpo = texto;
+        let url_media = null;
+
+        if (req.file) {
+            media = new MessageMedia(req.file.mimetype, req.file.buffer.toString('base64'), req.file.originalname);
+            tipo = req.file.mimetype.startsWith('image/') ? 'imagen' : 'archivo';
+            url_media = `/uploads/bot/${req.file.filename}`;
+            cuerpo = req.file.originalname;
+        }
+
+        const msgSent = media 
+            ? await botClient.sendMessage(numero, media, { caption: texto })
+            : await botClient.sendMessage(numero, texto);
+
+        await registrarMensajeEnCRM(numero, cuerpo, tipo, 'saliente', url_media);
+        await db.query('UPDATE whatsapp_chats SET ultima_actividad = CURRENT_TIMESTAMP WHERE numero_wa = ?', [numero]);
+
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/whatsapp/chats/:numero/config', async (req, res) => {
+    try {
+        const { es_favorito, bot_desactivado } = req.body;
+        const updates = [];
+        const params = [];
+        if (es_favorito !== undefined) { updates.push('es_favorito = ?'); params.push(es_favorito); }
+        if (bot_desactivado !== undefined) { updates.push('bot_desactivado = ?'); params.push(bot_desactivado); }
+        
+        if (updates.length > 0) {
+            params.push(req.params.numero);
+            await db.query(`UPDATE whatsapp_chats SET ${updates.join(', ')} WHERE numero_wa = ?`, params);
+        }
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1070,7 +1214,22 @@ app.post('/api/bot/chat', verificarToken(), async (req, res) => {
     }
 });
 
-// ─── ARRANCAR ─────────────────────────────────────────────────────────────────
+// --- INICIO DEL SERVIDOR ---
+httpServer.listen(port, '0.0.0.0', () => {
+    console.log(`🚀 API + RealTime en http://localhost:${port}`);
+    if (process.send) process.send('ready');
+}).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`❌ El puerto ${port} ya está ocupado por otra instancia del sistema.`);
+        console.error('💡 Si estás bajo PM2, esto se resolverá automáticamente al reiniciar. Si es manual, cierra el proceso anterior.');
+        process.exit(1);
+    } else {
+        console.error('💥 Error crítico al iniciar servidor:', err.message);
+        process.exit(1);
+    }
+});
+
+// ─── ARRANCAR SERVICIOS ───────────────────────────────────────────────────────
 iniciarBot();
 programarRecordatoriosDiarios();
 

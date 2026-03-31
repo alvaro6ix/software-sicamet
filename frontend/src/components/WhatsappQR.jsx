@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { io } from 'socket.io-client';
 import { ScanLine, Smartphone, CheckCircle, RefreshCw } from 'lucide-react';
 
 const WhatsappQR = ({ darkMode }) => {
@@ -7,18 +8,41 @@ const WhatsappQR = ({ darkMode }) => {
   const [qrCode, setQrCode] = useState('');
 
   useEffect(() => {
+    // Estado inicial
     const checkStatus = async () => {
       try {
         const res = await axios.get('http://localhost:3001/api/whatsapp/status');
         setVinculado(res.data.connected);
-        setQrCode(res.data.qr);
+        if (res.data.qr) setQrCode(res.data.qr);
       } catch (err) {
-        console.error("No se pudo conectar al endpoint de WhatsApp");
+        console.error("Error al obtener estado inicial del bot");
       }
     };
     checkStatus();
-    const interval = setInterval(checkStatus, 3000); // Polling cada 3 segundos
-    return () => clearInterval(interval);
+
+    // Conexión Socket para tiempo real
+    const socket = io('http://localhost:3001');
+
+    socket.on('connect', () => {
+      console.log("🟢 Conectado al servidor de Sockets");
+    });
+
+    socket.on('qr', (qr) => {
+      console.log("Nuevo QR recibido por evento:", qr);
+      setQrCode(qr);
+      setVinculado(false);
+    });
+
+    socket.on('bot_status', (status) => {
+      console.log("Estado de bot recibido:", status);
+      setVinculado(status.connected);
+      if (status.qr) setQrCode(status.qr);
+      if (status.connected) setQrCode('');
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
     const [reiniciando, setReiniciando] = useState(false);
