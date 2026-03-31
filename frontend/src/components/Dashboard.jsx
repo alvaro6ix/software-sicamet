@@ -13,14 +13,14 @@ const Dashboard = ({ darkMode }) => {
     const fetchStats = async () => {
       try {
         const [resStats, resKpis, resHeatmap] = await Promise.all([
-          axios.get('http://localhost:3001/api/stats'),
-          axios.get('http://localhost:3001/api/kpis_negocio'),
-          axios.get('http://localhost:3001/api/heatmap')
+          axios.get('/api/stats'),
+          axios.get('/api/kpis_negocio'),
+          axios.get('/api/heatmap')
         ]);
         setStats({
-          ...resStats.data,
-          kpis: resKpis.data,
-          heatmap: resHeatmap.data
+          ...(resStats?.data || {}),
+          kpis: resKpis?.data || {},
+          heatmap: Array.isArray(resHeatmap?.data) ? resHeatmap.data : []
         });
       } catch (err) {
         console.error('Error obteniendo stats:', err);
@@ -66,7 +66,7 @@ const Dashboard = ({ darkMode }) => {
   const getIntensity = (diaStr, horaObj) => {
     // Normalizar día
     const dicDia = {'Lunes': 'Monday', 'Martes': 'Tuesday', 'Miércoles': 'Wednesday', 'Jueves': 'Thursday', 'Viernes': 'Friday'};
-    const match = stats.heatmap.find(h => h.dia === dicDia[diaStr] && h.hora === horaObj);
+    const match = Array.isArray(stats.heatmap) ? stats.heatmap.find(h => h.dia === dicDia[diaStr] && h.hora === horaObj) : null;
     const count = match ? match.cantidad : 0;
     
     if (count > 10) return darkMode ? 'bg-rose-500' : 'bg-rose-500';

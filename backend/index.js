@@ -35,19 +35,85 @@ global.io = io;
 const port = 3001;
 
 // --- UTILS CRM ---
+function limpiarID(wa) {
+    if (!wa) return '';
+    // Extraer parte antes del @ y limpiar todo lo que no sea dígito
+    const numerico = wa.split('@')[0].replace(/[^\d]/g, '');
+    return numerico;
+}
+
+async function ensureWhatsappChatsColumns() {
+    const alters = [
+        'ALTER TABLE whatsapp_chats ADD COLUMN telefono_display VARCHAR(45) NULL',
+        'ALTER TABLE whatsapp_chats ADD COLUMN wa_jid VARCHAR(180) NULL'
+    ];
+    for (const sql of alters) {
+        try {
+            await db.query(sql);
+        } catch (e) {
+            if (!String(e.message).includes('Duplicate column name')) {
+                console.warn('Migración whatsapp_chats:', e.message);
+            }
+        }
+    }
+}
+
+/** Limpia sesión del motor del bot y memoria de conversación bot por número CRM (solo dígitos). */
+async function limpiarEstadoBotPorNumero(numDigitos) {
+    const [srows] = await db.query('SELECT cliente_whatsapp FROM sesiones');
+    for (const { cliente_whatsapp } of srows) {
+        if (limpiarID(cliente_whatsapp) === numDigitos) {
+            await db.query('DELETE FROM sesiones WHERE cliente_whatsapp = ?', [cliente_whatsapp]);
+        }
+    }
+    const [brows] = await db.query('SELECT DISTINCT cliente_whatsapp FROM bot_conversaciones');
+    for (const { cliente_whatsapp } of brows) {
+        if (limpiarID(cliente_whatsapp) === numDigitos) {
+            await db.query('DELETE FROM bot_conversaciones WHERE cliente_whatsapp = ?', [cliente_whatsapp]);
+        }
+    }
+}
+
+/** Añade `cliente_whatsapp_display` (teléfono legible desde whatsapp_chats). */
+async function adjuntarTelefonoVisible(rows, campoWa = 'cliente_whatsapp') {
+    if (!rows || rows.length === 0) return rows;
+    const nums = [...new Set(rows.map(r => limpiarID(r[campoWa])).filter(Boolean))];
+    if (nums.length === 0) return rows;
+    const [chats] = await db.query(
+        'SELECT numero_wa, telefono_display FROM whatsapp_chats WHERE numero_wa IN (?)',
+        [nums]
+    );
+    const map = {};
+    for (const c of chats || []) {
+        const digits = (c.telefono_display && String(c.telefono_display).replace(/\D/g, '').length >= 10)
+            ? String(c.telefono_display).replace(/\D/g, '')
+            : c.numero_wa;
+        map[c.numero_wa] = digits || c.numero_wa;
+    }
+    return rows.map(r => {
+        const n = limpiarID(r[campoWa]);
+        return {
+            ...r,
+            cliente_whatsapp_display: map[n] || n,
+            [campoWa]: n || r[campoWa]
+        };
+    });
+}
+
 async function registrarMensajeEnCRM(numero, cuerpo, tipo, direccion, url_media = null) {
     try {
+        const numLimpio = limpiarID(numero);
         await db.query(
             'INSERT INTO whatsapp_mensajes (numero_wa, cuerpo, tipo, url_media, direccion) VALUES (?, ?, ?, ?, ?)',
-            [numero, cuerpo || '', tipo || 'texto', url_media, direccion]
+            [numLimpio, cuerpo || '', tipo || 'texto', url_media, direccion]
         );
         await db.query(
             'INSERT INTO chat_mensajes (telefono, direccion, mensaje) VALUES (?, ?, ?)',
-            [numero, direccion === 'saliente' ? 'out' : 'in', cuerpo || '[Media]']
+            [numLimpio, direccion === 'saliente' ? 'out' : 'in', cuerpo || '[Media]']
         ).catch(() => {});
         if (global.io) {
             global.io.emit('nuevo_mensaje_whatsapp', {
-                numero_wa: numero, cuerpo, tipo, url_media, direccion, fecha: new Date()
+                numero_wa: numLimpio, cuerpo, tipo, url_media, direccion, fecha: new Date()
             });
             global.io.emit('actualizacion_chat_whatsapp'); 
         }
@@ -143,9 +209,16 @@ app.get('/api/kpis_negocio', async (req, res) => {
         const [listosSinNotificar] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Listo'`);
         const [esperando] = await db.query(`SELECT COUNT(DISTINCT telefono) as total FROM chat_mensajes WHERE direccion='in' AND fecha > NOW() - INTERVAL 12 HOUR`);
         const [[botCots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'");
-        const [[botEsc]] = await db.query("SELECT COUNT(*) as total FROM escalados WHERE estatus = 'pendiente'");
         
-        // Pipeline counts
+        // Obtener últimos escalados formateados para la lista
+        const [lastEsc] = await db.query("SELECT id, cliente_whatsapp, motivo, created_at FROM escalados WHERE estatus = 'pendiente' ORDER BY id DESC LIMIT 5");
+        const formattedEsc = lastEsc.map(e => ({
+            ...e,
+            id_profesional: `ESC-${String(e.id).padStart(4, '0')}`,
+            cliente_whatsapp: limpiarID(e.cliente_whatsapp)
+        }));
+
+        // Conteos individuales por etapa
         const [qRecep] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Recepción'`);
         const [qLab] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Laboratorio'`);
         const [qCert] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual LIKE '%Certificación%'`);
@@ -164,7 +237,9 @@ app.get('/api/kpis_negocio', async (req, res) => {
             detenidos_laboratorio: detenidos[0].total || 0,
             listos_sin_notificar: listosSinNotificar[0].total || 0,
             cotizaciones_bot_pendientes: botCots.total || 0,
-            escalados_bot_pendientes: botEsc.total || 0,
+            escalados_bot: formattedEsc, // Lista profesional
+            escalados_bot_pendientes: formattedEsc.length,
+            escalados_count: formattedEsc.length,
             conversaciones_activas: esperando[0].total || 0,
             tiempo_promedio_min: avgMin,
             pipeline: {
@@ -176,6 +251,35 @@ app.get('/api/kpis_negocio', async (req, res) => {
             }
         });
     } catch(err) { res.status(500).json({error: err.message}); }
+});
+
+// --- ELIMINAR/VACIAR CONVERSACIÓN ---
+app.delete('/api/whatsapp/chats/:numero/mensajes', verificarToken(), async (req, res) => {
+    try {
+        const num = limpiarID(req.params.numero);
+        await db.query('DELETE FROM whatsapp_mensajes WHERE numero_wa = ?', [num]);
+        await db.query('DELETE FROM chat_mensajes WHERE telefono = ?', [num]).catch(() => {});
+        await limpiarEstadoBotPorNumero(num);
+        await db.query(
+            `UPDATE whatsapp_chats SET nombre_contacto = COALESCE(telefono_display, ?) WHERE numero_wa = ?`,
+            [num, num]
+        ).catch(() => {});
+        if (global.io) global.io.emit('actualizacion_chat_whatsapp');
+        res.json({ success: true, message: 'Conversación vaciada y sesión del bot reiniciada' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- ELIMINAR CHAT COMPLETO (CRM) ---
+app.delete('/api/whatsapp/chats/:numero', verificarToken(), async (req, res) => {
+    try {
+        const num = limpiarID(req.params.numero);
+        await db.query('DELETE FROM whatsapp_mensajes WHERE numero_wa = ?', [num]);
+        await db.query('DELETE FROM chat_mensajes WHERE telefono = ?', [num]).catch(() => {});
+        await limpiarEstadoBotPorNumero(num);
+        await db.query('DELETE FROM whatsapp_chats WHERE numero_wa = ?', [num]);
+        if (global.io) global.io.emit('actualizacion_chat_whatsapp');
+        res.json({ success: true, message: 'Chat eliminado' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // --- OPERACIONES DE INSTRUMENTOS (CRUD MULTIRREGISTRO) ---
@@ -546,7 +650,8 @@ function iniciarBot(sesionLimpia = false) {
         // Ignorar mensajes de grupos y estados
         if (msg.from.includes('@g.us') || msg.from === 'status@broadcast') return;
         
-        const numeroUser = msg.from;
+        const idWhatsApp = msg.from; // ID original (@c.us o @lid) para el bot
+        const numeroUser = limpiarID(idWhatsApp); // Número limpio (dígitos) para el CRM
         const textoRecibido = msg.body ? msg.body.trim() : '';
         
         let mediaUrl = null;
@@ -568,17 +673,32 @@ function iniciarBot(sesionLimpia = false) {
 
         const esPropio = msg.fromMe;
         const direccion = esPropio ? 'saliente' : 'entrante';
-        const numeroParaRegistro = esPropio ? msg.to : msg.from;
+        const idParaWhatsApp = esPropio ? msg.to : idWhatsApp;
+        const numeroParaRegistro = limpiarID(idParaWhatsApp);
 
         // Registrar entrada/propio
         await registrarMensajeEnCRM(numeroParaRegistro, textoRecibido || (msg.hasMedia ? '[Media]' : ''), tipoMsg, direccion, mediaUrl);
 
         // Actualizar chat metadata
-        const contact = await msg.getContact().catch(() => ({}));
+        const contact = await msg.getContact().catch(() => null);
+        const push = contact?.pushname || contact?.name || '';
+        const telRaw = (contact?.number || '').replace(/\D/g, '');
+        const telefonoDisplay = (telRaw.length >= 10 ? telRaw : null) || numeroParaRegistro || null;
         await db.query(
-            'INSERT INTO whatsapp_chats (numero_wa, nombre_contacto, ultima_actividad) VALUES (?, ?, CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE ultima_actividad = CURRENT_TIMESTAMP, nombre_contacto = VALUES(nombre_contacto)',
-            [numeroParaRegistro, contact.pushname || contact.name || numeroParaRegistro]
-        ).catch(() => {});
+            `INSERT INTO whatsapp_chats (numero_wa, telefono_display, wa_jid, nombre_contacto, ultima_actividad)
+             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+             ON DUPLICATE KEY UPDATE
+                ultima_actividad = CURRENT_TIMESTAMP,
+                nombre_contacto = VALUES(nombre_contacto),
+                wa_jid = VALUES(wa_jid),
+                telefono_display = COALESCE(NULLIF(VALUES(telefono_display), ''), telefono_display)`,
+            [numeroParaRegistro, telefonoDisplay, idParaWhatsApp, push || telefonoDisplay || numeroParaRegistro]
+        ).catch(async () => {
+            await db.query(
+                'INSERT INTO whatsapp_chats (numero_wa, nombre_contacto, ultima_actividad) VALUES (?, ?, CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE ultima_actividad = CURRENT_TIMESTAMP, nombre_contacto = VALUES(nombre_contacto)',
+                [numeroParaRegistro, push || numeroParaRegistro]
+            ).catch(() => {});
+        });
 
         if (esPropio) return;
 
@@ -588,38 +708,44 @@ function iniciarBot(sesionLimpia = false) {
         if (!textoRecibido && !msg.hasMedia) return;
 
         try {
-            const [sesion] = await db.query('SELECT * FROM sesiones WHERE cliente_whatsapp = ?', [numeroUser]);
-            const nodoActual = sesion[0]?.nodo_actual_id;
+            const sesion = await botFlujos.getEstado(idWhatsApp);
+            const nodoActual = sesion.nodo_actual_id;
 
-            if (nodoActual === 5 || /^OC-|^COT-/i.test(textoRecibido)) {
-                const resp = await botFlujos.consultarEstatusLogic(numeroUser, textoRecibido);
-                await botClient.sendMessage(numeroUser, resp.text);
-                await registrarMensajeEnCRM(numeroUser, resp.text, 'texto', 'saliente');
-                if (nodoActual === 5) {
-                    await db.query('UPDATE sesiones SET nodo_actual_id = NULL WHERE cliente_whatsapp = ?', [numeroUser]);
+            // Blindaje: solo consultar estatus aquí si el nodo activo es consultar_estatus (id en BD puede no ser 5)
+            const esPrefijoOC = /^OC-|^COT-/i.test(textoRecibido);
+            const esComandoSalida = /^0$|^volver|^menu|^atras/i.test(textoRecibido);
+            const enNodoEstatus = await botFlujos.esNodoConsultaEstatus(nodoActual);
+
+            if ((enNodoEstatus || esPrefijoOC) && !esComandoSalida && textoRecibido.length >= 3) {
+                const resp = await botFlujos.consultarEstatusLogic(idWhatsApp, textoRecibido, sesion);
+                const textoAEnviar = typeof resp === 'object' ? resp.text : resp;
+                console.log(`📤 Enviando respuesta (Status) a ${idWhatsApp}...`);
+                if (botClient.pupPage) {
+                    await botClient.sendMessage(idWhatsApp, textoAEnviar);
+                    await registrarMensajeEnCRM(numeroUser, textoAEnviar, 'texto', 'saliente');
+                } else {
+                    console.error('❌ Error crítico: botClient.pupPage es null. El navegador podría haber crasheado.');
                 }
                 return;
             }
 
             const respuesta = await botFlujos.procesarMensaje(
-                numeroUser, 
+                idWhatsApp, 
                 textoRecibido, 
                 botIA.detectarIntencion, 
                 botIA.respuestaIA
             );
 
             if (respuesta) {
-                // Si la respuesta es un objeto (v3), extraemos el texto y manejamos multimedia
                 const textoAEnviar = typeof respuesta === 'object' ? respuesta.text : respuesta;
-                
                 if (textoAEnviar) {
-                    await botClient.sendMessage(numeroUser, textoAEnviar);
-                    await registrarMensajeEnCRM(numeroUser, textoAEnviar, 'texto', 'saliente');
-                }
-
-                // Si hay multimedia en la respuesta, enviarla también (opcional)
-                if (typeof respuesta === 'object' && respuesta.mediaUrl) {
-                    // Aquí se podría implementar el envío de media si el flujo lo requiere
+                    console.log(`📤 Enviando respuesta (Flujo) a ${idWhatsApp}...`);
+                    if (botClient.pupPage) {
+                        await botClient.sendMessage(idWhatsApp, textoAEnviar);
+                        await registrarMensajeEnCRM(numeroUser, textoAEnviar, 'texto', 'saliente');
+                    } else {
+                        console.error('❌ Error crítico: botClient.pupPage es null al procesar flujo.');
+                    }
                 }
             }
 
@@ -627,8 +753,11 @@ function iniciarBot(sesionLimpia = false) {
             console.error('Error en mensaje bot:', err);
             try {
                 const errMsg = '⚠️ Ocurrió un error temporal en el motor del bot. Por favor intenta de nuevo o escribe *0* para el menú.';
-                await botClient.sendMessage(numeroUser, errMsg);
-                await registrarMensajeEnCRM(numeroUser, errMsg, 'texto', 'saliente');
+                console.log(`✉️ Enviando notificación de error a ${idWhatsApp}...`);
+                if (botClient.pupPage) {
+                    await botClient.sendMessage(idWhatsApp, errMsg);
+                    await registrarMensajeEnCRM(numeroUser, errMsg, 'texto', 'saliente');
+                }
             } catch (e2) { /* silenciar */ }
         }
     });
@@ -709,29 +838,46 @@ app.post('/api/whatsapp/send-media', upload.single('archivo'), async (req, res) 
 
 app.get('/api/whatsapp/chats', async (req, res) => {
     try {
-        const [chats] = await db.query(`
+        const [rows] = await db.query(`
             SELECT * FROM whatsapp_chats 
             ORDER BY es_favorito DESC, ultima_actividad DESC
         `);
-        res.json(chats);
+        const cleanedOut = (c) => {
+            const nw = limpiarID(c.numero_wa);
+            const td = (c.telefono_display && String(c.telefono_display).replace(/\D/g, '').length >= 10)
+                ? String(c.telefono_display).replace(/\D/g, '')
+                : nw;
+            return {
+                ...c,
+                numero_wa: nw,
+                numero_visible: td,
+                nombre_contacto: c.nombre_contacto?.includes('@') ? limpiarID(c.nombre_contacto) : (c.nombre_contacto || td)
+            };
+        };
+        const cleanedRows = rows.map(cleanedOut);
+        res.json(cleanedRows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/whatsapp/chats/:numero/mensajes', async (req, res) => {
     try {
-        const [mensajes] = await db.query(
+        const num = limpiarID(req.params.numero);
+        const [rows] = await db.query(
             'SELECT * FROM whatsapp_mensajes WHERE numero_wa = ? ORDER BY fecha ASC', 
-            [req.params.numero]
+            [num]
         );
-        res.json(mensajes);
+        const cleanedMsgs = rows.map(m => ({ ...m, numero_wa: limpiarID(m.numero_wa) }));
+        res.json(cleanedMsgs);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/whatsapp/enviar', upload.single('archivo'), async (req, res) => {
     try {
-        const { numero, texto } = req.body;
+        const { numero, texto } = req.body; // El numero viene limpio (ej: 521...)
         if (!isClientConnected) return res.status(400).json({ error: 'Bot no conectado' });
         
+        let idDestino = numero.includes('@') ? numero : `${numero}@c.us`; 
+
         let media = null;
         let tipo = 'texto';
         let cuerpo = texto;
@@ -745,14 +891,17 @@ app.post('/api/whatsapp/enviar', upload.single('archivo'), async (req, res) => {
         }
 
         const msgSent = media 
-            ? await botClient.sendMessage(numero, media, { caption: texto })
-            : await botClient.sendMessage(numero, texto);
+            ? await botClient.sendMessage(idDestino, media, { caption: texto })
+            : await botClient.sendMessage(idDestino, texto);
 
         await registrarMensajeEnCRM(numero, cuerpo, tipo, 'saliente', url_media);
         await db.query('UPDATE whatsapp_chats SET ultima_actividad = CURRENT_TIMESTAMP WHERE numero_wa = ?', [numero]);
 
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        console.error('Error al enviar mensaje manual:', err.message);
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 app.put('/api/whatsapp/chats/:numero/config', async (req, res) => {
@@ -764,7 +913,7 @@ app.put('/api/whatsapp/chats/:numero/config', async (req, res) => {
         if (bot_desactivado !== undefined) { updates.push('bot_desactivado = ?'); params.push(bot_desactivado); }
         
         if (updates.length > 0) {
-            params.push(req.params.numero);
+            params.push(limpiarID(req.params.numero));
             await db.query(`UPDATE whatsapp_chats SET ${updates.join(', ')} WHERE numero_wa = ?`, params);
         }
         res.json({ success: true });
@@ -777,7 +926,7 @@ app.put('/api/whatsapp/chats/:numero/config', async (req, res) => {
 app.get('/api/equipos-cliente', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM equipos_cliente WHERE activo = 1 ORDER BY proxima_calibracion ASC');
-        res.json(rows);
+        res.json(await adjuntarTelefonoVisible(rows, 'cliente_whatsapp'));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -812,7 +961,7 @@ app.delete('/api/equipos-cliente/:id', async (req, res) => {
 app.get('/api/cotizaciones-bot', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM cotizaciones_bot ORDER BY created_at DESC LIMIT 100');
-        res.json(rows);
+        res.json(await adjuntarTelefonoVisible(rows, 'cliente_whatsapp'));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -820,10 +969,15 @@ app.put('/api/cotizaciones-bot/:id/estatus', async (req, res) => {
     try {
         const { estatus } = req.body;
         await db.query('UPDATE cotizaciones_bot SET estatus = ? WHERE id = ?', [estatus, req.params.id]);
-        
-        // Notificar a través de sockets que hay una actualización
         if (global.io) global.io.emit('actualizacion_cotizacion', { id: req.params.id, estatus });
-        
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/cotizaciones-bot/:id', async (req, res) => {
+    try {
+        await db.query('DELETE FROM cotizaciones_bot WHERE id = ?', [req.params.id]);
+        if (global.io) global.io.emit('actualizacion_cotizacion', { tipo: 'eliminacion_cotizacion', id: req.params.id });
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -832,7 +986,12 @@ app.put('/api/cotizaciones-bot/:id/estatus', async (req, res) => {
 app.get('/api/escalados', async (req, res) => {
     try {
         const [rows] = await db.query("SELECT * FROM escalados ORDER BY created_at DESC LIMIT 50");
-        res.json(rows);
+        const conTel = await adjuntarTelefonoVisible(rows, 'cliente_whatsapp');
+        const rowsFormateadas = conTel.map(r => ({
+            ...r,
+            folio: `ESC-${String(r.id).padStart(4, '0')}`
+        }));
+        res.json(rowsFormateadas);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -843,6 +1002,13 @@ app.put('/api/escalados/:id/resolver', async (req, res) => {
             "UPDATE escalados SET estatus = 'resuelto', agente_asignado = ?, resuelto_at = NOW() WHERE id = ?",
             [agente || 'CRM', req.params.id]
         );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/escalados/:id', async (req, res) => {
+    try {
+        await db.query('DELETE FROM escalados WHERE id = ?', [req.params.id]);
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1215,7 +1381,8 @@ app.post('/api/bot/chat', verificarToken(), async (req, res) => {
 });
 
 // --- INICIO DEL SERVIDOR ---
-httpServer.listen(port, '0.0.0.0', () => {
+httpServer.listen(port, '0.0.0.0', async () => {
+    await ensureWhatsappChatsColumns();
     console.log(`🚀 API + RealTime en http://localhost:${port}`);
     if (process.send) process.send('ready');
 }).on('error', (err) => {
@@ -1232,4 +1399,4 @@ httpServer.listen(port, '0.0.0.0', () => {
 // ─── ARRANCAR SERVICIOS ───────────────────────────────────────────────────────
 iniciarBot();
 programarRecordatoriosDiarios();
-
+

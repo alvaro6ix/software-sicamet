@@ -214,6 +214,20 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
   const fetchEquipos = async () => {
     try { const { data } = await axios.get(`${API}/api/equipos-cliente`); setEquipos(data); } catch {}
   };
+  const eliminarCotizacion = async (id) => {
+    if (!confirm('¿Seguro que deseas eliminar esta cotización?')) return;
+    try {
+      await axios.delete(`${API}/api/cotizaciones-bot/${id}`);
+      fetchCotizaciones();
+    } catch { alert('Error al eliminar'); }
+  };
+  const eliminarEscalado = async (id) => {
+    if (!confirm('¿Seguro que deseas eliminar este registro de escalado?')) return;
+    try {
+      await axios.delete(`${API}/api/escalados/${id}`);
+      fetchEscalados();
+    } catch { alert('Error al eliminar'); }
+  };
   const fetchCache = async () => {
     try { const { data } = await axios.get(`${API}/api/bot/cache`); setCacheIA(data); } catch {}
   };
@@ -537,7 +551,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                   <tr><td colSpan={7} className={`text-center py-10 ${textMuted}`}>No hay cotizaciones aún</td></tr>
                 ) : cotizaciones.map(c => (
                   <tr key={c.id} className={`border-t ${darkMode ? 'border-[#C9EA63]/10' : 'border-gray-100'}`}>
-                    <td className={`px-4 py-3 ${textPrimary} font-mono text-xs`}>{c.cliente_whatsapp?.replace('@c.us','')}</td>
+                    <td className={`px-4 py-3 ${textPrimary} font-mono text-xs`}>{c.cliente_whatsapp_display || c.cliente_whatsapp?.replace('@c.us','')}</td>
                     <td className={`px-4 py-3 ${textPrimary}`}>{c.nombre_empresa || '—'}</td>
                     <td className={`px-4 py-3 ${textPrimary}`}>
                       <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63]' : 'bg-emerald-50 text-emerald-700'}`}>
@@ -554,13 +568,22 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                     </td>
                     <td className={`px-4 py-3 ${textMuted} text-xs`}>{new Date(c.created_at).toLocaleDateString('es-MX')}</td>
                     <td className="px-4 py-3">
-                      <button 
-                        onClick={() => setSelectedCotizacion(c)}
-                        className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63] hover:bg-[#C9EA63]/20' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
-                        title="Ver detalles técnicos"
-                      >
-                        <ChevronRight size={18} />
-                      </button>
+                      <div className="flex gap-1">
+                        <button 
+                          onClick={() => setSelectedCotizacion(c)}
+                          className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63] hover:bg-[#C9EA63]/20' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                          title="Ver detalles técnicos"
+                        >
+                          <ChevronRight size={18} />
+                        </button>
+                        <button 
+                          onClick={() => eliminarCotizacion(c.id)}
+                          className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-rose-500/10 text-rose-500 hover:bg-rose-500/20' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}
+                          title="Eliminar"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -596,19 +619,26 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                   </tr>
                 ) : escalados.map(e => (
                   <tr key={e.id} className={`border-t ${darkMode ? 'border-[#C9EA63]/10' : 'border-gray-100'}`}>
-                    <td className={`px-4 py-3 ${textPrimary} font-mono text-xs`}>{e.cliente_whatsapp?.replace('@c.us','')}</td>
+                    <td className={`px-4 py-3 ${textPrimary} font-mono text-xs`}>{e.cliente_whatsapp_display || e.cliente_whatsapp?.replace('@c.us','')}</td>
                     <td className={`px-4 py-3 ${textMuted} max-w-[200px] truncate`}>{e.motivo}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${e.estatus === 'pendiente' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{e.estatus}</span>
                     </td>
                     <td className={`px-4 py-3 ${textMuted} text-xs`}>{new Date(e.created_at).toLocaleDateString('es-MX')}</td>
                     <td className="px-4 py-3">
-                      {e.estatus === 'pendiente' && (
-                        <button onClick={() => resolverEscalado(e.id)}
-                          className={`px-3 py-1 rounded-lg text-xs font-semibold ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white'} hover:opacity-80 flex items-center gap-1`}>
-                          <CheckCircle size={12} /> Resolver
+                      <div className="flex gap-1 items-center">
+                        {e.estatus === 'pendiente' && (
+                          <button onClick={() => resolverEscalado(e.id)}
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white'} hover:opacity-80 flex items-center gap-1`}>
+                            <CheckCircle size={12} /> Resolver
+                          </button>
+                        )}
+                        <button onClick={() => eliminarEscalado(e.id)}
+                          className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-rose-500/10 text-rose-500 hover:bg-rose-500/20' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}
+                          title="Eliminar registro">
+                          <Trash2 size={16} />
                         </button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -656,7 +686,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                           </span>
                         ) : '—'}
                       </td>
-                      <td className={`px-4 py-3 ${textMuted} font-mono text-xs`}>{eq.cliente_whatsapp?.replace('@c.us','')}</td>
+                      <td className={`px-4 py-3 ${textMuted} font-mono text-xs`}>{eq.cliente_whatsapp_display || eq.cliente_whatsapp?.replace('@c.us','')}</td>
                     </tr>
                   );
                 })}
@@ -1146,7 +1176,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-gray-100'}`}>
                   <p className={`text-[10px] uppercase font-bold tracking-wider ${textMuted} mb-1`}>Contacto</p>
-                  <p className={`text-sm font-semibold ${textPrimary}`}>{selectedCotizacion.cliente_whatsapp?.replace('@c.us', '')}</p>
+                  <p className={`text-sm font-semibold ${textPrimary}`}>{selectedCotizacion.cliente_whatsapp_display || selectedCotizacion.cliente_whatsapp?.replace('@c.us', '')}</p>
                 </div>
                 <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-gray-100'}`}>
                   <p className={`text-[10px] uppercase font-bold tracking-wider ${textMuted} mb-1`}>Tiempo de Entrega</p>

@@ -3,13 +3,24 @@ import axios from 'axios';
 import { 
     MessageSquare, Phone, Search, Send, User, Bot, Plus, X, Paperclip, 
     FileText, CheckCircle, AlertTriangle, Star, MoreVertical, Download, 
-    Image as ImageIcon, Clock
+    Image as ImageIcon, Clock, RefreshCcw
 } from 'lucide-react';
 import io from 'socket.io-client';
 
 const API = 'http://localhost:3001';
 
 const Conversaciones = ({ darkMode }) => {
+    const limpiarID = (id) => {
+        if (!id) return '';
+        return id.split('@')[0].replace(/[^\d]/g, '');
+    };
+    /** Número para mostrar al operador (prioriza dígitos reales del contacto). */
+    const numeroParaMostrar = (chat) => {
+        if (!chat) return '';
+        const v = chat.numero_visible || chat.telefono_display;
+        if (v) return String(v).replace(/\D/g, '');
+        return limpiarID(chat.numero_wa);
+    };
     const [chats, setChats] = useState([]);
     const [activeChat, setActiveChat] = useState(null);
     const [mensajes, setMensajes] = useState([]);
@@ -120,9 +131,52 @@ const Conversaciones = ({ darkMode }) => {
     };
 
     const filtrarChats = chats.filter(c => 
-        (c.nombre_contacto || '').toLowerCase().includes(busqueda.toLowerCase()) || 
-        c.numero_wa.includes(busqueda)
+        (c.nombre_contacto || '').toLowerCase().includes(busqueda.toLowerCase()) ||
+        String(c.numero_wa || '').includes(busqueda.replace(/\D/g, '')) ||
+        String(numeroParaMostrar(c)).includes(busqueda.replace(/\D/g, ''))
     );
+
+    const [showMenu, setShowMenu] = useState(false);
+    const menuRef = useRef(null);
+
+    // Cerrar menú al hacer clic fuera
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false);
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const handleVaciarChat = async () => {
+        if (!activeChat) return;
+        if (!window.confirm(`⚠️ ¿Vaciar mensajes y reiniciar sesión del bot con ${activeChat.nombre_contacto || numeroParaMostrar(activeChat)}?`)) return;
+        
+        try {
+            await axios.delete(`${API}/api/whatsapp/chats/${encodeURIComponent(activeChat.numero_wa)}/mensajes`);
+            setMensajes([]);
+            setShowMenu(false);
+            fetchChats();
+        } catch (err) { alert('Error al vaciar chat'); }
+    };
+
+    const handleEliminarChat = async () => {
+        if (!activeChat) return;
+        if (!window.confirm(`⚠️ ¿Eliminar por completo el chat con ${numeroParaMostrar(activeChat)}? Se borrarán mensajes y la ficha del CRM.`)) return;
+        try {
+            await axios.delete(`${API}/api/whatsapp/chats/${encodeURIComponent(activeChat.numero_wa)}`);
+            setActiveChat(null);
+            setMensajes([]);
+            setShowMenu(false);
+            fetchChats();
+        } catch (err) { alert('Error al eliminar chat'); }
+    };
+
+    const handleReenviar = (msg) => {
+        setInputMsg(msg.cuerpo || '');
+        setShowMenu(false); // Cerramos menú si se abrió desde ahí
+        // Opcional: hacer foco en el input
+    };
 
     const boxBg = darkMode ? 'bg-[#253916] border-[#C9EA63]/20' : 'bg-white border-gray-100 shadow-xl';
     const textTitle = darkMode ? 'text-[#F2F6F0]' : 'text-slate-800';
@@ -150,36 +204,41 @@ const Conversaciones = ({ darkMode }) => {
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
                     {filtrarChats.length === 0 && <div className="p-8 text-center text-xs opacity-50">No hay chats activos.</div>}
-                    {filtrarChats.map(chat => (
-                        <div 
-                            key={chat.numero_wa}
-                            onClick={() => seleccionarChat(chat)}
-                            className={`p-4 border-b cursor-pointer transition-colors flex items-center gap-3 ${
-                                activeChat?.numero_wa === chat.numero_wa 
-                                    ? (darkMode ? 'bg-[#314a1c] border-[#C9EA63]/40' : 'bg-emerald-50 border-emerald-200') 
-                                    : (darkMode ? 'border-[#C9EA63]/10 hover:bg-[#314a1c]/30' : 'border-slate-100 hover:bg-slate-50')
-                            }`}
-                        >
-                            <div className={`w-12 h-12 rounded-full overflow-hidden flex-shrink-0 ${darkMode ? 'bg-[#253916]' : 'bg-slate-200'}`}>
-                                {chat.foto_url ? <img src={chat.foto_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={24}/></div>}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="flex justify-between items-start mb-0.5">
-                                    <h4 className={`font-bold text-sm truncate ${textTitle}`}>{chat.nombre_contacto || chat.numero_wa.split('@')[0]}</h4>
-                                    <span className="text-[10px] text-slate-500 font-medium whitespace-nowrap">
-                                        {new Date(chat.ultima_actividad).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
+                    {filtrarChats.map(chat => {
+                        const numMostrar = numeroParaMostrar(chat);
+                        return (
+                            <div 
+                                key={chat.numero_wa}
+                                onClick={() => seleccionarChat(chat)}
+                                className={`p-4 border-b cursor-pointer transition-colors flex items-center gap-3 ${
+                                    activeChat?.numero_wa === chat.numero_wa 
+                                        ? (darkMode ? 'bg-[#314a1c] border-[#C9EA63]/40' : 'bg-emerald-50 border-emerald-200') 
+                                        : (darkMode ? 'border-[#C9EA63]/10 hover:bg-[#314a1c]/30' : 'border-slate-100 hover:bg-slate-50')
+                                }`}
+                            >
+                                <div className={`w-12 h-12 rounded-full overflow-hidden flex-shrink-0 ${darkMode ? 'bg-[#253916]' : 'bg-slate-200'}`}>
+                                    {chat.foto_url ? <img src={chat.foto_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={24}/></div>}
                                 </div>
-                                <div className="flex items-center justify-between">
-                                    <p className={`text-xs truncate ${darkMode ? 'text-[#F2F6F0]/50' : 'text-slate-500'}`}>
-                                        {chat.bot_desactivado === 1 ? <span className="text-rose-400 font-black tracking-tighter uppercase">[Manual] </span> : <span className="text-emerald-500 font-black tracking-tighter uppercase">[In Bot] </span>}
-                                        WhatsApp Chat
-                                    </p>
-                                    {chat.es_favorito === 1 && <Star size={12} className="text-amber-400 fill-amber-400" />}
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-start mb-0.5">
+                                        <h4 className={`font-bold text-sm truncate ${textTitle}`}>
+                                            {chat.nombre_contacto?.includes('@') ? limpiarID(chat.nombre_contacto) : (chat.nombre_contacto || numMostrar)}
+                                        </h4>
+                                        <span className="text-[10px] text-slate-500 font-medium whitespace-nowrap">
+                                            {new Date(chat.ultima_actividad).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <p className={`text-xs truncate font-mono ${darkMode ? 'text-[#F2F6F0]/50' : 'text-slate-500'}`} title={`ID interno: ${chat.numero_wa}`}>
+                                            {chat.bot_desactivado === 1 ? <span className="text-rose-400 font-black tracking-tighter uppercase">[Manual] </span> : <span className="text-emerald-500 font-black tracking-tighter uppercase">[In Bot] </span>}
+                                            {numMostrar}
+                                        </p>
+                                        {chat.es_favorito === 1 && <Star size={12} className="text-amber-400 fill-amber-400" />}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 
@@ -194,22 +253,53 @@ const Conversaciones = ({ darkMode }) => {
                                     {activeChat.foto_url ? <img src={activeChat.foto_url} alt="" /> : <User size={20} />}
                                 </div>
                                 <div>
-                                    <h3 className={`font-bold text-sm ${textTitle}`}>{activeChat.nombre_contacto || activeChat.numero_wa.split('@')[0]}</h3>
-                                    <p className="text-xs text-emerald-500 flex items-center gap-1 font-mono">
-                                        {activeChat.numero_wa.split('@')[0]}
+                                    <h3 className={`font-bold text-sm ${textTitle}`}>
+                                        {activeChat.nombre_contacto?.includes('@') ? limpiarID(activeChat.nombre_contacto) : (activeChat.nombre_contacto || numeroParaMostrar(activeChat))}
+                                    </h3>
+                                    <p className="text-xs text-emerald-500 flex items-center gap-1 font-mono" title={`ID CRM: ${activeChat.numero_wa}`}>
+                                        <Phone size={10} /> {numeroParaMostrar(activeChat)}
                                     </p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 relative" ref={menuRef}>
                                 <button 
                                     onClick={() => toggleConfig('es_favorito', activeChat.es_favorito === 1 ? 0 : 1)}
                                     className={`p-2 rounded-lg transition-colors ${activeChat.es_favorito === 1 ? 'text-amber-400' : 'text-slate-400 hover:bg-slate-200'}`}
                                 >
                                     <Star size={18} className={activeChat.es_favorito === 1 ? 'fill-amber-400' : ''} />
                                 </button>
-                                <button className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#253916] text-[#C9EA63]' : 'hover:bg-slate-200 text-slate-600'}`}>
+                                
+                                <button 
+                                    onClick={() => setShowMenu(!showMenu)}
+                                    className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#253916] text-[#C9EA63]' : 'hover:bg-slate-200 text-slate-600'}`}
+                                >
                                     <MoreVertical size={18} />
                                 </button>
+
+                                {/* Dropdown Menu */}
+                                {showMenu && (
+                                    <div className={`absolute right-0 top-12 w-48 rounded-xl border shadow-2xl z-50 py-2 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/30' : 'bg-white border-slate-100'}`}>
+                                        <button 
+                                            onClick={handleVaciarChat}
+                                            className={`w-full text-left px-4 py-2 text-xs font-bold transition-colors ${darkMode ? 'text-rose-400 hover:bg-rose-950/30' : 'text-rose-600 hover:bg-rose-50'}`}
+                                        >
+                                            Vaciar mensajes + reiniciar bot
+                                        </button>
+                                        <button 
+                                            onClick={handleEliminarChat}
+                                            className={`w-full text-left px-4 py-2 text-xs font-bold transition-colors ${darkMode ? 'text-orange-300 hover:bg-orange-950/30' : 'text-orange-700 hover:bg-orange-50'}`}
+                                        >
+                                            Eliminar chat del CRM
+                                        </button>
+                                        <div className={`h-px mx-2 my-1 ${darkMode ? 'bg-[#C9EA63]/10' : 'bg-slate-100'}`}></div>
+                                        <button 
+                                            onClick={() => window.alert("Próximamente: Exportar historial")}
+                                            className={`w-full text-left px-4 py-2 text-xs font-bold transition-colors ${darkMode ? 'text-[#F2F6F0] hover:bg-[#C9EA63]/10' : 'text-slate-600 hover:bg-slate-50'}`}
+                                        >
+                                            EXPORTAR CHAT
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -256,6 +346,19 @@ const Conversaciones = ({ darkMode }) => {
                                             {new Date(msg.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             {msg.direccion === 'saliente' && <CheckCircle size={10} />}
                                         </div>
+
+                                        {/* Botón Flotante de Reenvío (Aparece en Hover) */}
+                                        <button 
+                                            onClick={() => handleReenviar(msg)}
+                                            title="Reenviar mensaje"
+                                            className={`absolute top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full shadow-lg border z-10 ${
+                                                msg.direccion === 'saliente' 
+                                                    ? `-left-10 ${darkMode ? 'bg-[#253916] border-[#C9EA63]/30 text-[#C9EA63]' : 'bg-white border-slate-200 text-slate-500'}` 
+                                                    : `-right-10 ${darkMode ? 'bg-[#C9EA63] border-none text-[#141f0b]' : 'bg-emerald-600 border-none text-white'}`
+                                            }`}
+                                        >
+                                            <RefreshCcw size={14} />
+                                        </button>
                                     </div>
                                 </div>
                             ))}
