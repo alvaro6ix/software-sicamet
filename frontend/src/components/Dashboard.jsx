@@ -28,12 +28,17 @@ const Dashboard = ({ darkMode }) => {
     };
     fetchStats();
     
+    window.addEventListener('crm:refresh', fetchStats);
+    
     const interval = setInterval(() => {
       determinarHorario();
     }, 60000);
     determinarHorario();
     
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('crm:refresh', fetchStats);
+    };
   }, []);
 
   const determinarHorario = () => {
@@ -153,10 +158,28 @@ const Dashboard = ({ darkMode }) => {
                 <Zap className="text-amber-500"/> IA Insights & Alertas
             </h3>
             <div className="flex-1 space-y-3">
-                {(stats.kpis.clientes_esperando > 4) && (
+                {stats.kpis.clientes_esperando > 4 && (
                 <div className={`p-3 rounded-lg text-sm font-medium flex items-start gap-2 ${darkMode ? 'bg-rose-900/30 text-rose-300' : 'bg-rose-50 text-rose-700'}`}>
                     <AlertTriangle size={16} className="mt-0.5" />
                     <p>Atención: Hay congestión de mensajes. Sugiero activar respuestas automatizadas de retardo.</p>
+                </div>
+                )}
+                {stats.kpis.cotizaciones_bot_pendientes > 0 && (
+                <div 
+                  onClick={() => window.location.href='/flujos-whatsapp'}
+                  className={`p-3 rounded-lg text-sm font-bold flex items-start gap-2 shadow-sm cursor-pointer transition-all hover:scale-[1.02] ${darkMode ? 'bg-amber-900/30 text-amber-300 border border-amber-500/20' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}
+                >
+                    <Bot size={16} className="mt-0.5 animate-bounce" />
+                    <p>Tienes {stats.kpis.cotizaciones_bot_pendientes} cotizaciones de WhatsApp pendientes por atender.</p>
+                </div>
+                )}
+                {stats.kpis.escalados_bot_pendientes > 0 && (
+                <div 
+                  onClick={() => window.location.href='/conversaciones'}
+                  className={`p-3 rounded-lg text-sm font-bold flex items-start gap-2 shadow-sm cursor-pointer transition-all hover:scale-[1.02] ${darkMode ? 'bg-rose-900/30 text-rose-300 border border-rose-500/20' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}
+                >
+                    <Users size={16} className="mt-0.5 animate-pulse" />
+                    <p>Hay {stats.kpis.escalados_bot_pendientes} clientes esperando ser atendidos por un humano.</p>
                 </div>
                 )}
                 <div className={`p-3 rounded-lg text-sm flex items-start gap-2 ${darkMode ? 'bg-indigo-900/30 text-indigo-300' : 'bg-indigo-50 text-indigo-700'}`}>

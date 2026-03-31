@@ -25,8 +25,8 @@ const ListaEquipos = ({ darkMode }) => {
 
   useEffect(() => {
     cargarEquipos();
-    const intervalo = setInterval(cargarEquipos, 5000);
-    return () => clearInterval(intervalo);
+    window.addEventListener('crm:refresh', cargarEquipos);
+    return () => window.removeEventListener('crm:refresh', cargarEquipos);
   }, []);
 
   const cambiarEstatus = async (id, nuevoEstatus) => {

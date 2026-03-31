@@ -18,6 +18,13 @@ const { ejecutarRecordatorios } = require('./bot_recordatorios');
 const { generarToken, verificarToken, verificarPassword } = require('./auth');
 
 const app = express();
+const httpServer = require('http').createServer(app);
+const { Server } = require('socket.io');
+const io = new Server(httpServer, {
+    cors: { origin: "*", methods: ["GET", "POST", "PUT"] }
+});
+global.io = io;
+
 const port = 3001;
 
 // Multer en memoria (para PDFs/Excel) y en disco (para media del bot)
@@ -68,11 +75,21 @@ app.get('/api/stats', async (req, res) => {
             if (indice !== -1) chartDataMapeada[indice].entregados = row.cantidad;
         });
         
+        const [botStats] = await db.query(`
+            SELECT 
+                (SELECT COUNT(*) FROM cotizaciones_bot WHERE DATE(created_at) = CURDATE()) as cotizacionesHoy,
+                (SELECT COUNT(*) FROM cotizaciones_bot WHERE estatus != 'completada' AND estatus != 'cerrada') as pendientesCotizacion,
+                (SELECT COUNT(*) FROM escalados WHERE estatus = 'pendiente') as escaladosPendientes,
+                (SELECT COUNT(*) FROM equipos_cliente) as equiposRegistrados,
+                (SELECT COUNT(*) FROM cache_ia) as cacheHitsTotal
+        `);
+
         res.json({ 
             enCalibracion: enCalibracion[0].total || 0, 
             proximosSLA: proximosSLA[0].total || 0, 
             acreditaciones: 12,
-            chartData: chartDataMapeada
+            chartData: chartDataMapeada,
+            bot: botStats[0]
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -98,6 +115,8 @@ app.get('/api/kpis_negocio', async (req, res) => {
         const [detenidos] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Laboratorio' AND fecha_ingreso < NOW() - INTERVAL 2 DAY`);
         const [listosSinNotificar] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Listo'`);
         const [esperando] = await db.query(`SELECT COUNT(DISTINCT telefono) as total FROM chat_mensajes WHERE direccion='in' AND fecha > NOW() - INTERVAL 12 HOUR`);
+        const [[botCots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'");
+        const [[botEsc]] = await db.query("SELECT COUNT(*) as total FROM escalados WHERE estatus = 'pendiente'");
         
         // Pipeline counts
         const [qRecep] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Recepción'`);
@@ -117,6 +136,8 @@ app.get('/api/kpis_negocio', async (req, res) => {
             nuevos_leads: leads[0].total || 0,
             detenidos_laboratorio: detenidos[0].total || 0,
             listos_sin_notificar: listosSinNotificar[0].total || 0,
+            cotizaciones_bot_pendientes: botCots.total || 0,
+            escalados_bot_pendientes: botEsc.total || 0,
             conversaciones_activas: esperando[0].total || 0,
             tiempo_promedio_min: avgMin,
             pipeline: {
@@ -147,6 +168,9 @@ app.post('/api/instrumentos-multiple', async (req, res) => {
 
         await db.query(query, [valores]);
         console.log(`✅ Registradas ${instrumentos.length} partidas de la orden ${instrumentos[0].orden_cotizacion}`);
+        
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'registro_multiple' });
+        
         res.json({ success: true, count: instrumentos.length });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -166,6 +190,9 @@ app.put('/api/instrumentos/:id/estatus', async (req, res) => {
         } else {
             await db.query('UPDATE instrumentos_estatus SET estatus_actual = ? WHERE id = ?', [estatus, req.params.id]);
         }
+        
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'estatus_instrumento', id: req.params.id });
+        
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -177,6 +204,9 @@ app.put('/api/instrumentos/:id', async (req, res) => {
             'UPDATE instrumentos_estatus SET orden_cotizacion=?, nombre_instrumento=?, marca=?, no_serie=?, empresa=? WHERE id=?', 
             [orden_cotizacion, nombre_instrumento, marca, no_serie, empresa, req.params.id]
         );
+        
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'edicion_instrumento', id: req.params.id });
+        
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -192,6 +222,9 @@ app.put('/api/instrumentos/:id/estatus', async (req, res) => {
 app.delete('/api/instrumentos/:id', async (req, res) => {
     try {
         await db.query('DELETE FROM instrumentos_estatus WHERE id = ?', [req.params.id]);
+        
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'eliminacion_instrumento' });
+        
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -388,7 +421,7 @@ app.post('/api/leer-pdf', upload.single('archivoPdf'), async (req, res) => {
     }
 });
 
-app.listen(port, () => console.log(`🚀 API en http://localhost:${port}`));
+httpServer.listen(port, () => console.log(`🚀 API + RealTime en http://localhost:${port}`));
 
 // ============================================================
 // BOT WHATSAPP — Sistema de Auto-Recuperación Inteligente
@@ -643,6 +676,10 @@ app.put('/api/cotizaciones-bot/:id/estatus', async (req, res) => {
     try {
         const { estatus } = req.body;
         await db.query('UPDATE cotizaciones_bot SET estatus = ? WHERE id = ?', [estatus, req.params.id]);
+        
+        // Notificar a través de sockets que hay una actualización
+        if (global.io) global.io.emit('actualizacion_cotizacion', { id: req.params.id, estatus });
+        
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -678,12 +715,15 @@ app.post('/api/bot/ejecutar-recordatorios', async (req, res) => {
 app.get('/api/bot/stats', async (req, res) => {
     try {
         const [[cots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE DATE(created_at) = CURDATE()");
+        const [[pendientes]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'");
         const [[escalados]] = await db.query("SELECT COUNT(*) as total FROM escalados WHERE estatus = 'pendiente'");
         const [[equipos]] = await db.query("SELECT COUNT(*) as total FROM equipos_cliente WHERE activo = 1");
         const [[cacheHits]] = await db.query("SELECT SUM(hits) as total FROM cache_ia WHERE expires_at > NOW()");
         const [[proximosVencer]] = await db.query("SELECT COUNT(*) as total FROM equipos_cliente WHERE activo = 1 AND proxima_calibracion BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)");
+        
         res.json({
             cotizacionesHoy: cots.total || 0,
+            pendientesCotizacion: pendientes.total || 0,
             escaladosPendientes: escalados.total || 0,
             equiposRegistrados: equipos.total || 0,
             cacheHitsTotal: cacheHits.total || 0,

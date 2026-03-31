@@ -15,6 +15,7 @@ import WhatsappQR from './components/WhatsappQR';
 import TableroKanban from './components/TableroKanban';
 import GestionUsuarios from './components/GestionUsuarios';
 import Login from './components/Login';
+import io from 'socket.io-client';
 
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -50,10 +51,10 @@ axios.interceptors.response.use(
 import { 
   LayoutDashboard, FileText, List, Moon, Sun, Menu, X, 
   Users, BookOpen, Tag, Package, MessageSquare, 
-  Bot, ScanLine, Target, LogOut, ShieldCheck, UserCircle
+  Bot, ScanLine, Target, LogOut, ShieldCheck, UserCircle, Save
 } from 'lucide-react';
 
-const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, onLogout }) => {
+const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, onLogout, counts }) => {
   const location = useLocation();
   const esAdmin = usuario?.rol === 'admin';
 
@@ -100,7 +101,17 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
               }`}
             >
               <item.icon size={18} />
-              {item.name}
+              <span className="flex-1">{item.name}</span>
+              {item.name === 'Flujos WhatsApp' && counts.cots > 0 && (
+                <span className="bg-rose-600 text-white text-[11px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-lg shadow-rose-500/40 animate-pulse border-2 border-white/20">
+                  {counts.cots}
+                </span>
+              )}
+              {item.name === 'Conversaciones' && counts.escalados > 0 && (
+                <span className="bg-rose-600 text-white text-[11px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-lg shadow-rose-500/40 animate-pulse border-2 border-white/20">
+                  {counts.escalados}
+                </span>
+              )}
             </Link>
           );
         })}
@@ -191,7 +202,49 @@ const Layout = () => {
 
   const handleLogin = (usr) => setUsuario(usr);
   
-  const handleLogout = () => {
+  const [pendingCounts, setPendingCounts] = useState({ cots: 0, escalados: 0 });
+
+  useEffect(() => {
+    if (usuario) {
+      // Conectar socket
+      const socket = io('http://localhost:3001');
+      
+      socket.on('nueva_cotizacion', (data) => {
+        toast.info(`🔔 ¡Nueva Cotización! de ${data.empresa}`, { 
+          position: "top-right",
+          autoClose: 10000,
+          theme: "colored"
+        });
+        fetchGlobalStats();
+      });
+
+      socket.on('actualizacion_cotizacion', () => {
+        fetchGlobalStats();
+      });
+      
+      socket.on('actualizacion_operativa', () => {
+        fetchGlobalStats();
+        // Disparar evento global para que otros componentes refresquen sus datos sin prop-drilling
+        window.dispatchEvent(new CustomEvent('crm:refresh'));
+      });
+
+      fetchGlobalStats();
+
+      return () => socket.disconnect();
+    }
+  }, [usuario]);
+
+  const fetchGlobalStats = async () => {
+    try {
+      const res = await axios.get('/api/bot/stats');
+      setPendingCounts({
+        cots: res.data.pendientesCotizacion || 0,
+        escalados: res.data.escaladosPendientes || 0
+      });
+    } catch (e) { console.error("Error global stats", e); }
+  };
+
+  const onLogout = () => {
     localStorage.removeItem('crm_token');
     localStorage.removeItem('crm_usuario');
     setUsuario(null);
@@ -212,7 +265,15 @@ const Layout = () => {
       <ToastContainer position="bottom-right" autoClose={3000} theme="colored" />
       <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]' : 'bg-slate-50 text-[#253916]'}`}>
         
-        <Sidebar darkMode={darkMode} setDarkMode={setDarkMode} mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} usuario={usuario} onLogout={handleLogout} />
+        <Sidebar 
+            darkMode={darkMode} 
+            setDarkMode={setDarkMode} 
+            mobileOpen={mobileOpen} 
+            setMobileOpen={setMobileOpen} 
+            usuario={usuario}
+            onLogout={onLogout}
+            counts={pendingCounts}
+          />
 
         <div className="flex-1 flex flex-col overflow-hidden">
           <header className={`lg:hidden flex items-center justify-between p-4 shadow-sm z-30 ${darkMode ? 'bg-[#141f0b] border-b border-[#C9EA63]/10' : 'bg-[#F2F6F0] border-b border-[#253916]/5'}`}>

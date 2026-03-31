@@ -1,23 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Bot, MessageSquare, Plus, Edit2, Trash2, Smartphone, Save, X, Zap, AlertCircle, Users, Clock, TrendingUp, BarChart2, RefreshCw, Bell, Package, Send, ChevronRight, CheckCircle, AlertTriangle } from 'lucide-react';
+import { 
+  Bot, MessageSquare, BookOpen, HelpCircle, Settings, RefreshCw, Send, CheckCircle, Bell, 
+  Trash2, Plus, Download, ChevronRight, X, User, Phone, Calendar, Building, TrendingUp, Package, 
+  Clock, AlertCircle, PlayCircle, Smartphone, Edit2, Zap, Search, Award, Info, Save
+} from 'lucide-react';
+import io from 'socket.io-client';
 
 const API = 'http://localhost:3001';
 
-// Menú principal simulado con botones rápidos
+// Menú principal simulado con iconos modernos
 const OPCIONES_MENU = [
-  { id: '1', label: '📋 Solicitar cotización', color: 'blue' },
-  { id: '2', label: '🔍 Consultar estatus de equipo', color: 'emerald' },
-  { id: '3', label: '📅 Mis equipos y recordatorios', color: 'purple' },
-  { id: '4', label: '🏆 Servicios y acreditaciones', color: 'amber' },
-  { id: '5', label: '📞 Contacto y ubicaciones', color: 'slate' },
-  { id: '6', label: '🧑‍💼 Hablar con un asesor', color: 'rose' },
+  { id: '1', label: 'Solicitar cotización', icon: TrendingUp, color: 'blue' },
+  { id: '2', label: 'Consultar estatus de equipo', icon: Search, color: 'emerald' },
+  { id: '3', label: 'Mis equipos y recordatorios', icon: Calendar, color: 'purple' },
+  { id: '4', label: 'Servicios y acreditaciones', icon: Award, color: 'amber' },
+  { id: '5', label: 'Contacto y ubicaciones', icon: Building, color: 'slate' },
+  { id: '6', label: 'Hablar con un asesor', icon: User, color: 'rose' },
 ];
 
 const MENSAJES_INICIALES = []; // Se cargarán del simulador real
 
 const FlujosWhatsapp = ({ darkMode, usuario }) => {
   const [pestana, setPestana] = useState('simulador');
+  const [loadingAccion, setLoadingAccion] = useState(false);
   const [mensajes, setMensajes] = useState(MENSAJES_INICIALES);
   const [inputMsg, setInputMsg] = useState('');
   const [cargandoBot, setCargandoBot] = useState(false);
@@ -40,6 +46,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
   const [configForm, setConfigForm] = useState({});
   const chatRef = useRef(null);
   const fileInputRef = useRef(null);
+  const [selectedCotizacion, setSelectedCotizacion] = useState(null);
   const esAdmin = usuario?.rol === 'admin';
 
   // Colores por tema
@@ -52,8 +59,23 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     fetchStatusBot();
     fetchStats();
     const interval = setInterval(fetchStatusBot, 8000);
-    return () => clearInterval(interval);
-  }, []);
+    
+    // Configurar Socket para actualizaciones en tiempo real
+    const socket = io('http://localhost:3001');
+    socket.on('nueva_cotizacion', () => {
+      fetchStats();
+      if (pestana === 'cotizaciones') fetchCotizaciones();
+    });
+    socket.on('actualizacion_cotizacion', () => {
+      fetchStats();
+      if (pestana === 'cotizaciones') fetchCotizaciones();
+    });
+
+    return () => {
+      clearInterval(interval);
+      socket.disconnect();
+    };
+  }, [pestana]);
 
   useEffect(() => {
     if (pestana === 'cotizaciones') fetchCotizaciones();
@@ -93,11 +115,12 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
   const fetchBotConfig = async () => {
     try {
       const { data } = await axios.get(`${API}/api/bot/config`);
+      if (!data) return;
       setBotConfig(data);
       const form = {};
-      Object.entries(data).forEach(([k, v]) => { form[k] = v.valor; });
+      Object.entries(data).forEach(([k, v]) => { if (v) form[k] = v.valor; });
       setConfigForm(form);
-    } catch {}
+    } catch (err) { console.error('Error fetching config:', err); }
   };
   const guardarNodoRaiz = async () => {
     try {
@@ -105,7 +128,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       await axios.put(`${API}/api/bot/nodo-raiz`, { mensaje_bienvenida: editandoBienvenidaTexto }, { headers: { Authorization: `Bearer ${token}` } });
       setMensajeBienvenida(editandoBienvenidaTexto);
       setEditandoBienvenida(false);
-      alert('✅ Mensaje de bienvenida guardado');
+      alert('Mensaje de bienvenida guardado');
     } catch { alert('Error al guardar mensaje'); }
   };
 
@@ -121,7 +144,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       }
       setEditandoNodo(null);
       fetchBotNodos();
-      alert('✅ Nodo guardado correctamente');
+      alert('Nodo guardado correctamente');
     } catch { alert('Error al guardar el nodo'); }
   };
 
@@ -138,7 +161,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       });
       if (data.success && data.url) {
         setEditandoNodo(prev => ({ ...prev, media_url: data.url }));
-        alert('✅ Archivo subido y enlazado correctamente');
+        alert('Archivo subido y enlazado correctamente');
       }
     } catch (err) { alert('Hooray! Error al subir archivo: ' + err.message); }
     setUploadingMedia(false);
@@ -159,7 +182,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       const token = localStorage.getItem('token');
       await axios.post(`${API}/api/bot/nodos/${nodoId}/opciones`, { opciones }, { headers: { Authorization: `Bearer ${token}` } });
       fetchBotNodos();
-      alert('✅ Ramificaciones actualizadas');
+      alert('Ramificaciones actualizadas');
     } catch { alert('Error al guardar opciones'); }
   };
   const guardarFaq = async () => {
@@ -171,7 +194,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       }
       setFaqForm({ pregunta: '', respuesta: '', id: null });
       fetchBotFaq();
-      alert('✅ FAQ guardado correctamente');
+      alert('FAQ guardado correctamente');
     } catch { alert('Error al guardar FAQ'); }
   };
   const eliminarFaq = async (id) => {
@@ -182,7 +205,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     try {
       await axios.put(`${API}/api/bot/config`, configForm);
       fetchBotConfig();
-      alert('✅ Configuración guardada');
+      alert('Configuración guardada');
     } catch { alert('Error al guardar configuración'); }
   };
   const fetchEscalados = async () => {
@@ -240,7 +263,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     } catch (err) {
       console.error('Error en simulador:', err);
       setCargandoBot(false);
-      setMensajes(prev => [...prev, { tipo: 'bot', text: '❌ Error al conectar con el backend. Verifica que el servidor esté corriendo.' }]);
+      setMensajes(prev => [...prev, { tipo: 'bot', text: 'Error al conectar con el backend. Verifica que el servidor esté corriendo.' }]);
     }
   };
 
@@ -283,7 +306,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
   const ejecutarRecordatorios = async () => {
     try {
       const { data } = await axios.post(`${API}/api/bot/ejecutar-recordatorios`);
-      alert(`✅ Recordatorios ejecutados: ${data.enviados} enviados, ${data.omitidos} omitidos`);
+      alert(`Recordatorios ejecutados: ${data.enviados} enviados, ${data.omitidos} omitidos`);
     } catch (e) { alert('Error al ejecutar recordatorios: ' + e.message); }
   };
 
@@ -291,7 +314,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     try {
       await axios.delete(`${API}/api/bot/cache`);
       fetchCache();
-      alert('✅ Caché expirado eliminado');
+      alert('Caché expirado eliminado');
     } catch {}
   };
 
@@ -323,21 +346,59 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
         </div>
         <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold ${statusBot.connected ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
           <span className={`w-2 h-2 rounded-full ${statusBot.connected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-          {statusBot.connected ? '🟢 Bot Activo' : '🔴 Bot Inactivo'}
+          {statusBot.connected ? 'Bot Activo' : 'Bot Inactivo'}
         </div>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div 
+          onClick={() => setPestana('cotizaciones')}
+          className={`p-6 rounded-3xl border transition-all duration-500 overflow-hidden relative group cursor-pointer hover:shadow-lg ${
+            stats.pendientesCotizacion > 0 
+              ? (darkMode ? 'bg-rose-500/10 border-rose-500/40 hover:bg-rose-500/20' : 'bg-rose-50 border-rose-200 hover:bg-rose-100' )
+              : (darkMode ? 'bg-white/5 border-white/10 hover:bg-white/10' : 'bg-white border-gray-100 shadow-sm hover:border-emerald-200')
+          }`}
+        >
+          {stats.pendientesCotizacion > 0 && (
+            <div className="absolute top-0 right-0 p-3">
+              <span className="flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+              </span>
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${stats.pendientesCotizacion > 0 ? 'bg-rose-500 text-white animate-bounce shadow-lg shadow-rose-500/20' : (darkMode ? 'bg-white/5 text-white/50' : 'bg-slate-100 text-slate-500')}`}>
+              <TrendingUp size={18} />
+            </div>
+            <div>
+              <p className={`text-sm font-medium ${textMuted}`}>Cotizaciones hoy</p>
+              <h4 className={`text-xl font-black ${stats.pendientesCotizacion > 0 && !darkMode ? 'text-rose-600' : textPrimary}`}>
+                {stats.cotizacionesHoy || 0}
+              </h4>
+              {stats.pendientesCotizacion > 0 && (
+                <p className="text-[10px] font-bold text-rose-500 uppercase tracking-tighter mt-1 animate-pulse">
+                   {stats.pendientesCotizacion} pendientes por atender
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
         {[
-          { label: 'Cotizaciones hoy', value: stats.cotizacionesHoy ?? '—', icon: '📋' },
-          { label: 'Escalados pendientes', value: stats.escaladosPendientes ?? '—', icon: '🧑‍💼', alert: stats.escaladosPendientes > 0 },
-          { label: 'Equipos registrados', value: stats.equiposRegistrados ?? '—', icon: '📦' },
-          { label: 'Vencen en 30d', value: stats.proximosVencer30d ?? '—', icon: '⏰', alert: stats.proximosVencer30d > 0 },
-          { label: 'Cache hits IA', value: stats.cacheHitsTotal ?? '—', icon: '🧠' },
+          { label: 'Escalados pendientes', value: stats.escaladosPendientes ?? '—', icon: <User size={20}/>, alert: stats.escaladosPendientes > 0, tab: 'escalados' },
+          { label: 'Equipos registrados', value: stats.equiposRegistrados ?? '—', icon: <Package size={20}/>, tab: 'equipos' },
+          { label: 'Vencen en 30d', value: stats.proximosVencer30d ?? '—', icon: <Clock size={20}/>, alert: stats.proximosVencer30d > 0, tab: 'equipos' },
+          { label: 'Cache hits IA', value: stats.cacheHitsTotal ?? '—', icon: <Zap size={20}/>, tab: 'cache' },
         ].map((kpi, i) => (
-          <div key={i} className={`rounded-xl border p-4 ${box} ${kpi.alert ? (darkMode ? 'border-amber-500/50' : 'border-amber-300 bg-amber-50') : ''}`}>
-            <p className="text-2xl">{kpi.icon}</p>
+          <div 
+            key={i} 
+            onClick={() => kpi.tab && setPestana(kpi.tab)}
+            className={`rounded-xl border p-4 transition-all ${kpi.tab ? 'cursor-pointer hover:shadow-md hover:border-emerald-300' : ''} ${box} ${kpi.alert ? (darkMode ? 'border-amber-500/50' : 'border-amber-300 bg-amber-50 shadow-sm') : ''}`}
+          >
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${darkMode ? 'bg-white/5 text-white/50' : 'bg-slate-100 text-slate-500'}`}>
+               {kpi.icon}
+            </div>
             <p className={`text-2xl font-bold mt-1 ${textPrimary} ${kpi.alert ? 'text-amber-600' : ''}`}>{kpi.value}</p>
             <p className={`text-xs mt-1 ${textMuted}`}>{kpi.label}</p>
           </div>
@@ -348,9 +409,10 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       <div className="flex gap-1 flex-wrap">
         {TABS.map(tab => (
           <button key={tab.id} onClick={() => setPestana(tab.id)}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${pestana === tab.id
-              ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white')
-              : (darkMode ? 'bg-[#141f0b] text-[#F2F6F0]/70 hover:bg-[#314a1c]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}`}>
+            className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${pestana === tab.id
+              ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-lg shadow-[#C9EA63]/20' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20')
+              : (darkMode ? 'bg-[#141f0b] text-[#F2F6F0]/50 hover:bg-[#C9EA63]/10 border border-white/5' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}`}>
+            {tab.icon && <tab.icon size={16} />}
             {tab.label}
           </button>
         ))}
@@ -449,9 +511,10 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
               <Send size={16} />
             </button>
           </form>
-          <p className={`text-center text-xs py-2 ${textMuted}`}>
-            🛈 Simulador de preview · Los flujos reales con IA están activos en el bot de WhatsApp
-          </p>
+            <div className={`flex items-center justify-center gap-2 py-2 ${textMuted}`}>
+              <AlertCircle size={12} />
+              <span className="text-[10px]">Simulador de preview · Los flujos reales con IA están activos en el bot de WhatsApp</span>
+            </div>
         </div>
       )}
 
@@ -465,23 +528,40 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className={darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}>
-                <tr>{['WhatsApp', 'Empresa', 'Equipo', 'Tipo Servicio', 'Estatus', 'Fecha'].map(h => (
+                <tr>{['WhatsApp', 'Empresa', 'Equipos', 'Entrega', 'Estatus', 'Fecha', 'Acción'].map(h => (
                   <th key={h} className={`px-4 py-3 text-left font-semibold ${textMuted}`}>{h}</th>
                 ))}</tr>
               </thead>
               <tbody>
                 {cotizaciones.length === 0 ? (
-                  <tr><td colSpan={6} className={`text-center py-10 ${textMuted}`}>No hay cotizaciones aún</td></tr>
+                  <tr><td colSpan={7} className={`text-center py-10 ${textMuted}`}>No hay cotizaciones aún</td></tr>
                 ) : cotizaciones.map(c => (
                   <tr key={c.id} className={`border-t ${darkMode ? 'border-[#C9EA63]/10' : 'border-gray-100'}`}>
                     <td className={`px-4 py-3 ${textPrimary} font-mono text-xs`}>{c.cliente_whatsapp?.replace('@c.us','')}</td>
                     <td className={`px-4 py-3 ${textPrimary}`}>{c.nombre_empresa || '—'}</td>
-                    <td className={`px-4 py-3 ${textPrimary}`}>{c.tipo_equipo} — {c.marca || '—'}</td>
-                    <td className={`px-4 py-3 ${textMuted}`}>{c.tipo_servicio}</td>
+                    <td className={`px-4 py-3 ${textPrimary}`}>
+                      <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63]' : 'bg-emerald-50 text-emerald-700'}`}>
+                        {c.cantidad} equipo(s)
+                      </span>
+                    </td>
+                    <td className={`px-4 py-3 ${textMuted} text-xs`}>{c.tiempo_entrega || '—'}</td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${c.estatus === 'nueva' ? 'bg-emerald-100 text-emerald-700' : c.estatus === 'enviada' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{c.estatus}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase transition-colors ${
+                        c.estatus === 'nueva' ? 'bg-rose-100 text-rose-700 animate-pulse' : 
+                        c.estatus === 'en-proceso' ? 'bg-amber-100 text-amber-700' : 
+                        'bg-emerald-100 text-emerald-700'
+                      }`}>{c.estatus || 'nueva'}</span>
                     </td>
                     <td className={`px-4 py-3 ${textMuted} text-xs`}>{new Date(c.created_at).toLocaleDateString('es-MX')}</td>
+                    <td className="px-4 py-3">
+                      <button 
+                        onClick={() => setSelectedCotizacion(c)}
+                        className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63] hover:bg-[#C9EA63]/20' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                        title="Ver detalles técnicos"
+                      >
+                        <ChevronRight size={18} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -506,7 +586,14 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
               </thead>
               <tbody>
                 {escalados.length === 0 ? (
-                  <tr><td colSpan={5} className={`text-center py-10 ${textMuted}`}>No hay escalados pendientes ✅</td></tr>
+                  <tr>
+                    <td colSpan={5} className={`text-center py-10 ${textMuted}`}>
+                      <div className="flex flex-col items-center gap-2 opacity-50">
+                        <CheckCircle size={32} />
+                        <p className="font-bold">No hay escalados pendientes</p>
+                      </div>
+                    </td>
+                  </tr>
                 ) : escalados.map(e => (
                   <tr key={e.id} className={`border-t ${darkMode ? 'border-[#C9EA63]/10' : 'border-gray-100'}`}>
                     <td className={`px-4 py-3 ${textPrimary} font-mono text-xs`}>{e.cliente_whatsapp?.replace('@c.us','')}</td>
@@ -563,8 +650,9 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                       <td className={`px-4 py-3 ${textMuted} text-xs`}>{eq.ultima_calibracion ? new Date(eq.ultima_calibracion).toLocaleDateString('es-MX') : '—'}</td>
                       <td className="px-4 py-3">
                         {prox ? (
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${urgente ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {urgente ? '⚠️ ' : '✅ '}{prox.toLocaleDateString('es-MX')} {diasRestantes !== null ? `(${diasRestantes}d)` : ''}
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${urgente ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'} flex items-center gap-1`}>
+                            {urgente ? <Clock size={10} /> : <CheckCircle size={10} />}
+                            {prox.toLocaleDateString('es-MX')} {diasRestantes !== null ? `(${diasRestantes}d)` : ''}
                           </span>
                         ) : '—'}
                       </td>
@@ -678,10 +766,11 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                 )}
                 
                 <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-amber-500/20">
-                  <span className={`text-[11px] font-bold ${textMuted}`}>Generado automáticamente según los nodos activos:</span>
+                  <span className={`text-[11px] font-bold ${textMuted}`}>Nodos activos en el menú principal:</span>
                   {botNodos.map((n, i) => (
-                    <span key={n.id} className={`px-2 py-0.5 rounded-md text-[10px] uppercase font-bold ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63]' : 'bg-gray-200 text-gray-600'}`}>
-                      {i + 1}️⃣ {n.nombre}
+                    <span key={n.id} className={`px-2 py-1 rounded-lg text-[10px] uppercase font-bold flex items-center gap-1.5 ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63]' : 'bg-gray-100 text-gray-600'}`}>
+                      <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${darkMode ? 'bg-[#C9EA63] text-[#141F0B]' : 'bg-gray-400 text-white'}`}>{i + 1}</div>
+                      {n.nombre}
                     </span>
                   ))}
                 </div>
@@ -800,10 +889,10 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                       <label className={`text-[10px] uppercase font-bold tracking-wider mb-1 block ${textMuted}`}>Conectar a Motor Interno</label>
                       <select value={editandoNodo.accion || ''} onChange={e => setEditandoNodo({...editandoNodo, accion: e.target.value || null})} className={`w-full p-3 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-[#C9EA63]/50 focus:border-[#C9EA63] ${inputCls}`}>
                         <option value="">-- Ninguna / Estándar --</option>
-                        <option value="consultar_estatus">🔍 Motor Búsqueda Estatus (Kanban)</option>
-                        <option value="cotizacion">📋 Motor Flujo Cotización Compleja</option>
-                        <option value="registrar_equipo">📅 Motor Registro Próxima Calibración</option>
-                        <option value="escalar">🧑‍💼 Motor Escalar a Asesor Humano</option>
+                        <option value="consultar_estatus">Motor Búsqueda Estatus (Kanban)</option>
+                        <option value="cotizacion">Motor Flujo Cotización Compleja</option>
+                        <option value="registrar_equipo">Motor Registro Próxima Calibración</option>
+                        <option value="escalar">Motor Escalar a Asesor Humano</option>
                       </select>
                       <p className={`text-[10px] mt-1 ${textMuted}`}>Llama a código especializado en el backend si se selecciona.</p>
                     </div>
@@ -1035,6 +1124,151 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
             >
               <Save size={20} /> Guardar Configuración
             </button>
+          </div>
+        </div>
+      )}
+      {/* ── MODAL DETALLES COTIZACIÓN ────────────────────────────── */}
+      {selectedCotizacion && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+          <div className={`${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-gray-100'} border rounded-3xl w-full max-w-5xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]`}>
+            <div className={`p-6 border-b ${darkMode ? 'border-white/10' : 'border-gray-100'} flex justify-between items-center shrink-0`}>
+              <div>
+                <h3 className={`text-xl font-bold flex items-center gap-3 ${textPrimary}`}>
+                  <TrendingUp className="text-emerald-500" size={24} />
+                  Detalle de Cotización Bot #{selectedCotizacion.id}
+                </h3>
+                <p className={`text-sm ${textMuted}`}>Solicitud de: <span className="font-bold text-emerald-500">{selectedCotizacion.nombre_empresa}</span></p>
+              </div>
+              <button onClick={() => setSelectedCotizacion(null)} className={`hover:bg-rose-500/10 hover:text-rose-500 p-2 rounded-full transition-colors ${textMuted}`}><X size={24} /></button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-gray-100'}`}>
+                  <p className={`text-[10px] uppercase font-bold tracking-wider ${textMuted} mb-1`}>Contacto</p>
+                  <p className={`text-sm font-semibold ${textPrimary}`}>{selectedCotizacion.cliente_whatsapp?.replace('@c.us', '')}</p>
+                </div>
+                <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-gray-100'}`}>
+                  <p className={`text-[10px] uppercase font-bold tracking-wider ${textMuted} mb-1`}>Tiempo de Entrega</p>
+                  <p className={`text-sm font-semibold text-emerald-500`}>{selectedCotizacion.tiempo_entrega || 'No especificado'}</p>
+                </div>
+                <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-gray-100'}`}>
+                  <p className={`text-[10px] uppercase font-bold tracking-wider ${textMuted} mb-1`}>Fecha Registro</p>
+                  <p className={`text-sm font-semibold ${textPrimary}`}>{new Date(selectedCotizacion.created_at).toLocaleString('es-MX')}</p>
+                </div>
+              </div>
+
+              <h4 className={`text-lg font-bold mb-4 flex items-center gap-2 ${textPrimary}`}>
+                <Package size={20} className="text-emerald-500" />
+                Instrumentos a Calibrar ({selectedCotizacion.cantidad})
+              </h4>
+
+              <div className="space-y-4">
+                {(() => {
+                  let items = [];
+                  try {
+                    items = typeof selectedCotizacion.detalle_instrumentos === 'string' 
+                      ? JSON.parse(selectedCotizacion.detalle_instrumentos) 
+                      : (selectedCotizacion.detalle_instrumentos || []);
+                  } catch (e) { console.error("Error parsing items:", e); }
+
+                  if (items.length === 0) {
+                    return (
+                      <div className={`p-6 text-center rounded-2xl border border-dashed ${darkMode ? 'border-white/20' : 'border-gray-200'}`}>
+                        <p className={textMuted}>No se encontraron detalles técnicos para esta cotización.</p>
+                      </div>
+                    );
+                  }
+
+                  return items.map((item, idx) => (
+                    <div key={idx} className={`p-5 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200 shadow-sm'} hover:border-emerald-500/50 transition-colors`}>
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex gap-4">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg ${darkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-600'}`}>
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <h5 className={`font-bold ${textPrimary}`}>{item.tipoEquipo}</h5>
+                            <p className={`text-sm ${textMuted}`}>{item.marcaModelo || 'Marca/Modelo no especificado'}</p>
+                          </div>
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63]' : 'bg-emerald-50 text-emerald-600'}`}>
+                          Item Detallado
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-y-4 gap-x-6">
+                        <div>
+                          <p className={`text-[10px] uppercase font-bold tracking-wider ${textMuted} mb-0.5`}>ID / Tag</p>
+                          <p className={`text-sm ${textPrimary} font-mono`}>{item.identificacion || '—'}</p>
+                        </div>
+                        <div>
+                          <p className={`text-[10px] uppercase font-bold tracking-wider ${textMuted} mb-0.5`}>Ubicación</p>
+                          <p className={`text-sm ${textPrimary}`}>{item.ubicacion || '—'}</p>
+                        </div>
+                        <div className="md:col-span-2 lg:col-span-1">
+                          <p className={`text-[10px] uppercase font-bold tracking-wider ${textMuted} mb-0.5`}>Requerimientos Especiales</p>
+                          <p className={`text-sm ${item.requerimientos ? (darkMode ? 'text-amber-400' : 'text-amber-600 font-medium') : textMuted}`}>
+                            {item.requerimientos || 'Sin requerimientos especiales'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+
+            <div className={`p-6 border-t ${darkMode ? 'border-white/10' : 'border-gray-100'} bg-black/5 flex flex-wrap justify-between items-center gap-4 shrink-0`}>
+              <div className="flex gap-2">
+                {selectedCotizacion.estatus !== 'completada' && selectedCotizacion.estatus !== 'cerrada' && (
+                  <>
+                    <button 
+                      disabled={loadingAccion}
+                      onClick={async () => {
+                        try {
+                          setLoadingAccion(true);
+                          await axios.put(`${API}/api/cotizaciones-bot/${selectedCotizacion.id}/estatus`, { estatus: 'en-proceso' });
+                          setSelectedCotizacion(prev => ({ ...prev, estatus: 'en-proceso' }));
+                          fetchCotizaciones();
+                        } catch (e) {
+                          alert("Error al actualizar estado");
+                        } finally {
+                          setLoadingAccion(false);
+                        }
+                      }}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${loadingAccion ? 'opacity-50 cursor-not-allowed' : (darkMode ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30' : 'bg-amber-100 text-amber-700 hover:bg-amber-200')}`}
+                    >
+                      <Clock size={14} className={loadingAccion ? "animate-spin" : ""} /> En Proceso
+                    </button>
+                    <button 
+                      disabled={loadingAccion}
+                      onClick={async () => {
+                        try {
+                          setLoadingAccion(true);
+                          await axios.put(`${API}/api/cotizaciones-bot/${selectedCotizacion.id}/estatus`, { estatus: 'cerrada' });
+                          setSelectedCotizacion(null);
+                          fetchCotizaciones();
+                        } catch (e) {
+                          alert("Error al completar cotización");
+                        } finally {
+                          setLoadingAccion(false);
+                        }
+                      }}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${loadingAccion ? 'opacity-50 cursor-not-allowed' : (darkMode ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-emerald-600 text-white hover:bg-emerald-700')}`}
+                    >
+                      <CheckCircle size={14} className={loadingAccion ? "animate-spin" : ""} /> Completar
+                    </button>
+                  </>
+                )}
+              </div>
+              <button 
+                onClick={() => setSelectedCotizacion(null)}
+                className={`px-6 py-2.5 rounded-xl font-bold transition-all ${darkMode ? 'bg-white/5 text-[#F2F6F0] hover:bg-white/10 border border-white/10' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+              >
+                Cerrar Detalle
+              </button>
+            </div>
           </div>
         </div>
       )}

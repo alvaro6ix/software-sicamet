@@ -368,52 +368,132 @@ const TIPOS_EQUIPO = {
     '4': '⚡ Eléctrica', '5': '📏 Dimensional', '6': '💧 Humedad / Flujo / Volumen', '7': '🔬 Otro'
 };
 
+const TIEMPOS_ENTREGA = {
+    '1': '5 días hábiles', '2': '10 días hábiles', '3': '10-15 días hábiles', '4': '15-20 días hábiles'
+};
+
 async function flujosCotizacionLogic(wa, texto, sesion) {
     const datos = sesion.datos || {};
     const paso = datos.paso || 1;
+    const items = datos.items || [];
+    const currentItem = datos.currentItem || {};
+
+    const textoTrim = texto.trim();
+    const textoLower = textoTrim.toLowerCase();
 
     switch (paso) {
-        case 1: {
-            const tipo = TIPOS_EQUIPO[texto.trim()] || texto.trim();
-            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 2, tipoEquipo: tipo });
+        case 1: { // Inicio: Tipo de equipo o descripción
+            const tipo = TIPOS_EQUIPO[textoTrim] || textoTrim;
+            const updatedItem = { ...currentItem, tipoEquipo: tipo };
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 2, currentItem: updatedItem });
             return {
                 text: `✅ *${tipo}*\n\n¿Cuál es la *marca y modelo* del instrumento?\n\n_Ej: Fluke 726 | Vaisala HMT310 | WIKA P-30_\n_(Escribe "no sé" si no tienes el dato)_`
             };
         }
-        case 2:
-            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 3, marcaModelo: texto.trim() });
-            return { text: `✅ *${texto.trim()}*\n\n¿Cuántos instrumentos necesitas calibrar? (escribe el número)` };
-        case 3: {
-            const cant = parseInt(texto) || 1;
-            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 4, cantidad: cant });
+        case 2: // Marca y Modelo
+            await guardarSesion(wa, sesion.nodo_actual_id, { 
+                ...datos, 
+                paso: 3, 
+                currentItem: { ...currentItem, marcaModelo: textoTrim } 
+            });
+            return { text: `✅ *${textoTrim}*\n\n¿Cuál es la *Identificación / ID / Tag* del equipo?\n\n_Ej: LQ-M06, Caldera-01, etc._` };
+            
+        case 3: // ID / Tag
+            await guardarSesion(wa, sesion.nodo_actual_id, { 
+                ...datos, 
+                paso: 4, 
+                currentItem: { ...currentItem, identificacion: textoTrim } 
+            });
+            return { text: `✅ *ID: ${textoTrim}*\n\n¿En qué *ubicación* se encuentra físicamente?\n\n_Ej: Etiquetadora LQ-09, Almacén, Planta 2..._` };
+
+        case 4: // Ubicación
+            await guardarSesion(wa, sesion.nodo_actual_id, { 
+                ...datos, 
+                paso: 5, 
+                currentItem: { ...currentItem, ubicacion: textoTrim } 
+            });
+            return { text: `✅ *Ubicación: ${textoTrim}*\n\n¿Tienes *requerimientos especiales* para este equipo? (Puntos específicos, rango, acreditación especial, etc.)\n\n_Escribe "ninguno" para continuar_` };
+
+        case 5: // Requerimientos y ¿Añadir otro?
+            const notas = (textoLower === 'ninguno' || textoLower === 'ninguna') ? '' : textoTrim;
+            const itemFinalizado = { ...currentItem, requerimientos: notas };
+            const nuevosItems = [...items, itemFinalizado];
+            
+            await guardarSesion(wa, sesion.nodo_actual_id, { 
+                ...datos, 
+                paso: 6, 
+                items: nuevosItems, 
+                currentItem: {} 
+            });
+
             return {
-                text: `✅ *${cant} instrumento(s)*\n\n¿El servicio es?\n\n*1️⃣* 🔬 In-Lab (lleva el equipo al laboratorio SICAMET)\n*2️⃣* 🏭 In-situ (nuestros técnicos van a tus instalaciones)\n*3️⃣* 💬 Aún no lo sé`
+                text: `📦 *Instrumento registrado (${nuevosItems.length})*\n\n¿Deseas agregar *otro instrumento* a esta misma cotización?\n\n*1️⃣* Sí, añadir otro\n*2️⃣* No, finalizar y enviar solicitud`
             };
-        }
-        case 4: {
-            const tipoMap = { '1': 'In-Lab', '2': 'In-situ', '3': 'Por definir' };
-            const serv = tipoMap[texto.trim()] || texto.trim();
-            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 5, tipoServicio: serv });
-            return { text: `✅ *${serv}*\n\n¿Cuál es el nombre de tu empresa o razón social?` };
-        }
-        case 5:
-            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 6, empresa: texto.trim() });
-            return { text: `✅ *${texto.trim()}*\n\n¿Tienes alguna nota adicional? (urgencia, rango específico, etc.)\n\n_Escribe "ninguna" para continuar_` };
-        case 6: {
-            const notas = texto.toLowerCase() === 'ninguna' ? '' : texto.trim();
-            const d = { ...datos, notas };
-            await db.query(
-                'INSERT INTO cotizaciones_bot (cliente_whatsapp, nombre_empresa, tipo_equipo, marca, cantidad, tipo_servicio, notas) VALUES (?,?,?,?,?,?,?)',
-                [wa, d.empresa || '', d.tipoEquipo, d.marcaModelo, d.cantidad,
-                 (d.tipoServicio || '').toLowerCase().includes('lab') ? 'in-lab' : 'in-situ', notas]
-            );
-            // Notificar a múltiples números
-            await notificarNuevaCotizacion(d);
-            await guardarSesion(wa, null, {});
-            return {
-                text: `🎉 ¡Solicitud registrada exitosamente!\n\n📋 *Resumen:*\n• Equipo: *${d.tipoEquipo}*\n• Marca: *${d.marcaModelo || 'N/E'}*\n• Cantidad: *${d.cantidad}* unidad(es)\n• Servicio: *${d.tipoServicio}*\n• Empresa: *${d.empresa}*\n\nEn breve un especialista SICAMET se pondrá en contacto. ¡Gracias! 📧\n\n_Escribe *0* para volver al menú._`
-            };
-        }
+
+        case 6: // Lógica de bucle o pasar a generales
+            if (textoTrim === '1') {
+                await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 1, currentItem: {} });
+                return {
+                    text: `✍️ *Registro de instrumento #${items.length + 1}*\n\nDime qué equipo es o elige una categoría:\n\n` +
+                        Object.entries(TIPOS_EQUIPO).map(([k, v]) => `*${k}️⃣* ${v}`).join('\n')
+                };
+            } else {
+                await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 7 });
+                return {
+                    text: `⏳ *Tiempo de entrega preferido:*\n\n¿Qué rango de tiempo de entrega se ajusta a tus necesidades?\n\n*1️⃣* 5 días hábiles\n*2️⃣* 10 días hábiles\n*3️⃣* 10-15 días hábiles\n*4️⃣* 15-20 días hábiles`
+                };
+            }
+
+        case 7: // Tiempo de entrega
+            const tiempo = TIEMPOS_ENTREGA[textoTrim] || textoTrim;
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 8, tiempoEntrega: tiempo });
+            return { text: `✅ *${tiempo}*\n\n¿Cuál es el nombre de tu *empresa* o razón social?` };
+
+        case 8: // Empresa y Guardado Final
+            const empresa = textoTrim;
+            const dFinal = { ...datos, empresa, items };
+            
+            try {
+                // Tomamos el primer equipo como referencia para los campos principales de la tabla
+                const primer = items[0] || {};
+                await db.query(
+                    'INSERT INTO cotizaciones_bot (cliente_whatsapp, nombre_empresa, tipo_equipo, marca, cantidad, tiempo_entrega, detalle_instrumentos, estatus) VALUES (?,?,?,?,?,?,?,?)',
+                    [
+                        wa, 
+                        empresa, 
+                        primer.tipoEquipo || 'Múltiples', 
+                        primer.marcaModelo || 'Varios', 
+                        items.length,
+                        dFinal.tiempoEntrega,
+                        JSON.stringify(items),
+                        'nueva'
+                    ]
+                );
+                
+                // Emitir alerta en tiempo real
+                if (global.io) {
+                    global.io.emit('nueva_cotizacion', { 
+                        id: (await db.query('SELECT LAST_INSERT_ID() as id'))[0][0].id,
+                        empresa,
+                        cantidad: items.length 
+                    });
+                }
+                
+                await notificarNuevaCotizacion(dFinal);
+                await guardarSesion(wa, null, {});
+                
+                let resumen = `🎉 ¡Solicitud registrada exitosamente!\n\n📋 *Resumen:*\n• Empresa: *${empresa}*\n• Ítems: *${items.length} equipos*\n• Entrega: *${dFinal.tiempoEntrega}*\n\nListado:`;
+                items.forEach((it, i) => {
+                    resumen += `\n${i+1}. ${it.tipoEquipo} (${it.marcaModelo || 'S/M'})`;
+                });
+                resumen += `\n\nEn breve un especialista SICAMET se pondrá en contacto. ¡Gracias! 📧\n\n_Escribe *0* para volver al menú._`;
+
+                return { text: resumen };
+            } catch (err) {
+                console.error('Error al guardar cotización:', err);
+                return { text: '❌ Hubo un error al guardar tu solicitud. Por favor intenta de nuevo o contacta a un asesor.' };
+            }
+
         default:
             await guardarSesion(wa, null, {});
             return await responderMenuPrincipal(wa, sesion);

@@ -29,6 +29,8 @@ const TableroKanban = ({ darkMode }) => {
 
     useEffect(() => {
         fetchEquipos();
+        window.addEventListener('crm:refresh', fetchEquipos);
+        return () => window.removeEventListener('crm:refresh', fetchEquipos);
     }, []);
 
     const onDragStart = (e, equipo) => {
