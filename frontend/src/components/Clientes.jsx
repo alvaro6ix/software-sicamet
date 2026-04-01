@@ -27,7 +27,7 @@ const Clientes = ({ darkMode }) => {
 
   const fetchClientes = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/catalogo/clientes');
+      const res = await axios.get('/api/catalogo/clientes');
       setClientes(res.data);
     } catch (err) { console.error("Error cargando clientes"); }
   };
@@ -45,7 +45,7 @@ const Clientes = ({ darkMode }) => {
     body.append('tipo', 'clientes');
 
     try {
-      const res = await axios.post('http://localhost:3001/api/importar-catalogo', body);
+      const res = await axios.post('/api/importar-catalogo', body);
       alert(`✅ ${res.data.message}`);
       fetchClientes();
     } catch (err) {
@@ -57,7 +57,7 @@ const Clientes = ({ darkMode }) => {
   const handleDelete = async () => {
     if (!itemAEliminar) return;
     try {
-      await axios.delete(`http://localhost:3001/api/catalogo/clientes/${itemAEliminar}`);
+      await axios.delete(`/api/catalogo/clientes/${itemAEliminar}`);
       fetchClientes();
       setModalConfirmarEliminar(false);
       setItemAEliminar(null);
@@ -67,7 +67,7 @@ const Clientes = ({ darkMode }) => {
   const handleGuardarManual = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:3001/api/catalogo/clientes', nuevoItem);
+      await axios.post('/api/catalogo/clientes', nuevoItem);
       setModalAbierto(false);
       setNuevoItem({ empresa: '', contacto: '', email: '' });
       fetchClientes();
@@ -79,7 +79,7 @@ const Clientes = ({ darkMode }) => {
 
   const handleDeleteMasivo = async () => {
     try {
-      await axios.delete('http://localhost:3001/api/catalogo/clientes/all');
+      await axios.delete('/api/catalogo/clientes/all');
       alert(`✅ Todos los registros fueron eliminados exitosamente.`);
       setModalConfirmarVaciar(false);
       fetchClientes();
@@ -95,7 +95,7 @@ const Clientes = ({ darkMode }) => {
   const handleGuardarEdicion = async (e) => {
     e.preventDefault();
     try {
-      await axios.put(`http://localhost:3001/api/catalogo/clientes/${editandoItem.id}`, editandoItem);
+      await axios.put(`/api/catalogo/clientes/${editandoItem.id}`, editandoItem);
       setEditandoItem(null);
       fetchClientes();
     } catch (err) {
@@ -144,25 +144,25 @@ const Clientes = ({ darkMode }) => {
           </p>
         </div>
 
-        <div className="flex items-start gap-3 flex-wrap md:flex-nowrap justify-end">
-          <button onClick={() => setModalAbierto(true)} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center gap-2 max-h-[36px] ${darkMode ? 'bg-[#141f0b] text-[#C9EA63] border border-[#C9EA63]/30 hover:bg-[#314a1c]' : 'bg-white border border-gray-200 text-slate-700 hover:bg-slate-50 shadow-sm'}`}>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-3 w-full md:w-auto justify-end">
+          <button onClick={() => setModalAbierto(true)} className={`px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 ${darkMode ? 'bg-[#141f0b] text-[#C9EA63] border border-[#C9EA63]/30 hover:bg-[#314a1c]' : 'bg-white border border-gray-200 text-slate-700 hover:bg-slate-50 shadow-sm'}`}>
             <Plus size={16} /> Nuevo Manual
           </button>
           
-          <div className="flex flex-col items-end gap-1">
-            <div className="flex gap-2">
+          <div className="flex flex-col items-stretch sm:items-end gap-2">
+            <div className="flex flex-wrap gap-2">
               <input type="file" accept=".xlsx, .xls" ref={excelInputRef} onChange={handleSubirExcel} className="hidden" />
-              <button onClick={() => excelInputRef.current.click()} disabled={cargandoExcel} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center gap-2 max-h-[36px] shadow-md ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'} ${cargandoExcel ? 'opacity-50' : ''}`}>
-                {cargandoExcel ? <Loader2 className="animate-spin" size={16} /> : <FileUp size={16} />} Cargar Excel
+              <button onClick={() => excelInputRef.current.click()} disabled={cargandoExcel} className={`flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 shadow-md ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'} ${cargandoExcel ? 'opacity-50' : ''}`}>
+                {cargandoExcel ? <Loader2 className="animate-spin" size={16} /> : <FileUp size={16} />} Cargar
               </button>
-              <button onClick={handleExportarExcel} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center gap-2 max-h-[36px] shadow-md ${darkMode ? 'bg-[#141f0b] text-[#C9EA63] border border-[#C9EA63]/50 hover:bg-[#314a1c]' : 'bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100'}`}>
+              <button onClick={handleExportarExcel} className={`flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 shadow-md ${darkMode ? 'bg-[#141f0b] text-[#C9EA63] border border-[#C9EA63]/50 hover:bg-[#314a1c]' : 'bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100'}`}>
                 <FileDown size={16} /> Exportar
               </button>
-              <button onClick={() => setModalConfirmarVaciar(true)} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center gap-2 max-h-[36px] shadow-md ${darkMode ? 'bg-rose-900 text-rose-300 hover:bg-rose-800' : 'bg-rose-100 text-rose-600 hover:bg-rose-200'}`}>
+              <button onClick={() => setModalConfirmarVaciar(true)} className={`flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 shadow-md ${darkMode ? 'bg-rose-900 text-rose-300 hover:bg-rose-800' : 'bg-rose-100 text-rose-600 hover:bg-rose-200'}`}>
                 <Trash2 size={16} /> Vaciar
               </button>
             </div>
-            <p className={`text-[10px] text-right mt-1 max-w-[200px] leading-tight ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
+            <p className={`hidden sm:block text-[10px] text-right mt-1 max-w-[200px] leading-tight ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
               El archivo debe incluir las columnas <b>nombre</b> (empresa) y opcionalmente <b>contacto</b> o <b>email</b>.
             </p>
           </div>
@@ -239,61 +239,65 @@ const Clientes = ({ darkMode }) => {
       </div>
 
       {modalAbierto && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100]">
-          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
-            <button onClick={() => setModalAbierto(false)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
-              <X size={24} />
-            </button>
-            <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-              Nuevo Cliente
-            </h2>
-            <form onSubmit={handleGuardarManual} className="space-y-4">
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Empresa / Razón Social *</label>
-                <input required type="text" value={nuevoItem.empresa} onChange={(e) => setNuevoItem({ ...nuevoItem, empresa: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
-              </div>
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Teléfono</label>
-                <input type="text" value={nuevoItem.contacto} onChange={(e) => setNuevoItem({ ...nuevoItem, contacto: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
-              </div>
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Email</label>
-                <input type="email" value={nuevoItem.email} onChange={(e) => setNuevoItem({ ...nuevoItem, email: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
-              </div>
-              <button type="submit" className={`w-full mt-4 font-bold py-3 px-4 rounded-lg flex justify-center items-center gap-2 transition-colors ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b]' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
-                <Save size={20} /> Guardar
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-[100] p-4">
+          <div className={`rounded-3xl shadow-2xl w-full max-w-md relative border-t-4 flex flex-col max-h-[95vh] ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
+            <div className="p-6 sm:p-8 flex-1 overflow-y-auto custom-scrollbar">
+              <button onClick={() => setModalAbierto(false)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
+                <X size={24} />
               </button>
-            </form>
+              <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                Nuevo Cliente
+              </h2>
+              <form onSubmit={handleGuardarManual} className="space-y-4">
+                <div>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Empresa / Razón Social *</label>
+                  <input required type="text" value={nuevoItem.empresa} onChange={(e) => setNuevoItem({ ...nuevoItem, empresa: e.target.value })} className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                </div>
+                <div>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Teléfono</label>
+                  <input type="text" value={nuevoItem.contacto} onChange={(e) => setNuevoItem({ ...nuevoItem, contacto: e.target.value })} className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                </div>
+                <div>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Email</label>
+                  <input type="email" value={nuevoItem.email} onChange={(e) => setNuevoItem({ ...nuevoItem, email: e.target.value })} className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                </div>
+                <button type="submit" className={`w-full mt-4 font-bold py-4 px-4 rounded-2xl flex justify-center items-center gap-2 transition-colors shadow-lg ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b]' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
+                  <Save size={20} /> Guardar
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}
 
       {editandoItem && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100]">
-          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-yellow-400' : 'bg-white border-yellow-500'}`}>
-            <button onClick={() => setEditandoItem(null)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-yellow-400' : 'text-gray-400 hover:text-gray-800'}`}>
-              <X size={24} />
-            </button>
-            <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-              <Edit2 className={darkMode ? 'text-yellow-400' : 'text-yellow-500'} /> Editar Cliente
-            </h2>
-            <form onSubmit={handleGuardarEdicion} className="space-y-4">
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Empresa / Razón Social *</label>
-                <input required type="text" value={editandoItem.empresa} onChange={(e) => setEditandoItem({ ...editandoItem, empresa: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
-              </div>
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Contacto</label>
-                <input type="text" value={editandoItem.contacto} onChange={(e) => setEditandoItem({ ...editandoItem, contacto: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
-              </div>
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Email</label>
-                <input type="email" value={editandoItem.email} onChange={(e) => setEditandoItem({ ...editandoItem, email: e.target.value })} className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
-              </div>
-              <button type="submit" className={`w-full mt-4 font-bold py-3 px-4 rounded-lg flex justify-center items-center gap-2 transition-colors ${darkMode ? 'bg-yellow-500 hover:bg-yellow-400 text-[#141f0b]' : 'bg-yellow-500 hover:bg-yellow-600 text-white'}`}>
-                <Save size={20} /> Actualizar
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-[100] p-4">
+          <div className={`rounded-3xl shadow-2xl w-full max-w-md relative border-t-4 flex flex-col max-h-[95vh] ${darkMode ? 'bg-[#141f0b] border-yellow-400' : 'bg-white border-yellow-500'}`}>
+            <div className="p-6 sm:p-8 flex-1 overflow-y-auto custom-scrollbar">
+              <button onClick={() => setEditandoItem(null)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-yellow-400' : 'text-gray-400 hover:text-gray-800'}`}>
+                <X size={24} />
               </button>
-            </form>
+              <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                <Edit2 className={darkMode ? 'text-yellow-400' : 'text-yellow-500'} /> Editar Cliente
+              </h2>
+              <form onSubmit={handleGuardarEdicion} className="space-y-4">
+                <div>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Empresa / Razón Social *</label>
+                  <input required type="text" value={editandoItem.empresa} onChange={(e) => setEditandoItem({ ...editandoItem, empresa: e.target.value })} className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-yellow-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                </div>
+                <div>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Contacto</label>
+                  <input type="text" value={editandoItem.contacto} onChange={(e) => setEditandoItem({ ...editandoItem, contacto: e.target.value })} className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-yellow-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                </div>
+                <div>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Email</label>
+                  <input type="email" value={editandoItem.email} onChange={(e) => setEditandoItem({ ...editandoItem, email: e.target.value })} className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-yellow-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                </div>
+                <button type="submit" className={`w-full mt-4 font-bold py-4 px-4 rounded-2xl flex justify-center items-center gap-2 transition-colors shadow-lg ${darkMode ? 'bg-yellow-500 hover:bg-yellow-400 text-[#141f0b]' : 'bg-yellow-500 hover:bg-yellow-600 text-white'}`}>
+                  <Save size={20} /> Actualizar
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}

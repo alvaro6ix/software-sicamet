@@ -16,7 +16,7 @@ const ListaEquipos = ({ darkMode }) => {
 
   const cargarEquipos = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/instrumentos');
+      const res = await axios.get('/api/instrumentos');
       setEquipos(res.data);
     } catch (err) {
       console.error("Error al cargar equipos:", err);
@@ -31,7 +31,7 @@ const ListaEquipos = ({ darkMode }) => {
 
   const cambiarEstatus = async (id, nuevoEstatus) => {
     try {
-      await axios.put(`http://localhost:3001/api/instrumentos/${id}/estatus`, { estatus: nuevoEstatus });
+      await axios.put(`/api/instrumentos/${id}/estatus`, { estatus: nuevoEstatus });
       cargarEquipos();
     } catch (err) {
       alert("Error al actualizar estatus");
@@ -41,7 +41,7 @@ const ListaEquipos = ({ darkMode }) => {
   const eliminarEquipo = async (id) => {
     if(window.confirm("¿Estás seguro de que deseas eliminar este registro?")) {
       try {
-        await axios.delete(`http://localhost:3001/api/instrumentos/${id}`);
+        await axios.delete(`/api/instrumentos/${id}`);
         cargarEquipos();
       } catch (err) {
         alert("Error al eliminar");
@@ -73,7 +73,7 @@ const ListaEquipos = ({ darkMode }) => {
   const guardarEdicion = async (e) => {
     e.preventDefault();
     try {
-      await axios.put(`http://localhost:3001/api/instrumentos/${equipoEditando.id}`, equipoEditando);
+      await axios.put(`/api/instrumentos/${equipoEditando.id}`, equipoEditando);
       alert("✅ Equipo actualizado correctamente");
       cerrarModalEditar();
       cargarEquipos(); // Recargamos la tabla
@@ -192,23 +192,43 @@ const ListaEquipos = ({ darkMode }) => {
       {/* --- MODAL 1: VER EXPEDIENTE --- */}
       {modalAbierto && equipoSeleccionado && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100]">
-          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-lg relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
-            <button onClick={cerrarModalVer} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
-              <X size={24} />
-            </button>
-            <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-              <FileText className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} /> Expediente del Equipo
-            </h2>
-            <div className="space-y-4">
-              <div className={`p-4 rounded-lg ${darkMode ? 'bg-[#2a401c]' : 'bg-slate-50'}`}>
-                <p className={`text-sm uppercase font-bold ${darkMode ? 'text-[#C9EA63]' : 'text-gray-500'}`}>Orden de Servicio / Ref.</p>
-                <p className={`text-xl font-mono font-bold ${darkMode ? 'text-[#F2F6F0]' : 'text-emerald-700'}`}>{equipoSeleccionado.folio_rastreo || equipoSeleccionado.orden_cotizacion}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>Instrumento</p><p className={`font-medium ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.nombre_instrumento}</p></div>
-                <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>Marca</p><p className={`font-medium ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.marca}</p></div>
-                <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>No. de Serie</p><p className={`font-medium ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.no_serie}</p></div>
-                <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>Cliente / Empresa</p><p className={`font-medium ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.empresa || equipoSeleccionado.cliente}</p></div>
+          <div className={`w-full max-w-lg max-h-[95vh] rounded-2xl shadow-2xl relative border-t-4 flex flex-col overflow-hidden transition-all ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
+            <div className={`p-4 sm:p-8 flex-1 overflow-y-auto custom-scrollbar`}>
+              <button onClick={cerrarModalVer} className={`absolute top-4 right-4 z-10 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
+                <X size={24} />
+              </button>
+              <h2 className={`text-xl sm:text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                <FileText className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} /> Expediente del Equipo
+              </h2>
+              <div className="space-y-4">
+                <div className={`p-4 rounded-lg ${darkMode ? 'bg-[#2a401c]' : 'bg-slate-50'}`}>
+                  <p className={`text-xs sm:text-sm uppercase font-bold ${darkMode ? 'text-[#C9EA63]' : 'text-gray-500'}`}>Orden de Servicio / Ref.</p>
+                  <p className={`text-lg sm:text-xl font-mono font-bold ${darkMode ? 'text-[#F2F6F0]' : 'text-emerald-700'}`}>{equipoSeleccionado.folio_rastreo || equipoSeleccionado.orden_cotizacion}</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>Instrumento</p><p className={`font-medium sm:text-base text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.nombre_instrumento}</p></div>
+                  <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>Marca</p><p className={`font-medium sm:text-base text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.marca}</p></div>
+                  <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>No. de Serie</p><p className={`font-medium sm:text-base text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.no_serie}</p></div>
+                  <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>Cliente / Empresa</p><p className={`font-medium sm:text-base text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.empresa || equipoSeleccionado.cliente}</p></div>
+                  <div className="col-span-1 sm:col-span-2"><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>Contacto</p><p className={`font-medium sm:text-base text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.persona || 'N/A'}</p></div>
+                  <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>Identificación</p><p className={`font-medium sm:text-base text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.identificacion}</p></div>
+                  <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>Ubicación</p><p className={`font-medium sm:text-base text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoSeleccionado.ubicacion}</p></div>
+                  <div><p className={`text-sm font-semibold ${darkMode ? 'text-[#F2F6F0]/60' : 'text-gray-500'}`}>SLA</p><p className={`font-bold sm:text-base text-sm ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>{equipoSeleccionado.sla} días</p></div>
+                </div>
+                <div className="space-y-4">
+                  <div className={`p-4 rounded-lg border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-slate-50 border-gray-100'}`}>
+                    <p className={`text-xs font-bold uppercase mb-1 ${darkMode ? 'text-[#C9EA63]' : 'text-gray-500'}`}>Requerimientos Especiales</p>
+                    <p className={`text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>{equipoSeleccionado.requerimientos_especiales}</p>
+                  </div>
+                  <div className={`p-4 rounded-lg border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-slate-50 border-gray-100'}`}>
+                    <p className={`text-xs font-bold uppercase mb-1 ${darkMode ? 'text-[#C9EA63]' : 'text-gray-500'}`}>Puntos a Calibrar</p>
+                    <p className={`text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>{equipoSeleccionado.puntos_calibrar}</p>
+                  </div>
+                  <div className={`p-4 rounded-lg border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-slate-50 border-gray-100'}`}>
+                    <p className={`text-xs font-bold uppercase mb-1 ${darkMode ? 'text-[#C9EA63]' : 'text-gray-500'}`}>Tipo de Servicio</p>
+                    <p className={`text-sm italic ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>{equipoSeleccionado.tipo_servicio}</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -217,74 +237,116 @@ const ListaEquipos = ({ darkMode }) => {
 
       {/* --- MODAL 2: EDITAR EQUIPO --- */}
       {modalEditarAbierto && equipoEditando && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100]">
-          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-lg relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-yellow-400' : 'bg-white border-yellow-500'}`}>
-            <button onClick={cerrarModalEditar} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-yellow-400' : 'text-gray-400 hover:text-gray-800'}`}>
-              <X size={24} />
-            </button>
-            <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-              <Edit className={darkMode ? 'text-yellow-400' : 'text-yellow-500'} /> Editar Registro
-            </h2>
-            
-            <form onSubmit={guardarEdicion} className="space-y-4">
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Orden de Servicio</label>
-                <input 
-                  type="text" 
-                  value={equipoEditando.orden_cotizacion || equipoEditando.folio_rastreo} 
-                  onChange={(e) => setEquipoEditando({...equipoEditando, orden_cotizacion: e.target.value.toUpperCase()})}
-                  className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none font-mono ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
-                  required
-                />
-              </div>
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Instrumento</label>
-                <input 
-                  type="text" 
-                  value={equipoEditando.nombre_instrumento} 
-                  onChange={(e) => setEquipoEditando({...equipoEditando, nombre_instrumento: e.target.value})}
-                  className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Marca</label>
-                  <input 
-                    type="text" 
-                    value={equipoEditando.marca} 
-                    onChange={(e) => setEquipoEditando({...equipoEditando, marca: e.target.value})}
-                    className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
-                    required
-                  />
-                </div>
-                <div>
-                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>No. Serie</label>
-                  <input 
-                    type="text" 
-                    value={equipoEditando.no_serie} 
-                    onChange={(e) => setEquipoEditando({...equipoEditando, no_serie: e.target.value})}
-                    className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
-                    required
-                  />
-                </div>
-              </div>
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Empresa</label>
-                <input 
-                  type="text" 
-                  value={equipoEditando.empresa} 
-                  onChange={(e) => setEquipoEditando({...equipoEditando, empresa: e.target.value})}
-                  className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
-                  required
-                />
-              </div>
-
-              <button type="submit" className={`w-full mt-4 font-bold py-3 px-4 rounded-lg flex justify-center items-center gap-2 transition-colors ${darkMode ? 'bg-yellow-500 hover:bg-yellow-400 text-[#141f0b]' : 'bg-yellow-500 hover:bg-yellow-600 text-white'}`}>
-                <Save size={20} /> Guardar Cambios
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100] p-4">
+          <div className={`w-full max-w-lg max-h-[95vh] rounded-2xl shadow-2xl relative border-t-4 flex flex-col overflow-hidden transition-all ${darkMode ? 'bg-[#141f0b] border-yellow-400' : 'bg-white border-yellow-500'}`}>
+            <div className="p-4 sm:p-8 overflow-y-auto custom-scrollbar">
+              <button onClick={cerrarModalEditar} className={`absolute top-4 right-4 z-10 ${darkMode ? 'text-gray-400 hover:text-yellow-400' : 'text-gray-400 hover:text-gray-800'}`}>
+                <X size={24} />
               </button>
-            </form>
+              <h2 className={`text-xl sm:text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                <Edit className={darkMode ? 'text-yellow-400' : 'text-yellow-500'} /> Editar Registro
+              </h2>
+              
+              <form onSubmit={guardarEdicion} className="space-y-4">
+                <div>
+                  <label className={`block text-xs sm:text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Orden de Servicio</label>
+                  <input 
+                    type="text" 
+                    value={equipoEditando.orden_cotizacion || equipoEditando.folio_rastreo} 
+                    onChange={(e) => setEquipoEditando({...equipoEditando, orden_cotizacion: e.target.value.toUpperCase()})}
+                    className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none font-mono text-sm ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className={`block text-xs sm:text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Instrumento</label>
+                  <input 
+                    type="text" 
+                    value={equipoEditando.nombre_instrumento} 
+                    onChange={(e) => setEquipoEditando({...equipoEditando, nombre_instrumento: e.target.value})}
+                    className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none text-sm ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className={`block text-xs sm:text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Marca</label>
+                    <input 
+                      type="text" 
+                      value={equipoEditando.marca} 
+                      onChange={(e) => setEquipoEditando({...equipoEditando, marca: e.target.value})}
+                      className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none text-sm ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className={`block text-xs sm:text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>No. Serie</label>
+                    <input 
+                      type="text" 
+                      value={equipoEditando.no_serie} 
+                      onChange={(e) => setEquipoEditando({...equipoEditando, no_serie: e.target.value})}
+                      className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none text-sm ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className={`block text-xs sm:text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Empresa</label>
+                  <input 
+                    type="text" 
+                    value={equipoEditando.empresa} 
+                    onChange={(e) => setEquipoEditando({...equipoEditando, empresa: e.target.value})}
+                    className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none text-sm ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
+                    required
+                  />
+                </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className={`block text-xs sm:text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Identificación</label>
+                    <input 
+                      type="text" 
+                      value={equipoEditando.identificacion} 
+                      onChange={(e) => setEquipoEditando({...equipoEditando, identificacion: e.target.value})}
+                      className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none text-sm ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`block text-xs sm:text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Ubicación</label>
+                    <input 
+                      type="text" 
+                      value={equipoEditando.ubicacion} 
+                      onChange={(e) => setEquipoEditando({...equipoEditando, ubicacion: e.target.value})}
+                      className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none text-sm ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className={`block text-xs sm:text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Requerimientos Especiales</label>
+                  <textarea 
+                    value={equipoEditando.requerimientos_especiales} 
+                    onChange={(e) => setEquipoEditando({...equipoEditando, requerimientos_especiales: e.target.value})}
+                    className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none text-sm ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
+                    rows="2"
+                  />
+                </div>
+
+                <div>
+                  <label className={`block text-xs sm:text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Puntos a Calibrar</label>
+                  <textarea 
+                    value={equipoEditando.puntos_calibrar} 
+                    onChange={(e) => setEquipoEditando({...equipoEditando, puntos_calibrar: e.target.value})}
+                    className={`w-full p-2 border rounded focus:ring-2 focus:ring-yellow-500 outline-none text-sm ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`}
+                    rows="2"
+                  />
+                </div>
+
+                <button type="submit" className={`w-full mt-4 font-bold py-3 px-4 rounded-lg flex justify-center items-center gap-2 transition-colors shadow-lg ${darkMode ? 'bg-yellow-500 hover:bg-yellow-400 text-[#141f0b]' : 'bg-yellow-500 hover:bg-yellow-600 text-white'}`}>
+                  <Save size={20} /> Guardar Cambios
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}

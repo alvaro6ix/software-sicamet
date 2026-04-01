@@ -11,7 +11,7 @@ const WhatsappQR = ({ darkMode }) => {
     // Estado inicial
     const checkStatus = async () => {
       try {
-        const res = await axios.get('http://localhost:3001/api/whatsapp/status');
+        const res = await axios.get('/api/whatsapp/status');
         setVinculado(res.data.connected);
         if (res.data.qr) setQrCode(res.data.qr);
       } catch (err) {
@@ -21,7 +21,7 @@ const WhatsappQR = ({ darkMode }) => {
     checkStatus();
 
     // Conexión Socket para tiempo real
-    const socket = io('http://localhost:3001');
+    const socket = io('');
 
     socket.on('connect', () => {
       console.log("🟢 Conectado al servidor de Sockets");
@@ -51,7 +51,7 @@ const WhatsappQR = ({ darkMode }) => {
         if (!window.confirm("¿Estás seguro de que deseas cerrar sesión y reiniciar el bot? Esto borrará la sesión actual.")) return;
         setReiniciando(true);
         try {
-            await axios.post('http://localhost:3001/api/whatsapp/reset');
+            await axios.post('/api/whatsapp/reset');
             alert("Sesión reiniciada. Por favor espera a que se genere un nuevo código QR.");
         } catch (err) {
             alert("Error al reiniciar sesión");

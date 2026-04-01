@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
-  Users, UserPlus, Shield, ShieldAlert, Trash2, Edit2, Lock, Unlock,
+  Users, UserPlus, Shield, Trash2, Edit2, Lock, Unlock,
   Mail, User, X, Save, Search, Loader2, Package
 } from 'lucide-react';
 
@@ -21,7 +21,7 @@ const GestionUsuarios = ({ darkMode }) => {
   const fetchUsuarios = async () => {
     try {
       setCargando(true);
-      const res = await axios.get('http://localhost:3001/api/usuarios');
+      const res = await axios.get('/api/usuarios');
       setUsuarios(res.data);
     } catch (error) {
       console.error("Error al obtener usuarios", error);
@@ -38,10 +38,10 @@ const GestionUsuarios = ({ darkMode }) => {
     e.preventDefault();
     try {
       if (editandoId) {
-        await axios.put(`http://localhost:3001/api/usuarios/${editandoId}`, form);
+        await axios.put(`/api/usuarios/${editandoId}`, form);
         alert("Usuario actualizado exitosamente");
       } else {
-        await axios.post('http://localhost:3001/api/usuarios', form);
+        await axios.post('/api/usuarios', form);
         alert("Usuario creado exitosamente");
       }
       setModalAbierto(false);
@@ -55,7 +55,7 @@ const GestionUsuarios = ({ darkMode }) => {
 
   const toggleActivo = async (id, estadoActual) => {
     try {
-      await axios.put(`http://localhost:3001/api/usuarios/${id}/activo`, { activo: !estadoActual });
+      await axios.put(`/api/usuarios/${id}/activo`, { activo: !estadoActual });
       fetchUsuarios();
     } catch (err) { console.error(err); }
   };
@@ -63,7 +63,7 @@ const GestionUsuarios = ({ darkMode }) => {
   const eliminarUsuario = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar permanentemente a este usuario?")) return;
     try {
-      await axios.delete(`http://localhost:3001/api/usuarios/${id}`);
+      await axios.delete(`/api/usuarios/${id}`);
       alert("Usuario eliminado");
       fetchUsuarios();
     } catch (err) { console.error(err); }
@@ -78,7 +78,9 @@ const GestionUsuarios = ({ darkMode }) => {
   const usuariosFiltrados = usuarios.filter(u =>
     u.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
     u.email.toLowerCase().includes(busqueda.toLowerCase())
-  );  return (
+  );
+
+  return (
     <div className="w-full space-y-6 md:space-y-8 relative animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-6 border-opacity-20 border-[#C9EA63]">
         <div>
@@ -113,7 +115,7 @@ const GestionUsuarios = ({ darkMode }) => {
           </div>
         </div>
 
-        {/* Vista Mobile: Cards (Visible solo en móvil) */}
+        {/* Vista Mobile: Cards */}
         <div className="grid grid-cols-1 gap-4 md:hidden">
           {usuariosFiltrados.map(u => (
             <div key={u.id} className={`p-4 rounded-xl border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-200 shadow-sm'}`}>
@@ -155,7 +157,7 @@ const GestionUsuarios = ({ darkMode }) => {
           ))}
         </div>
 
-        {/* Vista Desktop: Tabla (Visible en md+) */}
+        {/* Vista Desktop: Tabla */}
         <div className={`hidden md:block border rounded-xl overflow-hidden shadow-sm ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'}`}>
           <table className="w-full text-sm text-left">
             <thead className={`text-xs uppercase border-b ${darkMode ? 'bg-[#141f0b] text-[#C9EA63]' : 'bg-slate-100 text-slate-600'}`}>
@@ -196,11 +198,11 @@ const GestionUsuarios = ({ darkMode }) => {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex justify-center gap-1 md:gap-2">
-                      <button onClick={() => abrirEditar(u)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#141f0b] text-[#C9EA63]' : 'hover:bg-emerald-50 text-emerald-600'}`} title="Editar Perfil"><Edit2 size={16} /></button>
-                      <button onClick={() => toggleActivo(u.id, u.activo)} className={`p-2 rounded-lg transition-colors ${u.activo ? (darkMode ? 'hover:bg-rose-900/30 text-rose-400' : 'hover:bg-rose-50 text-rose-500') : (darkMode ? 'hover:bg-emerald-900/30 text-emerald-400' : 'hover:bg-emerald-50 text-emerald-600')}`} title={u.activo ? 'Bloquear Acceso' : 'Permitir Acceso'}>
-                        {u.activo ? <Lock size={16} /> : <Unlock size={16} />}
-                      </button>
-                      <button onClick={() => eliminarUsuario(u.id)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-red-900/40 text-red-400' : 'hover:bg-red-50 text-red-500'}`} title="Eliminar definitivamente"><Trash2 size={16} /></button>
+                       <button onClick={() => abrirEditar(u)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#141f0b] text-[#C9EA63]' : 'hover:bg-emerald-50 text-emerald-600'}`} title="Editar Perfil"><Edit2 size={16} /></button>
+                       <button onClick={() => toggleActivo(u.id, u.activo)} className={`p-2 rounded-lg transition-colors ${u.activo ? (darkMode ? 'hover:bg-rose-900/30 text-rose-400' : 'hover:bg-rose-50 text-rose-500') : (darkMode ? 'hover:bg-emerald-900/30 text-emerald-400' : 'hover:bg-emerald-50 text-emerald-600')}`} title={u.activo ? 'Bloquear Acceso' : 'Permitir Acceso'}>
+                         {u.activo ? <Lock size={16} /> : <Unlock size={16} />}
+                       </button>
+                       <button onClick={() => eliminarUsuario(u.id)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-red-900/40 text-red-400' : 'hover:bg-red-50 text-red-500'}`} title="Eliminar definitivamente"><Trash2 size={16} /></button>
                     </div>
                   </td>
                 </tr>
@@ -226,71 +228,73 @@ const GestionUsuarios = ({ darkMode }) => {
 
       {/* Modal CRUD */}
       {modalAbierto && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex justify-center items-center z-[100] p-0 sm:p-4">
-          <div className={`p-6 md:p-8 sm:rounded-2xl shadow-2xl w-full max-w-lg h-full sm:h-auto overflow-y-auto relative border-t-4 animate-in zoom-in duration-200 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
-            <button onClick={() => setModalAbierto(false)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
-              <X size={24} />
-            </button>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex justify-center items-center z-[100] p-4">
+          <div className={`rounded-3xl shadow-2xl w-full max-w-lg relative border-t-4 flex flex-col max-h-[95vh] animate-in zoom-in duration-200 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
+            <div className="p-6 md:p-8 flex-1 overflow-y-auto custom-scrollbar">
+              <button onClick={() => setModalAbierto(false)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
+                <X size={24} />
+              </button>
 
-            <h2 className={`text-xl md:text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-              {editandoId ? <Edit2 className="text-[#C9EA63]" size={20} /> : <UserPlus className="text-[#C9EA63]" size={20} />}
-              {editandoId ? 'Editar Perfil' : 'Alta de Colaborador'}
-            </h2>
+              <h2 className={`text-xl md:text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                {editandoId ? <Edit2 className="text-[#C9EA63]" size={20} /> : <UserPlus className="text-[#C9EA63]" size={20} />}
+                {editandoId ? 'Editar Perfil' : 'Alta de Colaborador'}
+              </h2>
 
-            <form onSubmit={handleGuardar} className="space-y-4 md:space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className={`block text-[10px] font-black mb-1.5 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Nombre Completo</label>
-                  <div className="relative">
-                    <User size={16} className="absolute left-3 top-3 opacity-40" />
-                    <input required type="text" placeholder="Juan Pérez" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} className={`w-full pl-10 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none transition-all ${inputBg}`} />
+              <form onSubmit={handleGuardar} className="space-y-4 md:space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className={`block text-[10px] font-black mb-1.5 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Nombre Completo</label>
+                    <div className="relative">
+                      <User size={16} className="absolute left-3 top-3 opacity-40" />
+                      <input required type="text" placeholder="Juan Pérez" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} className={`w-full pl-10 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none transition-all ${inputBg}`} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={`block text-[10px] font-black mb-1.5 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Correo Electrónico</label>
+                    <div className="relative">
+                      <Mail size={16} className="absolute left-3 top-3 opacity-40" />
+                      <input required type="email" placeholder="juan@sicamet.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className={`w-full pl-10 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none transition-all ${inputBg}`} />
+                    </div>
                   </div>
                 </div>
 
                 <div>
-                  <label className={`block text-[10px] font-black mb-1.5 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Correo Electrónico</label>
+                  <label className={`block text-[10px] font-black mb-1.5 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
+                    {editandoId ? 'Nueva Contraseña (Opcional)' : 'Contraseña Inicial'}
+                  </label>
                   <div className="relative">
-                    <Mail size={16} className="absolute left-3 top-3 opacity-40" />
-                    <input required type="email" placeholder="juan@sicamet.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className={`w-full pl-10 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none transition-all ${inputBg}`} />
+                    <Lock size={16} className="absolute left-3 top-3 opacity-40" />
+                    <input required={!editandoId} type="password" placeholder="••••••••" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className={`w-full pl-10 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none transition-all ${inputBg}`} />
+                  </div>
+                  {editandoId && <p className="text-[10px] mt-1.5 opacity-40 italic">Mantenlo vacío para conservar la actual.</p>}
+                </div>
+
+                <div className="pt-2">
+                  <label className={`block text-[10px] font-black mb-3 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Perfil y Privilegios</label>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <button type="button" onClick={() => setForm({ ...form, rol: 'recepcionista' })} className={`p-4 rounded-xl border text-xs font-bold flex items-center md:flex-col justify-start md:justify-center gap-3 md:gap-1 transition-all ${form.rol === 'recepcionista' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600 shadow-md') : (darkMode ? 'border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:bg-[#C9EA63]/5' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}`}>
+                      <User size={18} /> Recepcionista
+                    </button>
+                    <button type="button" onClick={() => setForm({ ...form, rol: 'operador' })} className={`p-4 rounded-xl border text-xs font-bold flex items-center md:flex-col justify-start md:justify-center gap-3 md:gap-1 transition-all ${form.rol === 'operador' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600 shadow-md') : (darkMode ? 'border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:bg-[#C9EA63]/5' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}`}>
+                      <Package size={18} /> Metrologo
+                    </button>
+                    <button type="button" onClick={() => setForm({ ...form, rol: 'admin' })} className={`p-4 rounded-xl border text-xs font-bold flex items-center md:flex-col justify-start md:justify-center gap-3 md:gap-1 transition-all ${form.rol === 'admin' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600 shadow-md') : (darkMode ? 'border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:bg-[#C9EA63]/5' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}`}>
+                      <Shield size={18} /> Admin
+                    </button>
                   </div>
                 </div>
-              </div>
 
-              <div>
-                <label className={`block text-[10px] font-black mb-1.5 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
-                  {editandoId ? 'Nueva Contraseña (Opcional)' : 'Contraseña Inicial'}
-                </label>
-                <div className="relative">
-                  <Lock size={16} className="absolute left-3 top-3 opacity-40" />
-                  <input required={!editandoId} type="password" placeholder="••••••••" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className={`w-full pl-10 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none transition-all ${inputBg}`} />
-                </div>
-                {editandoId && <p className="text-[10px] mt-1.5 opacity-40 italic">Mantenlo vacío para conservar la actual.</p>}
-              </div>
-
-              <div className="pt-2">
-                <label className={`block text-[10px] font-black mb-3 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Perfil y Privilegios</label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <button type="button" onClick={() => setForm({ ...form, rol: 'recepcionista' })} className={`p-4 rounded-xl border text-xs font-bold flex items-center md:flex-col justify-start md:justify-center gap-3 md:gap-1 transition-all ${form.rol === 'recepcionista' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600 shadow-md') : (darkMode ? 'border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:bg-[#C9EA63]/5' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}`}>
-                    <User size={18} /> Recepcionista
+                <div className="pt-4 flex gap-3">
+                  <button type="button" onClick={() => setModalAbierto(false)} className={`hidden sm:block flex-1 font-bold py-3 px-4 rounded-xl transition-all ${darkMode ? 'text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'text-slate-400 hover:text-slate-600'}`}>
+                    Cancelar
                   </button>
-                  <button type="button" onClick={() => setForm({ ...form, rol: 'operador' })} className={`p-4 rounded-xl border text-xs font-bold flex items-center md:flex-col justify-start md:justify-center gap-3 md:gap-1 transition-all ${form.rol === 'operador' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600 shadow-md') : (darkMode ? 'border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:bg-[#C9EA63]/5' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}`}>
-                    <Package size={18} /> Metrologo
-                  </button>
-                  <button type="button" onClick={() => setForm({ ...form, rol: 'admin' })} className={`p-4 rounded-xl border text-xs font-bold flex items-center md:flex-col justify-start md:justify-center gap-3 md:gap-1 transition-all ${form.rol === 'admin' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600 shadow-md') : (darkMode ? 'border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:bg-[#C9EA63]/5' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}`}>
-                    <Shield size={18} /> Admin
+                  <button type="submit" className={`flex-[2] font-black py-4 px-6 rounded-xl flex justify-center items-center gap-2 shadow-lg transition-all transform hover:scale-[1.01] active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
+                    <Save size={20} /> {editandoId ? 'Guardar Cambios' : 'Registrar Colaborador'}
                   </button>
                 </div>
-              </div>
-
-              <div className="pt-4 flex gap-3">
-                <button type="button" onClick={() => setModalAbierto(false)} className={`hidden sm:block flex-1 font-bold py-3 px-4 rounded-xl transition-all ${darkMode ? 'text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'text-slate-400 hover:text-slate-600'}`}>
-                  Cancelar
-                </button>
-                <button type="submit" className={`flex-[2] font-black py-4 px-6 rounded-xl flex justify-center items-center gap-2 shadow-lg transition-all transform hover:scale-[1.01] active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
-                  <Save size={20} /> {editandoId ? 'Guardar Cambios' : 'Registrar Colaborador'}
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
         </div>
       )}

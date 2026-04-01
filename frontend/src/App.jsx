@@ -54,7 +54,7 @@ import {
   Bot, ScanLine, Target, LogOut, ShieldCheck, UserCircle, Save
 } from 'lucide-react';
 
-const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, onLogout, counts }) => {
+const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, onLogout, counts, sidebarOculta, setSidebarOculta }) => {
   const location = useLocation();
   const esAdmin = usuario?.rol === 'admin';
 
@@ -75,15 +75,25 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
   ].filter(item => item.roles.includes(usuario?.rol || 'recepcionista'));
 
   const NavContent = () => (
-    <div className="flex flex-col h-full custom-scrollbar relative">
-      <div className="p-6 sticky top-0 z-10 bg-inherit">
-        <h2 className={`text-2xl font-black tracking-tighter ${darkMode ? 'text-[#C9EA63]' : 'text-[#65D067]'}`}>
-          SICAMET <span className={darkMode ? 'text-[#F2F6F0]' : 'text-[#253916]'}>CRM</span>
-        </h2>
-        <div className={`flex items-center gap-1.5 mt-1 ${darkMode ? 'text-[#C9EA63]/60' : 'text-[#253916]/50'} text-xs`}>
-          <ShieldCheck size={12} />
-          <span>{usuario?.rol === 'admin' ? 'Administrador' : (usuario?.rol === 'operador' ? 'Operador Pipeline' : 'Recepcionista')}</span>
+    <div className="flex flex-col h-full overflow-y-auto custom-scrollbar relative">
+      <div className={`p-6 sticky top-0 z-10 flex justify-between items-start ${darkMode ? 'bg-[#141f0b]' : 'bg-[#F2F6F0]'}`}>
+        <div>
+          <h2 className={`text-2xl font-black tracking-tighter ${darkMode ? 'text-[#C9EA63]' : 'text-[#65D067]'}`}>
+            SICAMET <span className={darkMode ? 'text-[#F2F6F0]' : 'text-[#253916]'}>CRM</span>
+          </h2>
+          <div className={`flex items-center gap-1.5 mt-1 ${darkMode ? 'text-[#C9EA63]/60' : 'text-[#253916]/50'} text-xs`}>
+            <ShieldCheck size={12} />
+            <span>{usuario?.rol === 'admin' ? 'Administrador' : (usuario?.rol === 'operador' ? 'Metrologo' : 'Recepcionista')}</span>
+          </div>
         </div>
+        {/* Toggle para ocultar en PC */}
+        <button 
+          onClick={() => setSidebarOculta(true)} 
+          className={`hidden lg:flex p-1.5 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#253916] text-[#C9EA63]' : 'hover:bg-gray-200 text-gray-500'}`}
+          title="Colapsar menú"
+        >
+          <Menu size={20} />
+        </button>
       </div>
 
       <nav className="flex-1 px-4 space-y-1 mt-2">
@@ -165,9 +175,9 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
       {mobileOpen && (
         <div className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
       )}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-72 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-auto shadow-xl lg:shadow-none ${
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 transform transition-transform duration-300 ease-in-out ${
         mobileOpen ? 'translate-x-0' : '-translate-x-full'
-      } ${darkMode ? 'bg-[#141f0b] border-r border-[#C9EA63]/10' : 'bg-[#F2F6F0] border-r border-[#253916]/5'}`}>
+      } ${sidebarOculta ? 'lg:-translate-x-full lg:fixed' : 'lg:translate-x-0 lg:static'} ${darkMode ? 'bg-[#141f0b] border-r border-[#C9EA63]/10' : 'bg-[#F2F6F0] border-r border-[#253916]/5'}`}>
         <NavContent />
       </aside>
     </>
@@ -175,16 +185,18 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
 };
 
 const Layout = () => {
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('crm_dark_mode');
+    if (saved !== null) return saved === 'true';
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarOculta, setSidebarOculta] = useState(false);
   const [usuario, setUsuario] = useState(null);
   const [verificando, setVerificando] = useState(true);
 
   useEffect(() => {
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) setDarkMode(true);
-  }, []);
-  
-  useEffect(() => {
+    localStorage.setItem('crm_dark_mode', darkMode);
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
 
@@ -207,7 +219,7 @@ const Layout = () => {
   useEffect(() => {
     if (usuario) {
       // Conectar socket
-      const socket = io('http://localhost:3001');
+      const socket = io();
       
       socket.on('nueva_cotizacion', (data) => {
         toast.info(`🔔 ¡Nueva Cotización! de ${data.empresa}`, { 
@@ -224,7 +236,6 @@ const Layout = () => {
       
       socket.on('actualizacion_operativa', () => {
         fetchGlobalStats();
-        // Disparar evento global para que otros componentes refresquen sus datos sin prop-drilling
         window.dispatchEvent(new CustomEvent('crm:refresh'));
       });
 
@@ -263,8 +274,19 @@ const Layout = () => {
   return (
     <Router>
       <ToastContainer position="bottom-right" autoClose={3000} theme="colored" />
-      <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]' : 'bg-slate-50 text-[#253916]'}`}>
+      <div className={`flex h-screen overflow-hidden transition-all duration-300 ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]' : 'bg-slate-50 text-[#253916]'}`}>
         
+        {/* Botón Flotante para reabrir Sidebar */}
+        {sidebarOculta && (
+          <button 
+            onClick={() => setSidebarOculta(false)}
+            className={`fixed top-4 left-4 z-[60] p-2 rounded-xl shadow-lg transition-all border animate-in slide-in-from-left duration-300 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]/30' : 'bg-[#65D067] text-white border-white/20'}`}
+            title="Mostrar menú"
+          >
+            <Menu size={24} />
+          </button>
+        )}
+
         <Sidebar 
             darkMode={darkMode} 
             setDarkMode={setDarkMode} 
@@ -273,9 +295,11 @@ const Layout = () => {
             usuario={usuario}
             onLogout={onLogout}
             counts={pendingCounts}
+            sidebarOculta={sidebarOculta}
+            setSidebarOculta={setSidebarOculta}
           />
 
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarOculta ? 'w-full' : ''}`}>
           <header className={`lg:hidden flex items-center justify-between p-4 shadow-sm z-30 ${darkMode ? 'bg-[#141f0b] border-b border-[#C9EA63]/10' : 'bg-[#F2F6F0] border-b border-[#253916]/5'}`}>
             <h2 className={`text-xl font-bold tracking-tight ${darkMode ? 'text-[#C9EA63]' : 'text-[#65D067]'}`}>SICAMET</h2>
             <button onClick={() => setMobileOpen(true)} className={`p-2 rounded-lg ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-white text-[#253916] shadow-sm'}`}>

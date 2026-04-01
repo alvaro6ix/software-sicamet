@@ -23,7 +23,7 @@ const CatalogoInstrumentos = ({ darkMode }) => {
 
   const handleDeleteMasivo = async () => {
     try {
-      await axios.delete('http://localhost:3001/api/catalogo/instrumentos/all');
+      await axios.delete('/api/catalogo/instrumentos/all');
       alert(`✅ Todos los registros fueron eliminados exitosamente.`);
       setModalConfirmarVaciar(false);
       fetchInstrumentos();
@@ -34,7 +34,7 @@ const CatalogoInstrumentos = ({ darkMode }) => {
 
   const fetchInstrumentos = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/catalogo/instrumentos');
+      const res = await axios.get('/api/catalogo/instrumentos');
       setInstrumentos(res.data);
     } catch(err) { console.error("Error cargando instrumentos"); }
   };
@@ -52,7 +52,7 @@ const CatalogoInstrumentos = ({ darkMode }) => {
     body.append('tipo', 'instrumentos');
 
     try {
-      const res = await axios.post('http://localhost:3001/api/importar-catalogo', body);
+      const res = await axios.post('/api/importar-catalogo', body);
       alert(`✅ ${res.data.message}`);
       fetchInstrumentos();
     } catch (err) { alert("Error al subir el catálogo excel."); }
@@ -62,7 +62,7 @@ const CatalogoInstrumentos = ({ darkMode }) => {
   const handleDelete = async () => {
     if (!itemAEliminar) return;
     try {
-      await axios.delete(`http://localhost:3001/api/catalogo/instrumentos/${itemAEliminar}`);
+      await axios.delete(`/api/catalogo/instrumentos/${itemAEliminar}`);
       fetchInstrumentos();
       setModalConfirmarEliminar(false);
       setItemAEliminar(null);
@@ -72,7 +72,7 @@ const CatalogoInstrumentos = ({ darkMode }) => {
   const handleGuardarManual = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:3001/api/catalogo/instrumentos', nuevoItem);
+      await axios.post('/api/catalogo/instrumentos', nuevoItem);
       setModalAbierto(false);
       setNuevoItem({ nombre: '' });
       fetchInstrumentos();
@@ -89,7 +89,7 @@ const CatalogoInstrumentos = ({ darkMode }) => {
   const handleGuardarEdicion = async (e) => {
     e.preventDefault();
     try {
-      await axios.put(`http://localhost:3001/api/catalogo/instrumentos/${editandoItem.id}`, editandoItem);
+      await axios.put(`/api/catalogo/instrumentos/${editandoItem.id}`, editandoItem);
       setEditandoItem(null);
       fetchInstrumentos();
     } catch(err) { 

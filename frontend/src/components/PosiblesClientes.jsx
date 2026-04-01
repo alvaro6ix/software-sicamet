@@ -13,7 +13,7 @@ const PosiblesClientes = ({ darkMode }) => {
 
   const fetchLeads = async () => {
     try {
-        const res = await axios.get('http://localhost:3001/api/leads');
+        const res = await axios.get('/api/leads');
         setLeads(res.data);
     } catch (error) {
         console.error("Error al obtener leads", error);
@@ -27,7 +27,7 @@ const PosiblesClientes = ({ darkMode }) => {
   const handleAgregarLead = async () => {
     if(!nuevoLead.nombre || !nuevoLead.telefono) return alert("Falta nombre o teléfono");
     try {
-        await axios.post('http://localhost:3001/api/leads', nuevoLead);
+        await axios.post('/api/leads', nuevoLead);
         setModalAbierto(false);
         setNuevoLead({ nombre: '', telefono: '', interes: '' });
         fetchLeads();
@@ -37,9 +37,9 @@ const PosiblesClientes = ({ darkMode }) => {
   const convertirACliente = async (lead) => {
     try {
         // 1. Añadir a catálogo de Clientes
-        await axios.post('http://localhost:3001/api/catalogo/clientes', { empresa: lead.nombre, contacto: lead.nombre });
+        await axios.post('/api/catalogo/clientes', { empresa: lead.nombre, contacto: lead.nombre });
         // 2. Marcar lead como Convertido
-        await axios.put(`http://localhost:3001/api/leads/${lead.id}`, { estado: 'Convertido' });
+        await axios.put(`/api/leads/${lead.id}`, { estado: 'Convertido' });
         // 3. Informar
         alert(`¡Felicidades! ${lead.nombre} ha sido convertido en un Cliente activo de SICAMET.`);
         fetchLeads();
@@ -48,7 +48,7 @@ const PosiblesClientes = ({ darkMode }) => {
 
   const marcarContactado = async (lead) => {
     try {
-        await axios.put(`http://localhost:3001/api/leads/${lead.id}`, { estado: 'Contactado' });
+        await axios.put(`/api/leads/${lead.id}`, { estado: 'Contactado' });
         fetchLeads();
     } catch(err) { console.error(err); }
   };

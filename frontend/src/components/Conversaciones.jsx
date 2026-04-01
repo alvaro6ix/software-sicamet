@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import io from 'socket.io-client';
 
-const API = 'http://localhost:3001';
+const API = '';
 
 const Conversaciones = ({ darkMode }) => {
     const limpiarID = (id) => {
@@ -23,6 +23,7 @@ const Conversaciones = ({ darkMode }) => {
     };
     const [chats, setChats] = useState([]);
     const [activeChat, setActiveChat] = useState(null);
+    const [mobileView, setMobileView] = useState('list'); // 'list' o 'chat'
     const [mensajes, setMensajes] = useState([]);
     const [inputMsg, setInputMsg] = useState('');
     const [busqueda, setBusqueda] = useState('');
@@ -94,6 +95,7 @@ const Conversaciones = ({ darkMode }) => {
 
     const seleccionarChat = (chat) => {
         setActiveChat(chat);
+        setMobileView('chat');
         fetchMensajes(chat.numero_wa);
     };
 
@@ -183,10 +185,10 @@ const Conversaciones = ({ darkMode }) => {
     const inputBg = darkMode ? 'bg-[#141f0b] border-[#C9EA63]/40 text-[#F2F6F0]' : 'bg-slate-50 border-gray-200 text-slate-800';
 
     return (
-        <div className={`h-[calc(100vh-8rem)] flex flex-col md:flex-row rounded-2xl border overflow-hidden ${boxBg} relative`}>
+        <div className={`h-[calc(100vh-6.5rem)] flex flex-col md:flex-row rounded-2xl border overflow-hidden ${boxBg} relative`}>
             
             {/* --- SIDEBAR DE CHATS --- */}
-            <div className={`w-full md:w-1/3 h-1/4 md:h-full border-b md:border-b-0 md:border-r flex flex-col shrink-0 ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'}`}>
+            <div className={`w-full md:w-1/3 h-full border-b md:border-b-0 md:border-r flex flex-col shrink-0 ${mobileView === 'list' ? 'flex' : 'hidden md:flex'} ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'}`}>
                 <div className="p-4 border-b border-inherit bg-inherit shrink-0">
                     <h2 className={`font-bold text-lg flex items-center gap-2 mb-4 ${textTitle}`}>
                         <MessageSquare size={20} className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-500'} /> CRM WhatsApp
@@ -243,20 +245,28 @@ const Conversaciones = ({ darkMode }) => {
             </div>
 
             {/* --- ÁREA DE CHAT PRINCIPAL --- */}
-            <div className="flex-1 min-h-0 md:h-full flex flex-col relative bg-inherit">
+            <div className={`flex-1 min-h-0 h-full flex flex-col relative bg-inherit ${mobileView === 'chat' ? 'flex' : 'hidden md:flex'}`}>
                 {activeChat ? (
                     <>
                         {/* Cabecera del chat */}
-                        <div className={`p-4 border-b flex justify-between items-center ${darkMode ? 'border-[#C9EA63]/20 bg-[#141f0b]/50' : 'border-slate-200 bg-slate-50/50'}`}>
-                            <div className="flex items-center gap-3">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-emerald-600'} overflow-hidden`}>
-                                    {activeChat.foto_url ? <img src={activeChat.foto_url} alt="" /> : <User size={20} />}
+                        <div className={`p-3 md:p-4 border-b flex justify-between items-center ${darkMode ? 'border-[#C9EA63]/20 bg-[#141f0b]/50' : 'border-slate-200 bg-slate-50/50'}`}>
+                            <div className="flex items-center gap-2 md:gap-3">
+                                {/* Botón volver - Solo en móvil */}
+                                <button 
+                                    onClick={() => setMobileView('list')}
+                                    className={`md:hidden p-2 -ml-2 rounded-full hover:bg-black/10 ${darkMode ? 'text-[#C9EA63]' : 'text-slate-600'}`}
+                                >
+                                    <X size={20} />
+                                </button>
+                                
+                                <div className={`w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-emerald-600'} overflow-hidden shrink-0`}>
+                                    {activeChat.foto_url ? <img src={activeChat.foto_url} alt="" className="w-full h-full object-cover" /> : <User size={18} />}
                                 </div>
-                                <div>
-                                    <h3 className={`font-bold text-sm ${textTitle}`}>
+                                <div className="min-w-0">
+                                    <h3 className={`font-bold text-sm truncate ${textTitle}`}>
                                         {activeChat.nombre_contacto?.includes('@') ? limpiarID(activeChat.nombre_contacto) : (activeChat.nombre_contacto || numeroParaMostrar(activeChat))}
                                     </h3>
-                                    <p className="text-xs text-emerald-500 flex items-center gap-1 font-mono" title={`ID CRM: ${activeChat.numero_wa}`}>
+                                    <p className="text-[10px] md:text-xs text-emerald-500 flex items-center gap-1 font-mono truncate" title={`ID CRM: ${activeChat.numero_wa}`}>
                                         <Phone size={10} /> {numeroParaMostrar(activeChat)}
                                     </p>
                                 </div>

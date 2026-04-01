@@ -23,7 +23,7 @@ const Modelos = ({ darkMode }) => {
 
   const handleDeleteMasivo = async () => {
     try {
-      await axios.delete('http://localhost:3001/api/catalogo/modelos/all');
+      await axios.delete('/api/catalogo/modelos/all');
       alert(`✅ Todos los registros fueron eliminados exitosamente.`);
       setModalConfirmarVaciar(false);
       fetchModelos();
@@ -34,7 +34,7 @@ const Modelos = ({ darkMode }) => {
 
   const fetchModelos = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/catalogo/modelos');
+      const res = await axios.get('/api/catalogo/modelos');
       setModelos(res.data);
     } catch(err) { console.error("Error cargando modelos"); }
   };
@@ -52,7 +52,7 @@ const Modelos = ({ darkMode }) => {
     body.append('tipo', 'modelos'); 
 
     try {
-      const res = await axios.post('http://localhost:3001/api/importar-catalogo', body);
+      const res = await axios.post('/api/importar-catalogo', body);
       alert(`✅ ${res.data.message}`);
       fetchModelos();
     } catch (err) { alert("Error al subir excel de modelos."); }
@@ -62,7 +62,7 @@ const Modelos = ({ darkMode }) => {
   const handleDelete = async () => {
     if (!itemAEliminar) return;
     try {
-      await axios.delete(`http://localhost:3001/api/catalogo/modelos/${itemAEliminar}`);
+      await axios.delete(`/api/catalogo/modelos/${itemAEliminar}`);
       fetchModelos();
       setModalConfirmarEliminar(false);
       setItemAEliminar(null);
@@ -72,7 +72,7 @@ const Modelos = ({ darkMode }) => {
   const handleGuardarManual = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:3001/api/catalogo/modelos', nuevoItem);
+      await axios.post('/api/catalogo/modelos', nuevoItem);
       setModalAbierto(false);
       setNuevoItem({ nombre: '', marca: '' });
       fetchModelos();
@@ -89,7 +89,7 @@ const Modelos = ({ darkMode }) => {
   const handleGuardarEdicion = async (e) => {
     e.preventDefault();
     try {
-      await axios.put(`http://localhost:3001/api/catalogo/modelos/${editandoItem.id}`, editandoItem);
+      await axios.put(`/api/catalogo/modelos/${editandoItem.id}`, editandoItem);
       setEditandoItem(null);
       fetchModelos();
     } catch(err) { 

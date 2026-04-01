@@ -146,26 +146,47 @@ app.get('/api/stats', async (req, res) => {
         const [enCalibracion] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual != 'Entregado'");
         const [proximosSLA] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE sla <= 10 AND estatus_actual != 'Entregado'");
         
-        // Obtenemos todos los registros para armar las métricas de ingresos vs entregas
-        const [ingresosData] = await db.query("SELECT DAYNAME(fecha_ingreso) as dia, COUNT(*) as cantidad FROM instrumentos_estatus GROUP BY dia");
-        const [entregasData] = await db.query("SELECT DAYNAME(fecha_entrega) as dia, COUNT(*) as cantidad FROM instrumentos_estatus WHERE estatus_actual = 'Entregado' AND fecha_entrega IS NOT NULL GROUP BY dia");
+        // --- TENDENCIA REAL DE 7 DÍAS (Terminando en Hoy) ---
+        // 1. Generar los últimos 7 días como base
+        const diasSemanaRel = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        const chartDataMapeada = [];
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const fechaStr = d.toISOString().split('T')[0];
+            chartDataMapeada.push({ 
+                name: diasSemanaRel[d.getDay()], 
+                fecha: fechaStr,
+                ingresos: 0, 
+                entregados: 0 
+            });
+        }
 
-        const diasMapeados = { 'Monday': 'Lun', 'Tuesday': 'Mar', 'Wednesday': 'Mié', 'Thursday': 'Jue', 'Friday': 'Vie', 'Saturday': 'Sáb', 'Sunday': 'Dom' };
-        
-        const chartDataMapeada = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie'].map(diaCorto => {
-            return { name: diaCorto, ingresos: 0, entregados: 0 };
-        });
+        // 2. Consultar ingresos filtrados por fecha real
+        const [ingresosData] = await db.query(`
+            SELECT DATE_FORMAT(fecha_ingreso, '%Y-%m-%d') as fecha, COUNT(*) as cantidad 
+            FROM instrumentos_estatus 
+            WHERE fecha_ingreso >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+            GROUP BY fecha
+        `);
 
+        // 3. Consultar entregas filtradas por fecha real
+        const [entregasData] = await db.query(`
+            SELECT DATE_FORMAT(fecha_entrega, '%Y-%m-%d') as fecha, COUNT(*) as cantidad 
+            FROM instrumentos_estatus 
+            WHERE estatus_actual = 'Entregado' AND fecha_entrega >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+            GROUP BY fecha
+        `);
+
+        // 4. Mapear datos a los últimos 7 días generados
         ingresosData.forEach(row => {
-            const diac = diasMapeados[row.dia];
-            const indice = chartDataMapeada.findIndex(d => d.name === diac);
-            if (indice !== -1) chartDataMapeada[indice].ingresos = row.cantidad;
+            const d = chartDataMapeada.find(item => item.fecha === row.fecha);
+            if (d) d.ingresos = row.cantidad;
         });
 
         entregasData.forEach(row => {
-            const diac = diasMapeados[row.dia];
-            const indice = chartDataMapeada.findIndex(d => d.name === diac);
-            if (indice !== -1) chartDataMapeada[indice].entregados = row.cantidad;
+            const d = chartDataMapeada.find(item => item.fecha === row.fecha);
+            if (d) d.entregados = row.cantidad;
         });
         
         const [botStats] = await db.query(`
@@ -190,11 +211,11 @@ app.get('/api/stats', async (req, res) => {
 
 app.get('/api/heatmap', async (req, res) => {
     try {
-        // Obtenemos distribución de mensajes entrantes por Día y Hora
+        // Obtenemos distribución de mensajes entrantes de los últimos 30 días
         const [rows] = await db.query(`
             SELECT DAYNAME(fecha) as dia, HOUR(fecha) as hora, COUNT(*) as cantidad 
             FROM chat_mensajes 
-            WHERE direccion = 'in' 
+            WHERE direccion = 'in' AND fecha >= DATE_SUB(NOW(), INTERVAL 30 DAY)
             GROUP BY dia, hora
         `);
         res.json(rows);
@@ -289,12 +310,12 @@ app.post('/api/instrumentos-multiple', async (req, res) => {
 
     try {
         const query = `INSERT INTO instrumentos_estatus 
-            (orden_cotizacion, empresa, persona, tipo_servicio, nombre_instrumento, marca, modelo, no_serie, sla, estatus_actual) 
+            (orden_cotizacion, empresa, persona, tipo_servicio, nombre_instrumento, marca, modelo, no_serie, identificacion, ubicacion, requerimientos_especiales, puntos_calibrar, sla, estatus_actual) 
             VALUES ?`; 
         
         const valores = instrumentos.map(ins => [
             ins.orden_cotizacion, ins.empresa, ins.persona, ins.tipo_servicio, ins.nombre_instrumento, 
-            ins.marca, ins.modelo, ins.no_serie, ins.sla, 'Recepción'
+            ins.marca, ins.modelo, ins.no_serie, ins.identificacion, ins.ubicacion, ins.requerimientos_especiales, ins.puntos_calibrar, ins.sla, 'Recepción'
         ]);
 
         await db.query(query, [valores]);
@@ -330,10 +351,20 @@ app.put('/api/instrumentos/:id/estatus', async (req, res) => {
 
 app.put('/api/instrumentos/:id', async (req, res) => {
     try {
-        const { orden_cotizacion, nombre_instrumento, marca, no_serie, empresa } = req.body;
+        const { 
+            orden_cotizacion, nombre_instrumento, marca, modelo, no_serie, empresa, 
+            identificacion, ubicacion, requerimientos_especiales, puntos_calibrar 
+        } = req.body;
         await db.query(
-            'UPDATE instrumentos_estatus SET orden_cotizacion=?, nombre_instrumento=?, marca=?, no_serie=?, empresa=? WHERE id=?', 
-            [orden_cotizacion, nombre_instrumento, marca, no_serie, empresa, req.params.id]
+            `UPDATE instrumentos_estatus SET 
+                orden_cotizacion=?, nombre_instrumento=?, marca=?, modelo=?, no_serie=?, empresa=?,
+                identificacion=?, ubicacion=?, requerimientos_especiales=?, puntos_calibrar=?
+             WHERE id=?`, 
+            [
+                orden_cotizacion, nombre_instrumento, marca, modelo, no_serie, empresa, 
+                identificacion, ubicacion, requerimientos_especiales, puntos_calibrar,
+                req.params.id
+            ]
         );
         
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'edicion_instrumento', id: req.params.id });
@@ -529,15 +560,15 @@ app.post('/api/leer-pdf', upload.single('archivoPdf'), async (req, res) => {
                     return res.status(500).json({ error: resultado.error });
                 }
 
-                console.log(`✅ EXTRACCIÓN MAESTRA EN PYTHON -> FOLIO: "${resultado.orden_cotizacion}" | PARTIDAS: ${resultado.partidas.length}`);
+                console.log(`✅ EXTRACCIÓN MAESTRA EN PYTHON -> FOLIO: "${resultado.cabecera.orden_cotizacion}" | PARTIDAS: ${resultado.partidas.length}`);
                 
                 res.json({
                     success: true,
                     cabecera: { 
-                        orden_cotizacion: resultado.orden_cotizacion, 
-                        empresa: resultado.empresa, 
-                        persona: resultado.persona, 
-                        sla: resultado.sla 
+                        orden_cotizacion: resultado.cabecera.orden_cotizacion, 
+                        empresa: resultado.cabecera.empresa, 
+                        persona: resultado.cabecera.persona, 
+                        sla: resultado.cabecera.sla 
                     },
                     partidas: resultado.partidas
                 });

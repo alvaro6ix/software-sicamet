@@ -23,7 +23,7 @@ const Marcas = ({ darkMode }) => {
 
   const handleDeleteMasivo = async () => {
     try {
-      await axios.delete('http://localhost:3001/api/catalogo/marcas/all');
+      await axios.delete('/api/catalogo/marcas/all');
       alert(`✅ Todos los registros fueron eliminados exitosamente.`);
       setModalConfirmarVaciar(false);
       fetchMarcas();
@@ -34,7 +34,7 @@ const Marcas = ({ darkMode }) => {
 
   const fetchMarcas = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/catalogo/marcas');
+      const res = await axios.get('/api/catalogo/marcas');
       setMarcas(res.data);
     } catch(err) { console.error("Error cargando marcas"); }
   };
@@ -52,7 +52,7 @@ const Marcas = ({ darkMode }) => {
     body.append('tipo', 'marcas');
 
     try {
-      const res = await axios.post('http://localhost:3001/api/importar-catalogo', body);
+      const res = await axios.post('/api/importar-catalogo', body);
       alert(`✅ ${res.data.message}`);
       fetchMarcas();
     } catch (err) { alert("Error al subir marcas xlsx."); }
@@ -62,7 +62,7 @@ const Marcas = ({ darkMode }) => {
   const handleDelete = async () => {
     if (!itemAEliminar) return;
     try {
-      await axios.delete(`http://localhost:3001/api/catalogo/marcas/${itemAEliminar}`);
+      await axios.delete(`/api/catalogo/marcas/${itemAEliminar}`);
       fetchMarcas();
       setModalConfirmarEliminar(false);
       setItemAEliminar(null);
@@ -72,7 +72,7 @@ const Marcas = ({ darkMode }) => {
   const handleGuardarManual = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:3001/api/catalogo/marcas', nuevoItem);
+      await axios.post('/api/catalogo/marcas', nuevoItem);
       setModalAbierto(false);
       setNuevoItem({ nombre: '' });
       fetchMarcas();
@@ -89,7 +89,7 @@ const Marcas = ({ darkMode }) => {
   const handleGuardarEdicion = async (e) => {
     e.preventDefault();
     try {
-      await axios.put(`http://localhost:3001/api/catalogo/marcas/${editandoItem.id}`, editandoItem);
+      await axios.put(`/api/catalogo/marcas/${editandoItem.id}`, editandoItem);
       setEditandoItem(null);
       fetchMarcas();
     } catch(err) { 
@@ -206,45 +206,49 @@ const Marcas = ({ darkMode }) => {
       </div>
 
       {modalAbierto && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100]">
-          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
-            <button onClick={() => setModalAbierto(false)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
-              <X size={24} />
-            </button>
-            <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-              Nueva Marca
-            </h2>
-            <form onSubmit={handleGuardarManual} className="space-y-4">
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Marca *</label>
-                <input required type="text" value={nuevoItem.nombre} onChange={(e) => setNuevoItem({...nuevoItem, nombre: e.target.value})} className={`w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
-              </div>
-              <button type="submit" className={`w-full mt-4 font-bold py-3 px-4 rounded-lg flex justify-center items-center gap-2 transition-colors ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b]' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
-                <Save size={20} /> Guardar
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-[100] p-4">
+          <div className={`rounded-3xl shadow-2xl w-full max-w-md relative border-t-4 flex flex-col max-h-[95vh] ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
+            <div className="p-6 md:p-8 flex-1 overflow-y-auto custom-scrollbar">
+              <button onClick={() => setModalAbierto(false)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
+                <X size={24} />
               </button>
-            </form>
+              <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                Nueva Marca
+              </h2>
+              <form onSubmit={handleGuardarManual} className="space-y-4">
+                <div>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Marca *</label>
+                  <input required type="text" value={nuevoItem.nombre} onChange={(e) => setNuevoItem({...nuevoItem, nombre: e.target.value})} className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                </div>
+                <button type="submit" className={`w-full mt-4 font-bold py-4 px-4 rounded-2xl flex justify-center items-center gap-2 transition-colors shadow-lg ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b]' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
+                  <Save size={20} /> Guardar
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}
 
       {editandoItem && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-center z-[100]">
-          <div className={`p-8 rounded-2xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-emerald-400' : 'bg-white border-emerald-500'}`}>
-            <button onClick={() => setEditandoItem(null)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-emerald-400' : 'text-gray-400 hover:text-gray-800'}`}>
-              <X size={24} />
-            </button>
-            <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-              <Edit2 className={darkMode ? 'text-emerald-400' : 'text-emerald-500'} /> Editar Marca
-            </h2>
-            <form onSubmit={handleGuardarEdicion} className="space-y-4">
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Marca *</label>
-                <input required type="text" value={editandoItem.nombre} onChange={(e) => setEditandoItem({...editandoItem, nombre: e.target.value})} className={`w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
-              </div>
-              <button type="submit" className={`w-full mt-4 font-bold py-3 px-4 rounded-lg flex justify-center items-center gap-2 transition-colors ${darkMode ? 'bg-emerald-500 hover:bg-emerald-400 text-[#141f0b]' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
-                <Save size={20} /> Actualizar
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-[100] p-4">
+          <div className={`rounded-3xl shadow-2xl w-full max-w-md relative border-t-4 flex flex-col max-h-[95vh] ${darkMode ? 'bg-[#141f0b] border-emerald-400' : 'bg-white border-emerald-500'}`}>
+            <div className="p-6 md:p-8 flex-1 overflow-y-auto custom-scrollbar">
+              <button onClick={() => setEditandoItem(null)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-emerald-400' : 'text-gray-400 hover:text-gray-800'}`}>
+                <X size={24} />
               </button>
-            </form>
+              <h2 className={`text-2xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                <Edit2 className={darkMode ? 'text-emerald-400' : 'text-emerald-500'} size={20} /> Editar Marca
+              </h2>
+              <form onSubmit={handleGuardarEdicion} className="space-y-4">
+                <div>
+                  <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Marca *</label>
+                  <input required type="text" value={editandoItem.nombre} onChange={(e) => setEditandoItem({...editandoItem, nombre: e.target.value})} className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
+                </div>
+                <button type="submit" className={`w-full mt-4 font-bold py-4 px-4 rounded-2xl flex justify-center items-center gap-2 transition-colors shadow-lg ${darkMode ? 'bg-emerald-500 hover:bg-emerald-400 text-[#141f0b]' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
+                  <Save size={20} /> Actualizar
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}

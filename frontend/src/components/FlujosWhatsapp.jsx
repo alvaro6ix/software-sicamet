@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import io from 'socket.io-client';
 
-const API = 'http://localhost:3001';
+const API = '';
 
 // Menú principal simulado con iconos modernos
 const OPCIONES_MENU = [
@@ -61,7 +61,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     const interval = setInterval(fetchStatusBot, 8000);
     
     // Configurar Socket para actualizaciones en tiempo real
-    const socket = io('http://localhost:3001');
+    const socket = io('');
     socket.on('nueva_cotizacion', () => {
       fetchStats();
       if (pestana === 'cotizaciones') fetchCotizaciones();
@@ -365,7 +365,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
         <div 
           onClick={() => setPestana('cotizaciones')}
           className={`p-6 rounded-3xl border transition-all duration-500 overflow-hidden relative group cursor-pointer hover:shadow-lg ${
@@ -420,10 +420,10 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 flex-wrap">
+      <div className="flex gap-1 flex-wrap overflow-x-auto pb-2">
         {TABS.map(tab => (
           <button key={tab.id} onClick={() => setPestana(tab.id)}
-            className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${pestana === tab.id
+            className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap ${pestana === tab.id
               ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-lg shadow-[#C9EA63]/20' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20')
               : (darkMode ? 'bg-[#141f0b] text-[#F2F6F0]/50 hover:bg-[#C9EA63]/10 border border-white/5' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}`}>
             {tab.icon && <tab.icon size={16} />}
@@ -450,7 +450,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
           </div>
 
           {/* Área de chat */}
-          <div ref={chatRef} className={`h-[400px] overflow-y-auto p-4 space-y-3 ${darkMode ? 'bg-[#1a2e10]/50' : 'bg-slate-50'}`}>
+          <div ref={chatRef} className={`h-[400px] md:h-[500px] overflow-y-auto p-4 space-y-3 ${darkMode ? 'bg-[#1a2e10]/50' : 'bg-slate-50'}`}>
             {mensajes.map((msg, i) => (
               <div key={i} className={`flex ${msg.tipo === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[85%] space-y-2`}>
@@ -539,7 +539,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
             <h3 className={`font-bold ${textPrimary}`}>Pre-cotizaciones generadas por el bot</h3>
             <button onClick={fetchCotizaciones} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-[#314a1c]' : 'hover:bg-slate-100'}`}><RefreshCw size={14} /></button>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
             <table className="w-full text-sm">
               <thead className={darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}>
                 <tr>{['WhatsApp', 'Empresa', 'Equipos', 'Entrega', 'Estatus', 'Fecha', 'Acción'].map(h => (
@@ -600,7 +600,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
             <h3 className={`font-bold ${textPrimary}`}>Conversaciones escaladas a agente humano</h3>
             <button onClick={fetchEscalados} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-[#314a1c]' : 'hover:bg-slate-100'}`}><RefreshCw size={14} /></button>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
             <table className="w-full text-sm">
               <thead className={darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}>
                 <tr>{['WhatsApp', 'Motivo', 'Estatus', 'Fecha', 'Acción'].map(h => (
@@ -658,7 +658,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
               <Bell size={14} /> Ejecutar recordatorios ahora
             </button>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
             <table className="w-full text-sm">
               <thead className={darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}>
                 <tr>{['Empresa', 'Equipo', 'Marca', 'Última Calibración', 'Próxima', 'WhatsApp'].map(h => (
@@ -709,7 +709,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
               <button onClick={limpiarCache} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${darkMode ? 'bg-rose-900 text-rose-300' : 'bg-rose-100 text-rose-600'} hover:opacity-80`}>Limpiar caché expirado</button>
             </div>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
             <table className="w-full text-sm">
               <thead className={darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}>
                 <tr>{['Pregunta', 'Hits', 'Expira', 'Creado'].map(h => (
@@ -737,21 +737,21 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       {pestana === 'mensajes' && esAdmin && (
         <div className="space-y-6">
           <div className={`${box} rounded-2xl p-6`}>
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h3 className={`text-xl font-bold flex items-center gap-2 ${textPrimary}`}>
-                  <Bot className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} size={24} /> 
-                  Constructor de Flujos Dinámicos
-                </h3>
-                <p className={`text-sm mt-1 ${textMuted}`}>Define los pasos de la conversación y la inteligencia del bot.</p>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                <div>
+                  <h3 className={`text-xl font-bold flex items-center gap-2 ${textPrimary}`}>
+                    <Bot className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} size={24} /> 
+                    Constructor de Flujos Dinámicos
+                  </h3>
+                  <p className={`text-sm mt-1 ${textMuted}`}>Define los pasos de la conversación y la inteligencia del bot.</p>
+                </div>
+                <button 
+                  onClick={() => setEditandoNodo({ isNew: true, nombre: 'Nuevo Paso', mensaje: '', tipo: 'mensaje', orden: botNodos.length + 1, opciones: [] })}
+                  className={`w-full sm:w-auto px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0cc5a]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                >
+                  <Plus size={18} /> Añadir Paso
+                </button>
               </div>
-              <button 
-                onClick={() => setEditandoNodo({ isNew: true, nombre: 'Nuevo Paso', mensaje: '', tipo: 'mensaje', orden: botNodos.length + 1, opciones: [] })}
-                className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0cc5a]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
-              >
-                <Plus size={18} /> Añadir Paso
-              </button>
-            </div>
 
             <div className="grid gap-4">
               {/* NODO RAIZ EDITABLE */}
@@ -809,20 +809,20 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
               {/* LISTA DE NODOS (1-N) */}
               {botNodos.map((nodo, idx) => (
                 <div key={nodo.id} className={`p-5 rounded-2xl border transition-all ${editandoNodo?.id === nodo.id ? (darkMode ? 'border-[#C9EA63] bg-[#C9EA63]/5' : 'border-emerald-500 bg-emerald-50') : (darkMode ? 'border-white/5 bg-white/5' : 'border-gray-100 bg-white shadow-sm')}`}>
-                  <div className="flex justify-between items-start">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div className="flex gap-4">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-100 text-emerald-600'}`}>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shrink-0 ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-100 text-emerald-600'}`}>
                         {nodo.id}
                       </div>
                       <div>
                         <h4 className={`font-bold ${textPrimary}`}>{nodo.nombre}</h4>
-                        <div className="flex gap-2 mt-1">
+                        <div className="flex flex-wrap gap-2 mt-1">
                           <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${darkMode ? 'bg-white/10 text-white/60' : 'bg-gray-100 text-gray-500'}`}>{nodo.tipo}</span>
                           {nodo.accion && <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500">Acción: {nodo.accion}</span>}
                         </div>
                       </div>
                     </div>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 w-full sm:w-auto justify-end">
                       <button onClick={() => setEditandoNodo({...nodo})} className={`p-2 rounded-lg hover:bg-emerald-500/10 text-emerald-500`}><Edit2 size={16} /></button>
                       {nodo.id !== 0 && <button onClick={() => eliminarNodo(nodo.id)} className={`p-2 rounded-lg hover:bg-rose-500/10 text-rose-500`}><Trash2 size={16} /></button>}
                     </div>
@@ -848,9 +848,9 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
           {editandoNodo && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
               <div className={`${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-gray-100'} border rounded-3xl w-full max-w-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]`}>
-                <div className={`p-6 border-b ${darkMode ? 'border-white/10' : 'border-gray-100'} flex justify-between items-center shrink-0`}>
+                <div className={`p-5 sm:p-6 border-b ${darkMode ? 'border-white/10' : 'border-gray-100'} flex justify-between items-center shrink-0`}>
                   <h3 className={`text-xl font-bold flex items-center gap-2 ${textPrimary}`}>
-                    {editandoNodo.isNew ? <><Plus size={20} className="text-emerald-500"/> Nuevo Paso de Flujo</> : <><Edit2 size={20} className="text-emerald-500"/> Editando Paso {editandoNodo.id}</>}
+                    {editandoNodo.isNew ? <><Plus size={20} className="text-emerald-500"/> Nuevo Paso</> : <><Edit2 size={20} className="text-emerald-500"/> Editando Paso {editandoNodo.id}</>}
                   </h3>
                   <button onClick={() => setEditandoNodo(null)} className={`hover:bg-rose-500/10 hover:text-rose-500 p-2 rounded-full transition-colors ${textMuted}`}><X size={20} /></button>
                 </div>
@@ -938,24 +938,26 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                       <h4 className={`text-sm font-bold mb-4 ${textPrimary}`}>Ramificaciones (Botones)</h4>
                       <div className="space-y-3">
                         {(editandoNodo.opciones || []).map((opt, oIdx) => (
-                          <div key={oIdx} className="flex gap-2 items-center">
+                          <div key={oIdx} className="flex flex-col sm:flex-row gap-2 sm:items-center p-3 rounded-xl bg-black/10 border border-white/5 relative">
                             <input type="text" placeholder="Texto del botón" value={opt.texto_opcion} onChange={e => {
                               const newOpts = [...editandoNodo.opciones];
                               newOpts[oIdx].texto_opcion = e.target.value;
                               setEditandoNodo({...editandoNodo, opciones: newOpts});
-                            }} className={`flex-1 p-2 rounded-lg border text-xs ${inputCls}`} />
-                            <select value={opt.nodo_destino_id} onChange={e => {
-                              const newOpts = [...editandoNodo.opciones];
-                              newOpts[oIdx].nodo_destino_id = parseInt(e.target.value);
-                              setEditandoNodo({...editandoNodo, opciones: newOpts});
-                            }} className={`w-32 p-2 rounded-lg border text-xs ${inputCls}`}>
-                              <option value="">Destino...</option>
-                              {botNodos.map(n => <option key={n.id} value={n.id}>Paso {n.id}: {n.nombre}</option>)}
-                            </select>
-                            <button onClick={() => {
-                              const newOpts = editandoNodo.opciones.filter((_, i) => i !== oIdx);
-                              setEditandoNodo({...editandoNodo, opciones: newOpts});
-                            }} className="text-rose-500 p-1"><X size={16} /></button>
+                            }} className={`flex-1 p-2 rounded-lg border text-xs min-h-[40px] ${inputCls}`} />
+                            <div className="flex gap-2">
+                              <select value={opt.nodo_destino_id} onChange={e => {
+                                const newOpts = [...editandoNodo.opciones];
+                                newOpts[oIdx].nodo_destino_id = parseInt(e.target.value);
+                                setEditandoNodo({...editandoNodo, opciones: newOpts});
+                              }} className={`flex-1 sm:w-32 p-2 rounded-lg border text-xs min-h-[40px] ${inputCls}`}>
+                                <option value="">Destino...</option>
+                                {botNodos.map(n => <option key={n.id} value={n.id}>Paso {n.id}: {n.nombre}</option>)}
+                              </select>
+                              <button onClick={() => {
+                                const newOpts = editandoNodo.opciones.filter((_, i) => i !== oIdx);
+                                setEditandoNodo({...editandoNodo, opciones: newOpts});
+                              }} className="text-rose-500 p-2 border border-rose-500/20 rounded-lg hover:bg-rose-500/10"><X size={16} /></button>
+                            </div>
                           </div>
                         ))}
                         <button 
@@ -1042,7 +1044,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
               <h3 className={`font-bold ${textPrimary}`}>Biblioteca de Respuestas</h3>
               <button onClick={fetchBotFaq} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-[#314a1c]' : 'hover:bg-slate-100'}`}><RefreshCw size={14} /></button>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
               <table className="w-full text-sm">
                 <thead className={darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}>
                   <tr>
@@ -1075,7 +1077,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
 
       {/* ── CONFIGURACIÓN (SOLO ADMIN) ────────────────────────────── */}
       {pestana === 'config' && esAdmin && (
-        <div className={`rounded-2xl border ${box} p-8 max-w-2xl mx-auto shadow-2xl`}>
+        <div className={`rounded-2xl border ${box} p-4 sm:p-8 max-w-2xl mx-auto shadow-2xl`}>
           <div className="text-center mb-8">
             <div className="w-16 h-16 rounded-3xl bg-[#C9EA63]/10 flex items-center justify-center mx-auto mb-4 border border-[#C9EA63]/20">
               <RefreshCw className="text-[#C9EA63]" size={32} />
@@ -1085,7 +1087,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
           </div>
 
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={`text-xs font-bold mb-2 block uppercase tracking-widest ${textMuted}`}>Hora Inicio</label>
                 <input
@@ -1130,7 +1132,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
             </div>
 
             <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-slate-50 border-gray-200'}`}>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                 <div>
                   <p className={`text-sm font-bold ${textPrimary}`}>Modo Fuera de Horario</p>
                   <p className={`text-xs ${textMuted}`}>Determina si el bot responde fuera de turno laboral</p>
@@ -1138,7 +1140,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                 <select
                   value={configForm.modo_fuera_horario || 'auto'}
                   onChange={e => setConfigForm({ ...configForm, modo_fuera_horario: e.target.value })}
-                  className={`p-2 rounded-lg border text-sm font-bold outline-none ${inputCls}`}
+                  className={`w-full sm:w-auto p-2 rounded-lg border text-sm font-bold outline-none ${inputCls}`}
                 >
                   <option value="auto">Auto (Bot responde con mensaje fuera de horario)</option>
                   <option value="silent">Silencioso (Bot no responde)</option>

@@ -41,7 +41,7 @@ const Registro = ({ darkMode }) => {
     body.append('archivoPdf', file);
 
     try {
-      const res = await axios.post('http://localhost:3001/api/leer-pdf', body);
+      const res = await axios.post('/api/leer-pdf', body);
       const { cabecera: cab, partidas: pars } = res.data;
 
       setCabecera({
@@ -70,7 +70,7 @@ const Registro = ({ darkMode }) => {
     body.append('tipo', tipoCatalogo);
 
     try {
-      const res = await axios.post('http://localhost:3001/api/importar-catalogo', body);
+      const res = await axios.post('/api/importar-catalogo', body);
       alert(`✅ ${res.data.message}`);
     } catch (err) { alert("Error al subir el catálogo. Verifica que el archivo sea Excel (.xlsx) y tenga una columna llamada 'nombre'."); }
     finally { setCargandoExcel(false); event.target.value = null; }
@@ -87,7 +87,17 @@ const Registro = ({ darkMode }) => {
   };
 
   const agregarPartidaManual = () => {
-    setPartidas([...partidas, {nombre_instrumento: '', marca: 'No Indicada', modelo: 'No Indicado', no_serie: 'No Indicado', tipo_servicio: 'Calibración inLab'}]);
+    setPartidas([...partidas, {
+      nombre_instrumento: '', 
+      marca: 'No Indicada', 
+      modelo: 'No Indicado', 
+      no_serie: 'No Indicado', 
+      identificacion: 'No Indicada',
+      ubicacion: 'No Indicada',
+      requerimientos_especiales: 'No requeridos',
+      puntos_calibrar: 'No especificados',
+      tipo_servicio: 'Calibración inLab'
+    }]);
   };
 
   const handleSubmitFinal = async (e) => {
@@ -104,7 +114,7 @@ const Registro = ({ darkMode }) => {
 
     try {
       setCargandoPdf(true);
-      await axios.post('http://localhost:3001/api/instrumentos-multiple', { instrumentos: instrumentosAGuardar });
+      await axios.post('/api/instrumentos-multiple', { instrumentos: instrumentosAGuardar });
       alert(`✅ ¡Éxito! Se registraron ${partidas.length} equipos bajo la referencia ${cabecera.orden_cotizacion}.`);
       setCabecera({ orden_cotizacion: '', empresa: '', persona: '', sla: opcionesSLA[2] });
       setPartidas([]);
@@ -214,9 +224,10 @@ const Registro = ({ darkMode }) => {
                   <tr>
                     <th className="px-3 py-3">#</th>
                     <th className="px-3 py-3 min-w-[200px]">Instrumento</th>
-                    <th className="px-3 py-3 min-w-[150px]">Marca</th>
-                    <th className="px-3 py-3 min-w-[150px]">Modelo</th>
+                    <th className="px-3 py-3 min-w-[150px]">Marca / Modelo</th>
                     <th className="px-3 py-3 min-w-[150px]">No. Serie</th>
+                    <th className="px-3 py-3 min-w-[150px]">ID / Ubicación</th>
+                    <th className="px-3 py-3 min-w-[200px]">Requerimientos / Puntos</th>
                     <th className="px-3 py-3 min-w-[180px]">Tipo de Servicio</th>
                     <th className="px-3 py-3 text-center"></th>
                   </tr>
@@ -226,13 +237,27 @@ const Registro = ({ darkMode }) => {
                     <tr key={index} className={`transition-colors ${darkMode ? 'bg-[#253916] hover:bg-[#314a1c]' : 'bg-white hover:bg-emerald-50/50'}`}>
                       <td className={`px-3 py-2 font-bold ${darkMode ? 'text-[#C9EA63]/50' : 'text-slate-400'}`}>{index + 1}</td>
                       <td className="px-3 py-2"><input type="text" value={partida.nombre_instrumento} onChange={(e) => actualizarPartida(index, 'nombre_instrumento', e.target.value)} className={`w-full p-2 rounded font-semibold outline-none border ${inputBg}`} required /></td>
-                      <td className="px-3 py-2"><input type="text" value={partida.marca} onChange={(e) => actualizarPartida(index, 'marca', e.target.value)} className={`w-full p-2 rounded outline-none border ${inputBg}`} required/></td>
-                      <td className="px-3 py-2"><input type="text" value={partida.modelo} onChange={(e) => actualizarPartida(index, 'modelo', e.target.value)} className={`w-full p-2 rounded font-mono outline-none border ${inputBg}`} required/></td>
+                      <td className="px-3 py-2">
+                        <div className="space-y-1">
+                          <input type="text" placeholder="Marca" value={partida.marca} onChange={(e) => actualizarPartida(index, 'marca', e.target.value)} className={`w-full p-2 rounded outline-none border ${inputBg}`} required/>
+                          <input type="text" placeholder="Modelo" value={partida.modelo} onChange={(e) => actualizarPartida(index, 'modelo', e.target.value)} className={`w-full p-2 rounded font-mono outline-none border ${inputBg}`} required/>
+                        </div>
+                      </td>
                       <td className="px-3 py-2"><input type="text" value={partida.no_serie} onChange={(e) => actualizarPartida(index, 'no_serie', e.target.value)} className={`w-full p-2 rounded font-mono font-bold outline-none border ${darkMode ? 'bg-[#141f0b] text-[#65D067] border-[#65D067]/40 focus:border-[#65D067]' : 'bg-slate-50 text-emerald-700 border-gray-300 focus:border-emerald-500'}`} required/></td>
                       <td className="px-3 py-2">
-                        <select value={partida.tipo_servicio} onChange={(e) => actualizarPartida(index, 'tipo_servicio', e.target.value)} className={`w-full p-2 rounded text-xs cursor-pointer outline-none border ${inputBg}`}>
-                          {opcionesServicio.map(srv => <option key={srv} value={srv}>{srv}</option>)}
-                        </select>
+                        <div className="space-y-1">
+                          <input type="text" placeholder="Identificación" value={partida.identificacion} onChange={(e) => actualizarPartida(index, 'identificacion', e.target.value)} className={`w-full p-2 rounded outline-none border ${inputBg}`} required/>
+                          <input type="text" placeholder="Ubicación" value={partida.ubicacion} onChange={(e) => actualizarPartida(index, 'ubicacion', e.target.value)} className={`w-full p-2 rounded outline-none border ${inputBg}`} required/>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="space-y-1">
+                          <textarea rows="1" placeholder="Requerimientos" value={partida.requerimientos_especiales} onChange={(e) => actualizarPartida(index, 'requerimientos_especiales', e.target.value)} className={`w-full p-2 rounded text-xs outline-none border ${inputBg}`} />
+                          <textarea rows="1" placeholder="Puntos" value={partida.puntos_calibrar} onChange={(e) => actualizarPartida(index, 'puntos_calibrar', e.target.value)} className={`w-full p-2 rounded text-xs outline-none border ${inputBg}`} />
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <textarea rows="2" value={partida.tipo_servicio} onChange={(e) => actualizarPartida(index, 'tipo_servicio', e.target.value)} className={`w-full p-2 rounded text-[10px] leading-tight cursor-pointer outline-none border ${inputBg}`} />
                       </td>
                       <td className="px-3 py-2 text-center">
                         <button type="button" onClick={() => eliminarPartida(index)} className="text-red-500 hover:text-red-400 p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20" title="Eliminar fila"><Trash2 size={18} /></button>
