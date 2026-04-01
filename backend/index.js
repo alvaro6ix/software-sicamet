@@ -1,3 +1,16 @@
+// --- GLOBAL ERROR HANDLERS FOR STABILITY ---
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('🔥 [Unhandled Rejection]:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('🔥 [Uncaught Exception]:', err.message);
+    // Log complete error but don't exit unless it's fatal
+    if (err.message.includes('EADDRINUSE')) {
+        process.exit(1);
+    }
+});
+
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const db = require('./bd');
