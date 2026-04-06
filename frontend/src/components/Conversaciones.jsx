@@ -31,13 +31,28 @@ const Conversaciones = ({ darkMode }) => {
     const [sending, setSending] = useState(false);
     
     // Atajos
-    const [atajos] = useState(() => {
+    const [atajos, setAtajos] = useState(() => {
         const g = localStorage.getItem('sicamet_atajos');
         return g ? JSON.parse(g) : [
             { id: '1', titulo: 'Pedir O.S.', texto: 'Por favor, indícame tu número de Orden de Servicio o Cotización (ej. C26-0449).' },
-            { id: '2', titulo: 'Formato Listo', texto: 'Te informamos que tu equipo ya se encuentra listo y calibrado.' }
+            { id: '2', titulo: 'Formato Listo', texto: 'Te informamos que tu equipo ya se encuentra listo y calibrado.' },
+            { id: '3', titulo: 'Aviso Demora', texto: 'Le informamos que su equipo presenta una demora adicional en el proceso de calibración. En breve le notificaremos la nueva fecha estimada.' }
         ];
     });
+    const [nuevoAtajo, setNuevoAtajo] = useState({ visible: false, titulo: '', texto: '' });
+
+    const guardarAtajos = (lista) => {
+        setAtajos(lista);
+        localStorage.setItem('sicamet_atajos', JSON.stringify(lista));
+    };
+
+    const agregarAtajo = () => {
+        if (!nuevoAtajo.titulo.trim() || !nuevoAtajo.texto.trim()) return;
+        guardarAtajos([...atajos, { id: Date.now().toString(), titulo: nuevoAtajo.titulo.trim(), texto: nuevoAtajo.texto.trim() }]);
+        setNuevoAtajo({ visible: false, titulo: '', texto: '' });
+    };
+
+    const eliminarAtajo = (id) => guardarAtajos(atajos.filter(a => a.id !== id));
 
     const chatContainerRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -387,19 +402,73 @@ const Conversaciones = ({ darkMode }) => {
                                 <Bot size={14} className={activeChat.bot_desactivado === 0 ? 'animate-pulse' : ''} /> 
                                 {activeChat.bot_desactivado === 0 ? 'IA ACTIVA: MODO BOT' : 'IA PAUSADA: ATENCIÓN HUMANA'}
                             </button>
-                            <div className={`w-px h-6 mx-2 my-auto ${darkMode ? 'bg-white/10' : 'bg-gray-300'}`}></div>
+                            <div className={`w-px h-6 mx-1 my-auto flex-shrink-0 ${darkMode ? 'bg-white/10' : 'bg-gray-300'}`}></div>
 
                             {atajos.map(atajo => (
-                                <button 
-                                    key={atajo.id} 
-                                    onClick={() => setInputMsg(atajo.texto)}
-                                    className={`flex-shrink-0 px-4 py-1.5 rounded-full text-[10px] font-bold transition-all border ${
-                                        darkMode ? 'bg-[#253916] text-[#F2F6F0] border-[#C9EA63]/30 hover:bg-[#C9EA63] hover:text-[#141f0b]' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-emerald-600 hover:text-white'
-                                    }`}
-                                >
-                                    {atajo.titulo}
-                                </button>
+                                <div key={atajo.id} className="flex items-center gap-0.5 flex-shrink-0 group/atajo">
+                                    <button 
+                                        onClick={() => setInputMsg(atajo.texto)}
+                                        className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all border ${
+                                            darkMode ? 'bg-[#253916] text-[#F2F6F0] border-[#C9EA63]/30 hover:bg-[#C9EA63] hover:text-[#141f0b]' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-emerald-600 hover:text-white'
+                                        }`}
+                                    >
+                                        {atajo.titulo}
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); eliminarAtajo(atajo.id); }}
+                                        className={`opacity-0 group-hover/atajo:opacity-100 transition-opacity p-0.5 rounded-full text-[9px] ${
+                                            darkMode ? 'text-rose-400 hover:bg-rose-900/40' : 'text-rose-500 hover:bg-rose-50'
+                                        }`}
+                                        title="Eliminar atajo"
+                                    >
+                                        <X size={10} />
+                                    </button>
+                                </div>
                             ))}
+
+                            {/* Botón añadir nuevo atajo */}
+                            {nuevoAtajo.visible ? (
+                                <div className={`flex items-center gap-1.5 flex-shrink-0 px-2 py-1 rounded-xl border ${
+                                    darkMode ? 'bg-[#253916] border-[#C9EA63]/30' : 'bg-slate-50 border-slate-200'
+                                }`}>
+                                    <input
+                                        type="text"
+                                        placeholder="Título"
+                                        value={nuevoAtajo.titulo}
+                                        onChange={e => setNuevoAtajo(p => ({ ...p, titulo: e.target.value }))}
+                                        className={`text-[10px] font-bold bg-transparent outline-none w-20 ${
+                                            darkMode ? 'text-[#F2F6F0] placeholder:text-white/30' : 'text-slate-700 placeholder:text-slate-400'
+                                        }`}
+                                        autoFocus
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="Texto completo..."
+                                        value={nuevoAtajo.texto}
+                                        onChange={e => setNuevoAtajo(p => ({ ...p, texto: e.target.value }))}
+                                        onKeyDown={e => e.key === 'Enter' && agregarAtajo()}
+                                        className={`text-[10px] bg-transparent outline-none w-40 ${
+                                            darkMode ? 'text-[#F2F6F0] placeholder:text-white/30' : 'text-slate-600 placeholder:text-slate-400'
+                                        }`}
+                                    />
+                                    <button onClick={agregarAtajo} className="text-emerald-500 hover:text-emerald-400" title="Guardar">
+                                        <CheckCircle size={14} />
+                                    </button>
+                                    <button onClick={() => setNuevoAtajo({ visible: false, titulo: '', texto: '' })} className="text-slate-400 hover:text-rose-400" title="Cancelar">
+                                        <X size={12} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => setNuevoAtajo(p => ({ ...p, visible: true }))}
+                                    className={`flex-shrink-0 p-1.5 rounded-full border transition-all ${
+                                        darkMode ? 'border-[#C9EA63]/20 text-[#C9EA63]/60 hover:bg-[#253916] hover:text-[#C9EA63]' : 'border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-emerald-600'
+                                    }`}
+                                    title="Añadir atajo rápido"
+                                >
+                                    <Plus size={13} />
+                                </button>
+                            )}
                         </div>
 
                         {/* Área de Input */}

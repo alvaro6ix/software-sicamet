@@ -102,7 +102,13 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
           </h2>
           <div className={`flex items-center gap-1.5 mt-1 ${darkMode ? 'text-[#C9EA63]/60' : 'text-[#253916]/50'} text-xs`}>
             <ShieldCheck size={12} />
-            <span>{usuario?.rol === 'admin' ? 'Administrador' : (usuario?.rol === 'operador' ? 'Metrologo' : 'Recepcionista')}</span>
+            <span>{
+              usuario?.rol === 'admin' ? 'Administrador'
+              : usuario?.rol === 'operador' ? 'Metrólogo'
+              : usuario?.rol
+                ? usuario.rol.charAt(0).toUpperCase() + usuario.rol.slice(1)
+                : 'Usuario'
+            }</span>
           </div>
         </div>
         {/* Toggle para ocultar en PC */}

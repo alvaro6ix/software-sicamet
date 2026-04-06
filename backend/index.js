@@ -1192,22 +1192,32 @@ app.delete('/api/bot/cache', async (req, res) => {
 // ─── BÚSQUEDA GLOBAL ──────────────────────────────────────────────────────────
 app.get('/api/busqueda-global', verificarToken(), async (req, res) => {
     const q = (req.query.q || '').trim();
-    if (q.length < 2) return res.json({ equipos: [], clientes: [], conversaciones: [] });
+    if (q.length < 1) return res.json({ equipos: [], clientes: [], conversaciones: [] });
     const like = `%${q}%`;
     try {
+        // Busca en folio_rastreo Y orden_cotizacion (ambas pueden estar pobladas)
         const [equipos] = await db.query(
-            `SELECT id, nombre_instrumento, orden_cotizacion, empresa, estatus_actual, no_serie
+            `SELECT id, nombre_instrumento,
+                    COALESCE(folio_rastreo, orden_cotizacion) AS orden_cotizacion,
+                    empresa, estatus_actual, no_serie
              FROM instrumentos_estatus
-             WHERE nombre_instrumento LIKE ? OR orden_cotizacion LIKE ? OR no_serie LIKE ? OR empresa LIKE ?
+             WHERE nombre_instrumento LIKE ?
+                OR folio_rastreo       LIKE ?
+                OR orden_cotizacion    LIKE ?
+                OR no_serie            LIKE ?
+                OR empresa             LIKE ?
+                OR persona             LIKE ?
              ORDER BY created_at DESC LIMIT 6`,
-            [like, like, like, like]
+            [like, like, like, like, like, like]
         );
         const [clientes] = await db.query(
-            `SELECT id, nombre, contacto FROM cat_clientes WHERE nombre LIKE ? OR contacto LIKE ? LIMIT 4`,
+            `SELECT id, nombre, contacto FROM cat_clientes
+             WHERE nombre LIKE ? OR contacto LIKE ? LIMIT 4`,
             [like, like]
         );
         const [conversaciones] = await db.query(
-            `SELECT id, numero_wa, nombre_contacto FROM whatsapp_chats WHERE nombre_contacto LIKE ? OR numero_wa LIKE ? LIMIT 4`,
+            `SELECT id, numero_wa, nombre_contacto FROM whatsapp_chats
+             WHERE nombre_contacto LIKE ? OR numero_wa LIKE ? LIMIT 4`,
             [like, like]
         );
         res.json({ equipos, clientes, conversaciones });

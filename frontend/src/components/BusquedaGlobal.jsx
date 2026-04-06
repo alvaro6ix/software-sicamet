@@ -21,7 +21,7 @@ const BusquedaGlobal = ({ darkMode }) => {
   const navigate = useNavigate();
 
   const buscar = useCallback(async (q) => {
-    if (q.length < 2) { setResultados(null); return; }
+    if (q.length < 1) { setResultados(null); return; }
     setCargando(true);
     try {
       const res = await axios.get(`/api/busqueda-global?q=${encodeURIComponent(q)}`);
@@ -87,7 +87,7 @@ const BusquedaGlobal = ({ darkMode }) => {
         )}
       </div>
 
-      {abierto && query.length >= 2 && (
+      {abierto && query.length >= 1 && (
         <div className={`absolute top-full left-0 right-0 mt-1.5 rounded-2xl border shadow-2xl z-[300] overflow-hidden ${dropBg}`}>
           {total === 0 && !cargando && (
             <p className="p-5 text-sm opacity-40 text-center italic">Sin resultados para "{query}"</p>
