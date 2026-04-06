@@ -161,7 +161,7 @@ const Dashboard = ({ darkMode }) => {
                 {stats.kpis.clientes_esperando > 4 && (
                 <div className={`p-3 rounded-lg text-sm font-medium flex items-start gap-2 ${darkMode ? 'bg-rose-900/30 text-rose-300' : 'bg-rose-50 text-rose-700'}`}>
                     <AlertTriangle size={16} className="mt-0.5" />
-                    <p>Atención: Hay congestión de mensajes. Sugiero activar respuestas automatizadas de retardo.</p>
+                    <p>Atención: Hay congestión ({stats.kpis.clientes_esperando} chats esperando). Sugiero activar modo IA automatizado.</p>
                 </div>
                 )}
                 {stats.kpis.cotizaciones_bot_pendientes > 0 && (
@@ -170,25 +170,27 @@ const Dashboard = ({ darkMode }) => {
                   className={`p-3 rounded-lg text-sm font-bold flex items-start gap-2 shadow-sm cursor-pointer transition-all hover:scale-[1.02] ${darkMode ? 'bg-amber-900/30 text-amber-300 border border-amber-500/20' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}
                 >
                     <Bot size={16} className="mt-0.5 animate-bounce" />
-                    <p>Tienes {stats.kpis.cotizaciones_bot_pendientes} cotizaciones de WhatsApp pendientes por atender.</p>
+                    <p>Tienes {stats.kpis.cotizaciones_bot_pendientes} cotización(es) de WhatsApp pendientes por despachar.</p>
                 </div>
                 )}
-                {stats.kpis.escalados_bot_pendientes > 0 && (
+                {stats.kpis.clientes_esperando > 0 && (
                 <div 
                   onClick={() => window.location.href='/conversaciones'}
                   className={`p-3 rounded-lg text-sm font-bold flex items-start gap-2 shadow-sm cursor-pointer transition-all hover:scale-[1.02] ${darkMode ? 'bg-rose-900/30 text-rose-300 border border-rose-500/20' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}
                 >
                     <Users size={16} className="mt-0.5 animate-pulse" />
-                    <p>Hay {stats.kpis.escalados_bot_pendientes} clientes esperando ser atendidos por un humano.</p>
+                    <p>Hay {stats.kpis.clientes_esperando} cliente(s) esperando atención de un asesor humano.</p>
                 </div>
                 )}
-                <div className={`p-3 rounded-lg text-sm flex items-start gap-2 ${darkMode ? 'bg-indigo-900/30 text-indigo-300' : 'bg-indigo-50 text-indigo-700'}`}>
+                {stats.kpis.listos_sin_notificar > 0 && (
+                <div className={`p-3 rounded-lg text-sm flex items-start gap-2 shadow-sm cursor-pointer transition-all hover:scale-[1.02] ${darkMode ? 'bg-indigo-900/30 text-indigo-300 border border-indigo-500/20' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'}`} onClick={() => window.location.href='/kanban'}>
                     <Activity size={16} className="mt-0.5" />
-                    <p>El ritmo de liberación de equipos hoy es un 15% mayor al promedio semanal.</p>
+                    <p>Tienes {stats.kpis.listos_sin_notificar} equipo(s) listo(s). Recuerda notificar a los clientes.</p>
                 </div>
+                )}
                 <div className={`p-3 rounded-lg text-sm flex items-start gap-2 ${darkMode ? 'bg-[#1b2b10] text-[#C9EA63]' : 'bg-emerald-50 text-emerald-700'}`}>
                     <Clock size={16} className="mt-0.5" />
-                    <p>Tu tiempo promedio de respuesta actual es óptimo ({stats.kpis.tiempo_promedio_min} min). ¡Gran trabajo!</p>
+                    <p>Tu tiempo de respuesta humano es de {stats.kpis.tiempo_promedio_min} minutos en promedio.</p>
                 </div>
             </div>
         </div>

@@ -254,7 +254,7 @@ app.get('/api/kpis_negocio', async (req, res) => {
         const [leads] = await db.query(`SELECT COUNT(*) as total FROM chat_leads WHERE estado='Pendiente'`);
         const [detenidos] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Laboratorio' AND fecha_ingreso < NOW() - INTERVAL 2 DAY`);
         const [listosSinNotificar] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Listo'`);
-        const [esperando] = await db.query(`SELECT COUNT(DISTINCT telefono) as total FROM chat_mensajes WHERE direccion='in' AND fecha > NOW() - INTERVAL 12 HOUR`);
+        const [esperando] = await db.query(`SELECT COUNT(*) as total FROM whatsapp_chats WHERE bot_desactivado = 1`);
         const [[botCots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'");
         
         // Obtener últimos escalados formateados para la lista
@@ -1188,6 +1188,36 @@ app.delete('/api/bot/cache', async (req, res) => {
         res.json({ success: true, message: 'Caché expirado eliminado' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// ─── CLIENTES HISTORIAL DETALLADO ──────────────────────────────────────────────────────────
+app.get('/api/clientes/:id/historial', verificarToken(), async (req, res) => {
+    try {
+        const idCliente = req.params.id;
+        const [clienteList] = await db.query(`SELECT nombre, contacto, email FROM cat_clientes WHERE id = ?`, [idCliente]);
+        if (clienteList.length === 0) return res.status(404).json({error: 'Cliente no encontrado'});
+        const cliente = clienteList[0];
+
+        // Buscar todos sus equipos por nombre exacto de empresa
+        const [equipos] = await db.query(`
+            SELECT id, orden_cotizacion, nombre_instrumento, marca, modelo, no_serie, 
+                   estatus_actual, fecha_ingreso, fecha_entrega, sla
+            FROM instrumentos_estatus 
+            WHERE empresa = ?
+            ORDER BY fecha_ingreso DESC
+        `, [cliente.nombre]);
+
+        res.json({
+            cliente,
+            equiposStats: {
+                total: equipos.length,
+                en_laboratorio: equipos.filter(e => e.estatus_actual !== 'Entregado' && e.estatus_actual !== 'Listo').length,
+                listos_entregados: equipos.filter(e => e.estatus_actual === 'Entregado' || e.estatus_actual === 'Listo').length
+            },
+            historial: equipos
+        });
+    } catch(err) {
+        res.status(500).json({error: err.message});
+    }
+});
 
 // ─── BÚSQUEDA GLOBAL ──────────────────────────────────────────────────────────
 app.get('/api/busqueda-global', verificarToken(), async (req, res) => {
@@ -1195,20 +1225,17 @@ app.get('/api/busqueda-global', verificarToken(), async (req, res) => {
     if (q.length < 1) return res.json({ equipos: [], clientes: [], conversaciones: [] });
     const like = `%${q}%`;
     try {
-        // Busca en folio_rastreo Y orden_cotizacion (ambas pueden estar pobladas)
         const [equipos] = await db.query(
-            `SELECT id, nombre_instrumento,
-                    COALESCE(folio_rastreo, orden_cotizacion) AS orden_cotizacion,
-                    empresa, estatus_actual, no_serie
+            `SELECT id, nombre_instrumento, orden_cotizacion,
+                    empresa, persona, estatus_actual, no_serie, sla
              FROM instrumentos_estatus
              WHERE nombre_instrumento LIKE ?
-                OR folio_rastreo       LIKE ?
-                OR orden_cotizacion    LIKE ?
-                OR no_serie            LIKE ?
-                OR empresa             LIKE ?
-                OR persona             LIKE ?
-             ORDER BY created_at DESC LIMIT 6`,
-            [like, like, like, like, like, like]
+                OR orden_cotizacion   LIKE ?
+                OR no_serie           LIKE ?
+                OR empresa            LIKE ?
+                OR persona            LIKE ?
+             ORDER BY fecha_ingreso DESC LIMIT 6`,
+            [like, like, like, like, like]
         );
         const [clientes] = await db.query(
             `SELECT id, nombre, contacto FROM cat_clientes
@@ -1216,12 +1243,13 @@ app.get('/api/busqueda-global', verificarToken(), async (req, res) => {
             [like, like]
         );
         const [conversaciones] = await db.query(
-            `SELECT id, numero_wa, nombre_contacto FROM whatsapp_chats
-             WHERE nombre_contacto LIKE ? OR numero_wa LIKE ? LIMIT 4`,
+            `SELECT numero_wa, nombre_contacto, telefono_display FROM whatsapp_chats
+             WHERE nombre_contacto LIKE ? OR telefono_display LIKE ? LIMIT 4`,
             [like, like]
         );
         res.json({ equipos, clientes, conversaciones });
     } catch (e) {
+        console.error('[busqueda-global]', e.message);
         res.status(500).json({ error: e.message });
     }
 });
@@ -1230,63 +1258,71 @@ app.get('/api/busqueda-global', verificarToken(), async (req, res) => {
 app.get('/api/notificaciones', verificarToken(), async (req, res) => {
     try {
         const notifs = [];
+        const rol = req.usuario?.rol || 'recepcionista';
+        const esAdmin = rol === 'admin';
 
         // 1. Equipos con SLA crítico (0 o negativo = vencido, 1 = urgente)
-        const [vencidos] = await db.query(
-            `SELECT id, nombre_instrumento, orden_cotizacion, empresa, sla, estatus_actual
-             FROM instrumentos_estatus
-             WHERE sla <= 1 AND estatus_actual NOT IN ('Listo','Entregado','Validación','Aseguramiento')
-             ORDER BY sla ASC LIMIT 10`
-        );
-        vencidos.forEach(e => {
-            const vencido = e.sla <= 0;
-            notifs.push({
-                tipo: 'sla',
-                id: `sla_${e.id}`,
-                titulo: vencido ? `⏰ SLA vencido: ${e.nombre_instrumento}` : `⚠️ SLA crítico: ${e.nombre_instrumento}`,
-                detalle: `OC ${e.orden_cotizacion || '—'} · ${e.empresa || '—'} · Etapa: ${e.estatus_actual}`,
-                ruta: '/equipos',
-                urgencia: vencido ? 'alta' : 'media',
-                ts: new Date().toISOString()
-            });
-        });
-
-        // 2. Cotizaciones bot pendientes sin atender
-        const [[cots]] = await db.query(`SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'`);
-        if (cots.total > 0) {
-            notifs.push({
-                tipo: 'cotizacion',
-                id: 'cots_pendientes',
-                titulo: `📋 ${cots.total} cotización${cots.total > 1 ? 'es' : ''} sin atender`,
-                detalle: 'Solicitudes recibidas por WhatsApp esperando respuesta del equipo',
-                ruta: '/flujos-whatsapp',
-                urgencia: 'media',
-                ts: new Date().toISOString()
+        if (esAdmin || ['operador', 'metrolog', 'laboratorio'].some(r => rol.includes(r))) {
+            const [vencidos] = await db.query(
+                `SELECT id, nombre_instrumento, orden_cotizacion, empresa, sla, estatus_actual
+                 FROM instrumentos_estatus
+                 WHERE sla <= 1 AND estatus_actual NOT IN ('Listo','Entregado','Validación','Aseguramiento')
+                 ORDER BY sla ASC LIMIT 10`
+            );
+            vencidos.forEach(e => {
+                const vencido = e.sla <= 0;
+                notifs.push({
+                    tipo: 'sla',
+                    id: `sla_${e.id}`,
+                    titulo: vencido ? `⏰ SLA vencido: ${e.nombre_instrumento}` : `⚠️ SLA crítico: ${e.nombre_instrumento}`,
+                    detalle: `OC ${e.orden_cotizacion || '—'} · ${e.empresa || '—'} · Etapa: ${e.estatus_actual}`,
+                    ruta: '/equipos',
+                    urgencia: vencido ? 'alta' : 'media',
+                    ts: new Date().toISOString()
+                });
             });
         }
 
-        // 3. Equipos rechazados en Aseguramiento (últimas 48h)
-        try {
-            const [rechazados] = await db.query(
-                `SELECT ct.instrumento_id, ct.created_at, ie.nombre_instrumento, ie.orden_cotizacion
-                 FROM comentarios_tecnicos ct
-                 JOIN instrumentos_estatus ie ON ie.id = ct.instrumento_id
-                 WHERE (ct.comentario LIKE '%rechaz%' OR ct.comentario LIKE '%regresado%' OR ct.comentario LIKE '%regresa%')
-                 AND ct.created_at >= DATE_SUB(NOW(), INTERVAL 48 HOUR)
-                 ORDER BY ct.created_at DESC LIMIT 5`
-            );
-            rechazados.forEach(r => {
+        // 2. Cotizaciones bot pendientes sin atender
+        if (esAdmin || rol === 'recepcionista' || rol === 'ventas') {
+            const [[cots]] = await db.query(`SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'`);
+            if (cots.total > 0) {
                 notifs.push({
-                    tipo: 'rechazo',
-                    id: `rechazo_${r.instrumento_id}_${new Date(r.created_at).getTime()}`,
-                    titulo: `🔁 Equipo rechazado en Aseguramiento`,
-                    detalle: `${r.nombre_instrumento} · OC ${r.orden_cotizacion || '—'} · Regresó a Laboratorio`,
-                    ruta: '/metrologia',
+                    tipo: 'cotizacion',
+                    id: 'cots_pendientes',
+                    titulo: `📋 ${cots.total} cotización${cots.total > 1 ? 'es' : ''} sin atender`,
+                    detalle: 'Solicitudes recibidas por WhatsApp esperando respuesta del equipo',
+                    ruta: '/flujos-whatsapp',
                     urgencia: 'media',
-                    ts: r.created_at
+                    ts: new Date().toISOString()
                 });
-            });
-        } catch (_) { /* tabla puede no existir aún */ }
+            }
+        }
+
+        // 3. Equipos rechazados en Aseguramiento (últimas 48h)
+        if (esAdmin || rol === 'recepcionista' || rol.includes('operador')) {
+            try {
+                const [rechazados] = await db.query(
+                    `SELECT ct.instrumento_id, ct.created_at, ie.nombre_instrumento, ie.orden_cotizacion
+                     FROM comentarios_tecnicos ct
+                     JOIN instrumentos_estatus ie ON ie.id = ct.instrumento_id
+                     WHERE (ct.comentario LIKE '%rechaz%' OR ct.comentario LIKE '%regresado%' OR ct.comentario LIKE '%regresa%')
+                     AND ct.created_at >= DATE_SUB(NOW(), INTERVAL 48 HOUR)
+                     ORDER BY ct.created_at DESC LIMIT 5`
+                );
+                rechazados.forEach(r => {
+                    notifs.push({
+                        tipo: 'rechazo',
+                        id: `rechazo_${r.instrumento_id}_${new Date(r.created_at).getTime()}`,
+                        titulo: `🔁 Equipo rechazado en Aseguramiento`,
+                        detalle: `${r.nombre_instrumento} · OC ${r.orden_cotizacion || '—'} · Regresó a Laboratorio`,
+                        ruta: '/metrologia',
+                        urgencia: 'media',
+                        ts: r.created_at
+                    });
+                });
+            } catch (_) { /* tabla puede no existir aún */ }
+        }
 
         res.json(notifs);
     } catch (e) {

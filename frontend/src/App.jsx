@@ -333,7 +333,8 @@ const Layout = () => {
           {/* Header mobile */}
           <header className={`lg:hidden flex items-center justify-between p-4 shadow-sm z-30 ${darkMode ? 'bg-[#141f0b] border-b border-[#C9EA63]/10' : 'bg-[#F2F6F0] border-b border-[#253916]/5'}`}>
             <h2 className={`text-xl font-bold tracking-tight ${darkMode ? 'text-[#C9EA63]' : 'text-[#65D067]'}`}>SICAMET</h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <BusquedaGlobal darkMode={darkMode} />
               <NotificacionesBell darkMode={darkMode} />
               <button onClick={() => setMobileOpen(true)} className={`p-2 rounded-lg ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-white text-[#253916] shadow-sm'}`}>
                 <Menu size={24} />
