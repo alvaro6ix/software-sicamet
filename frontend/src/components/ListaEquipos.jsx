@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
-import { Activity, CheckCircle, Clock, AlertTriangle, Eye, Edit, Trash2, X, FileText, Save, Search } from 'lucide-react';
+import { Activity, CheckCircle, Clock, AlertTriangle, Eye, Edit, Trash2, X, FileText, Save, Search, Zap } from 'lucide-react';
 
 const ListaEquipos = ({ darkMode }) => {
   const [equipos, setEquipos] = useState([]);
@@ -13,6 +14,10 @@ const ListaEquipos = ({ darkMode }) => {
   // Estados para el Modal de EDITAR
   const [equipoEditando, setEquipoEditando] = useState(null);
   const [modalEditarAbierto, setModalEditarAbierto] = useState(false);
+
+  // Popover de vista rápida
+  const [popover, setPopover] = useState(null); // { eq, x, y }
+  const hoverTimer = useRef(null);
 
   const cargarEquipos = async () => {
     try {
@@ -82,6 +87,30 @@ const ListaEquipos = ({ darkMode }) => {
     }
   };
 
+  const ESTATUS_BADGE = {
+    'Recepción':    { light: 'bg-slate-100 text-slate-600',    dark: 'bg-slate-700/60 text-slate-300',    icon: <Clock size={13} /> },
+    'Laboratorio':   { light: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/50 text-emerald-300', icon: <Activity size={13} /> },
+    'Aseguramiento': { light: 'bg-blue-100 text-blue-700',       dark: 'bg-blue-900/40 text-blue-300',       icon: <AlertTriangle size={13} /> },
+    'Certificación': { light: 'bg-purple-100 text-purple-700',   dark: 'bg-purple-900/40 text-purple-300',   icon: <AlertTriangle size={13} /> },
+    'Listo':         { light: 'bg-teal-100 text-teal-700',       dark: 'bg-teal-900/40 text-teal-300',       icon: <CheckCircle size={13} /> },
+    'Entregado':     { light: 'bg-green-100 text-green-700',     dark: 'bg-green-900/40 text-green-300',     icon: <CheckCircle size={13} /> },
+  };
+
+  // Manejadores para el popover
+  const mostrarPopover = useCallback((eq, e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.min(rect.right + 8, window.innerWidth - 300);
+    const y = Math.max(rect.top, 8);
+    hoverTimer.current = setTimeout(() => {
+      setPopover({ eq, x, y });
+    }, 400);
+  }, []);
+
+  const ocultarPopover = useCallback(() => {
+    clearTimeout(hoverTimer.current);
+    setPopover(null);
+  }, []);
+
   const estatusConfig = {
     'Recepción': { color: 'bg-gray-100 text-gray-700', icon: <Clock size={14} /> },
     'Laboratorio': { color: 'bg-emerald-100 text-emerald-700', icon: <Activity size={14} /> },
@@ -111,6 +140,7 @@ const ListaEquipos = ({ darkMode }) => {
   );
 
   return (
+    <>
     <div className={`w-full mt-8 p-6 rounded-2xl shadow-xl border relative transition-colors ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-gray-100'}`}>
       <div className="flex justify-between items-center mb-6">
         <h2 className={`text-xl font-bold ${darkMode ? 'text-[#C9EA63]' : 'text-slate-800'}`}>Panel de Trazabilidad (Órdenes de Servicio)</h2>
@@ -148,7 +178,13 @@ const ListaEquipos = ({ darkMode }) => {
               </tr>
             ) : (
               equiposFiltrados.map((eq) => (
-                <tr key={eq.id} style={{ backgroundColor: getOsaColor(eq.orden_cotizacion || eq.folio_rastreo, darkMode) }} className={`border-b transition-colors ${darkMode ? 'border-[#C9EA63]/10 hover:brightness-125' : 'border-gray-100 hover:brightness-95'}`}>
+                <tr
+                  key={eq.id}
+                  style={{ backgroundColor: getOsaColor(eq.orden_cotizacion || eq.folio_rastreo, darkMode) }}
+                  className={`border-b transition-colors ${darkMode ? 'border-[#C9EA63]/10 hover:brightness-125' : 'border-gray-100 hover:brightness-95'}`}
+                  onMouseEnter={e => mostrarPopover(eq, e)}
+                  onMouseLeave={ocultarPopover}
+                >
                   <td className={`p-4 font-mono text-sm font-bold ${darkMode ? 'text-[#65d067]' : 'text-emerald-600'}`}>{eq.folio_rastreo || eq.orden_cotizacion}</td>
                   <td className="p-4">
                     <p className={`font-semibold ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{eq.nombre_instrumento}</p>
@@ -352,6 +388,55 @@ const ListaEquipos = ({ darkMode }) => {
       )}
 
     </div>
+
+      {/* Popover vista rápida — portal fuera del overflow */}
+      {popover && createPortal(
+        <div
+          className={`fixed z-[500] w-72 rounded-2xl shadow-2xl border pointer-events-none animate-in fade-in zoom-in-95 duration-150 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/30 text-[#F2F6F0]' : 'bg-white border-slate-200 text-slate-800'}`}
+          style={{ top: popover.y, left: popover.x }}
+        >
+          <div className={`px-4 py-3 border-b flex items-center gap-2 ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-100'}`}>
+            <Zap size={14} className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} />
+            <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Vista Rápida</span>
+          </div>
+          <div className="p-4 space-y-3">
+            <div>
+              <p className="text-[10px] uppercase font-bold opacity-50 mb-0.5">Instrumento</p>
+              <p className="text-sm font-bold leading-snug">{popover.eq.nombre_instrumento}</p>
+              <p className="text-xs opacity-60">{popover.eq.marca} · S/N: {popover.eq.no_serie || '—'}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase font-bold opacity-50 mb-0.5">Orden</p>
+                <p className={`text-sm font-mono font-bold ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'}`}>{popover.eq.orden_cotizacion || popover.eq.folio_rastreo || '—'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-bold opacity-50 mb-0.5">SLA</p>
+                <p className={`text-sm font-bold ${(popover.eq.sla ?? 99) <= 0 ? 'text-red-500' : (popover.eq.sla ?? 99) <= 2 ? 'text-amber-400' : (darkMode ? 'text-[#C9EA63]' : 'text-emerald-600')}`}>
+                  {(popover.eq.sla ?? 99) <= 0 ? '⏰ Vencido' : `${popover.eq.sla}d restantes`}
+                </p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase font-bold opacity-50 mb-0.5">Cliente</p>
+              <p className="text-xs font-semibold truncate">{popover.eq.empresa || popover.eq.cliente || '—'}</p>
+            </div>
+            {(() => {
+              const cfg = ESTATUS_BADGE[popover.eq.estatus_actual] || {};
+              return (
+                <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full ${darkMode ? (cfg.dark || 'bg-slate-700 text-slate-300') : (cfg.light || 'bg-slate-100 text-slate-600')}`}>
+                  {cfg.icon} {popover.eq.estatus_actual}
+                </span>
+              );
+            })()}
+          </div>
+          <div className={`px-4 py-2 rounded-b-2xl text-[9px] text-center opacity-30 border-t ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-100'}`}>
+            Haz clic en 👁 para ver el expediente completo
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 };
 

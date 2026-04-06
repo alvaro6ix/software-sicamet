@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   Users, UserPlus, Shield, Trash2, Edit2, Lock, Unlock,
-  Mail, User, X, Save, Search, Loader2, Package
+  Mail, User, X, Save, Search, Loader2, Package, ChevronDown, Plus
 } from 'lucide-react';
 
 const GestionUsuarios = ({ darkMode }) => {
@@ -13,6 +13,8 @@ const GestionUsuarios = ({ darkMode }) => {
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
   const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'recepcionista', permisos: [] });
+  const [rolPersonalizado, setRolPersonalizado] = useState(false);
+  const [rolesBase, setRolesBase] = useState(['admin', 'recepcionista']);
 
   const MODULOS_DISPONIBLES = [
     { id: '/', nombre: 'Dashboard' },
@@ -103,6 +105,15 @@ const GestionUsuarios = ({ darkMode }) => {
   );
 
   const rolesUnicos = [...new Set(usuarios.map(u => u.rol))].filter(Boolean);
+  // Todos los chips: los base + los de usuarios existentes no cubiertos por la lista base
+  const todosLosRoles = [...new Set([...rolesBase, ...rolesUnicos])];
+
+  const eliminarRolDelLista = (rolAEliminar) => {
+    if (rolAEliminar === 'admin') return; // admin siempre protegido
+    setRolesBase(prev => prev.filter(r => r !== rolAEliminar));
+    // Si el form tenía ese rol seleccionado, resetearlo
+    if (form.rol === rolAEliminar) setForm(f => ({ ...f, rol: 'recepcionista' }));
+  };
 
   return (
     <div className="w-full space-y-6 md:space-y-8 relative animate-in fade-in duration-500">
@@ -118,7 +129,7 @@ const GestionUsuarios = ({ darkMode }) => {
         </div>
 
         <button
-          onClick={() => { setEditandoId(null); setForm({ nombre: '', email: '', password: '', rol: 'recepcionista', permisos: [] }); setModalAbierto(true); }}
+          onClick={() => { setEditandoId(null); setForm({ nombre: '', email: '', password: '', rol: 'recepcionista', permisos: [] }); setRolPersonalizado(false); setModalAbierto(true); }}
           className={`w-full sm:w-auto px-4 py-3 sm:py-2 rounded-xl font-bold text-sm transition-all focus:outline-none flex items-center justify-center gap-2 shadow-md ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
         >
           <UserPlus size={18} /> Nuevo Usuario
@@ -295,30 +306,77 @@ const GestionUsuarios = ({ darkMode }) => {
                 </div>
 
                 <div className="pt-2">
-                  <label className={`block text-[10px] font-black mb-3 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Rol / Puesto (Escribe o Selecciona)</label>
-                  <div className="relative">
-                    <User size={16} className="absolute left-3 top-3 opacity-40" />
-                    <input 
-                      required 
-                      type="text" 
-                      list="roles-sugeridos"
-                      placeholder="Ej. admin, finanzas, validador..." 
-                      value={form.rol} 
-                      onChange={e => setForm({ ...form, rol: e.target.value.toLowerCase().replace(/\s+/g, '_') })} 
-                      className={`w-full pl-10 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none transition-all ${inputBg}`} 
-                    />
-                    <datalist id="roles-sugeridos">
-                      {rolesUnicos.map(rol => (
-                        <option key={rol} value={rol} />
-                      ))}
-                      {!rolesUnicos.includes('admin') && <option value="admin" />}
-                      {!rolesUnicos.includes('recepcionista') && <option value="recepcionista" />}
-                      {!rolesUnicos.includes('operador') && <option value="operador" />}
-                    </datalist>
+                  <label className={`block text-[10px] font-black mb-3 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Rol / Puesto</label>
+
+                  {/* Roles como chips con botón X para eliminar */}
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {todosLosRoles.map(rol => (
+                      <div key={rol} className="relative group">
+                        <button
+                          type="button"
+                          onClick={() => { setForm({ ...form, rol }); setRolPersonalizado(false); }}
+                          className={`pl-3 pr-7 py-1.5 rounded-full text-xs font-bold border transition-all ${
+                            form.rol === rol && !rolPersonalizado
+                              ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600')
+                              : (darkMode ? 'border-[#C9EA63]/30 text-[#F2F6F0]/70 hover:bg-[#C9EA63]/10' : 'border-slate-300 text-slate-600 hover:bg-slate-100')
+                          }`}
+                        >
+                          {rol === 'admin' && <Shield size={10} className="inline mr-1" />}
+                          {rol}
+                        </button>
+                        {/* Botón X - oculto para admin */}
+                        {rol !== 'admin' && (
+                          <button
+                            type="button"
+                            title={`Quitar rol "${rol}" de la lista`}
+                            onClick={e => { e.stopPropagation(); eliminarRolDelLista(rol); }}
+                            className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity ${
+                              form.rol === rol && !rolPersonalizado
+                                ? 'bg-black/20 hover:bg-black/40 text-white'
+                                : (darkMode ? 'bg-[#C9EA63]/20 hover:bg-rose-500/60 text-rose-300' : 'bg-slate-200 hover:bg-rose-100 text-rose-500')
+                            }`}
+                          >
+                            <X size={9} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {/* Botón crear nuevo rol */}
+                    <button
+                      type="button"
+                      onClick={() => { setRolPersonalizado(true); setForm({ ...form, rol: '' }); }}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all flex items-center gap-1 ${
+                        rolPersonalizado
+                          ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600')
+                          : (darkMode ? 'border-dashed border-[#C9EA63]/40 text-[#C9EA63]/70 hover:bg-[#C9EA63]/10' : 'border-dashed border-emerald-400 text-emerald-600 hover:bg-emerald-50')
+                      }`}
+                    >
+                      <Plus size={10} /> Nuevo rol...
+                    </button>
                   </div>
-                  <p className="text-[10px] mt-1.5 opacity-60 italic">
-                    Escribe <span className="font-bold">admin</span> para otorgar acceso total. Escribe un texto nuevo para crear un rol y asígnale permisos abajo.
-                  </p>
+
+                  {/* Input visible solo al crear rol nuevo */}
+                  {rolPersonalizado && (
+                    <div className="relative">
+                      <User size={16} className="absolute left-3 top-3 opacity-40" />
+                      <input
+                        required
+                        autoFocus
+                        type="text"
+                        placeholder="Ej. validador, supervisor, finanzas..."
+                        value={form.rol}
+                        onChange={e => setForm({ ...form, rol: e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') })}
+                        className={`w-full pl-10 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none transition-all ${inputBg}`}
+                      />
+                      <p className="text-[10px] mt-1.5 opacity-60 italic">Solo letras, números y guión bajo. Asigna permisos de módulos abajo.</p>
+                    </div>
+                  )}
+
+                  {form.rol === 'admin' && (
+                    <p className={`text-[10px] mt-2 flex items-center gap-1 ${darkMode ? 'text-[#C9EA63]/80' : 'text-emerald-700'}`}>
+                      <Shield size={10} /> El rol <strong>admin</strong> tiene acceso total a todos los módulos.
+                    </p>
+                  )}
                 </div>
 
                 {form.rol !== 'admin' && (

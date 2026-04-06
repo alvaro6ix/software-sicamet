@@ -17,6 +17,8 @@ import GestionUsuarios from './components/GestionUsuarios';
 import Login from './components/Login';
 import MetrologiaDashboard from './components/MetrologiaDashboard';
 import Validacion from './components/Validacion';
+import BusquedaGlobal from './components/BusquedaGlobal';
+import NotificacionesBell from './components/NotificacionesBell';
 import io from 'socket.io-client';
 
 import { ToastContainer, toast } from 'react-toastify';
@@ -51,8 +53,8 @@ axios.interceptors.response.use(
 );
 
 import { 
-  LayoutDashboard, FileText, List, Moon, Sun, Menu, X, 
-  Users, BookOpen, Tag, Package, MessageSquare, 
+  LayoutDashboard, FileText, List, Moon, Sun, Menu, X, Bell,
+  Users, BookOpen, Tag, Package, MessageSquare, Search,
   Bot, ScanLine, Target, LogOut, ShieldCheck, UserCircle, Save, FileCheck
 } from 'lucide-react';
 
@@ -322,11 +324,30 @@ const Layout = () => {
           />
 
         <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarOculta ? 'w-full' : ''}`}>
+          {/* Header mobile */}
           <header className={`lg:hidden flex items-center justify-between p-4 shadow-sm z-30 ${darkMode ? 'bg-[#141f0b] border-b border-[#C9EA63]/10' : 'bg-[#F2F6F0] border-b border-[#253916]/5'}`}>
             <h2 className={`text-xl font-bold tracking-tight ${darkMode ? 'text-[#C9EA63]' : 'text-[#65D067]'}`}>SICAMET</h2>
-            <button onClick={() => setMobileOpen(true)} className={`p-2 rounded-lg ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-white text-[#253916] shadow-sm'}`}>
-              <Menu size={24} />
-            </button>
+            <div className="flex items-center gap-2">
+              <NotificacionesBell darkMode={darkMode} />
+              <button onClick={() => setMobileOpen(true)} className={`p-2 rounded-lg ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-white text-[#253916] shadow-sm'}`}>
+                <Menu size={24} />
+              </button>
+            </div>
+          </header>
+
+          {/* Header desktop */}
+          <header className={`hidden lg:flex items-center justify-between px-6 py-3 border-b z-30 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/10' : 'bg-white border-slate-100 shadow-sm'}`}>
+            <BusquedaGlobal darkMode={darkMode} />
+            <div className="flex items-center gap-2">
+              <NotificacionesBell darkMode={darkMode} />
+              <button
+                onClick={() => setDarkMode(!darkMode)}
+                className={`p-2 rounded-xl transition-all ${darkMode ? 'hover:bg-[#253916] text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-700'}`}
+                title={darkMode ? 'Modo claro' : 'Modo oscuro'}
+              >
+                {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+            </div>
           </header>
 
           <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-8">

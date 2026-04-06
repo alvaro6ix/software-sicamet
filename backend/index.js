@@ -1189,6 +1189,101 @@ app.delete('/api/bot/cache', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── BÚSQUEDA GLOBAL ──────────────────────────────────────────────────────────
+app.get('/api/busqueda-global', verificarToken(), async (req, res) => {
+    const q = (req.query.q || '').trim();
+    if (q.length < 2) return res.json({ equipos: [], clientes: [], conversaciones: [] });
+    const like = `%${q}%`;
+    try {
+        const [equipos] = await db.query(
+            `SELECT id, nombre_instrumento, orden_cotizacion, empresa, estatus_actual, no_serie
+             FROM instrumentos_estatus
+             WHERE nombre_instrumento LIKE ? OR orden_cotizacion LIKE ? OR no_serie LIKE ? OR empresa LIKE ?
+             ORDER BY created_at DESC LIMIT 6`,
+            [like, like, like, like]
+        );
+        const [clientes] = await db.query(
+            `SELECT id, nombre, contacto FROM cat_clientes WHERE nombre LIKE ? OR contacto LIKE ? LIMIT 4`,
+            [like, like]
+        );
+        const [conversaciones] = await db.query(
+            `SELECT id, numero_wa, nombre_contacto FROM whatsapp_chats WHERE nombre_contacto LIKE ? OR numero_wa LIKE ? LIMIT 4`,
+            [like, like]
+        );
+        res.json({ equipos, clientes, conversaciones });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ─── NOTIFICACIONES INTERNAS ──────────────────────────────────────────────────
+app.get('/api/notificaciones', verificarToken(), async (req, res) => {
+    try {
+        const notifs = [];
+
+        // 1. Equipos con SLA crítico (0 o negativo = vencido, 1 = urgente)
+        const [vencidos] = await db.query(
+            `SELECT id, nombre_instrumento, orden_cotizacion, empresa, sla, estatus_actual
+             FROM instrumentos_estatus
+             WHERE sla <= 1 AND estatus_actual NOT IN ('Listo','Entregado','Validación','Aseguramiento')
+             ORDER BY sla ASC LIMIT 10`
+        );
+        vencidos.forEach(e => {
+            const vencido = e.sla <= 0;
+            notifs.push({
+                tipo: 'sla',
+                id: `sla_${e.id}`,
+                titulo: vencido ? `⏰ SLA vencido: ${e.nombre_instrumento}` : `⚠️ SLA crítico: ${e.nombre_instrumento}`,
+                detalle: `OC ${e.orden_cotizacion || '—'} · ${e.empresa || '—'} · Etapa: ${e.estatus_actual}`,
+                ruta: '/equipos',
+                urgencia: vencido ? 'alta' : 'media',
+                ts: new Date().toISOString()
+            });
+        });
+
+        // 2. Cotizaciones bot pendientes sin atender
+        const [[cots]] = await db.query(`SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'`);
+        if (cots.total > 0) {
+            notifs.push({
+                tipo: 'cotizacion',
+                id: 'cots_pendientes',
+                titulo: `📋 ${cots.total} cotización${cots.total > 1 ? 'es' : ''} sin atender`,
+                detalle: 'Solicitudes recibidas por WhatsApp esperando respuesta del equipo',
+                ruta: '/flujos-whatsapp',
+                urgencia: 'media',
+                ts: new Date().toISOString()
+            });
+        }
+
+        // 3. Equipos rechazados en Aseguramiento (últimas 48h)
+        try {
+            const [rechazados] = await db.query(
+                `SELECT ct.instrumento_id, ct.created_at, ie.nombre_instrumento, ie.orden_cotizacion
+                 FROM comentarios_tecnicos ct
+                 JOIN instrumentos_estatus ie ON ie.id = ct.instrumento_id
+                 WHERE (ct.comentario LIKE '%rechaz%' OR ct.comentario LIKE '%regresado%' OR ct.comentario LIKE '%regresa%')
+                 AND ct.created_at >= DATE_SUB(NOW(), INTERVAL 48 HOUR)
+                 ORDER BY ct.created_at DESC LIMIT 5`
+            );
+            rechazados.forEach(r => {
+                notifs.push({
+                    tipo: 'rechazo',
+                    id: `rechazo_${r.instrumento_id}_${new Date(r.created_at).getTime()}`,
+                    titulo: `🔁 Equipo rechazado en Aseguramiento`,
+                    detalle: `${r.nombre_instrumento} · OC ${r.orden_cotizacion || '—'} · Regresó a Laboratorio`,
+                    ruta: '/metrologia',
+                    urgencia: 'media',
+                    ts: r.created_at
+                });
+            });
+        } catch (_) { /* tabla puede no existir aún */ }
+
+        res.json(notifs);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ─── CRON: Recordatorios diarios (cada día a las 9:00 AM) ────────────────────
 function programarRecordatoriosDiarios() {
     const ahora = new Date();

@@ -741,7 +741,8 @@ const TIPOS_EQUIPO = {
 };
 
 const TIEMPOS_ENTREGA = {
-    '1': '5 días hábiles', '2': '10 días hábiles', '3': '10-15 días hábiles', '4': '15-20 días hábiles'
+    '1': '5 días hábiles ⚡ (urgente)',
+    '2': '10 días hábiles (estándar)'
 };
 
 function interpretarOtroOFinalizarCotizacion(texto) {
@@ -757,7 +758,7 @@ function interpretarOtroOFinalizarCotizacion(texto) {
     return null;
 }
 
-/** Mapea texto libre o número a clave '1'..'4' de TIEMPOS_ENTREGA. */
+/** Mapea texto libre o número a clave '1' o '2' de TIEMPOS_ENTREGA. */
 function interpretarOpcionTiempoEntrega(texto) {
     const raw = texto.trim();
     if (TIEMPOS_ENTREGA[raw]) return raw;
@@ -765,12 +766,8 @@ function interpretarOpcionTiempoEntrega(texto) {
     const soloDig = raw.replace(/\D/g, '');
     if (soloDig === '1' || soloDig === '5') return '1';
     if (soloDig === '2' || soloDig === '10') return '2';
-    if (soloDig === '3') return '3';
-    if (soloDig === '4') return '4';
-    if (t === '5' || t === 'cinco' || (t.includes('5') && t.includes('dia') && !t.includes('10'))) return '1';
-    if (t === '10' || t === 'diez' || /\b10\b/.test(t) || (t.includes('diez') && t.includes('dia'))) return '2';
-    if (t.includes('10-15') || t.includes('10 a 15') || t.includes('once') || t.includes('doce') || (t.includes('15') && t.includes('10'))) return '3';
-    if (t.includes('15-20') || t.includes('15 a 20') || (t.includes('20') && t.includes('dia'))) return '4';
+    if (t === '5' || t === 'cinco' || t === 'urgente' || (t.includes('5') && t.includes('dia'))) return '1';
+    if (t === '10' || t === 'diez' || /\b10\b/.test(t) || t.includes('estandar') || t.includes('normal')) return '2';
     return null;
 }
 
@@ -884,7 +881,7 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
             if (dec === 'final') {
                 await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoCotiz({ ...datos, paso: 7 }));
                 return {
-                    text: `⏳ *Tiempo de entrega preferido:*\n\n¿Qué rango de tiempo de entrega se ajusta a tus necesidades?\n\n*1️⃣* 5 días hábiles\n*2️⃣* 10 días hábiles\n*3️⃣* 10-15 días hábiles\n*4️⃣* 15-20 días hábiles\n\n_También puedes escribir *10*, *10 días* o el número de opción (1–4)._`
+                    text: `⏳ *Tiempo de entrega:*\n\n¿Cuándo necesitas tu(s) equipo(s)?\n\n*1️⃣* 5 días hábiles ⚡ _(urgente, tiene costo adicional)_\n*2️⃣* 10 días hábiles _(tiempo estándar)_\n\n_Escribe *1* o *2*._`
                 };
             }
             return await manejarFalloIntento(wa, sesion, {
@@ -899,7 +896,7 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
             const claveT = interpretarOpcionTiempoEntrega(texto);
             if (!claveT || !TIEMPOS_ENTREGA[claveT]) {
                 return await manejarFalloIntento(wa, sesion, {
-                    reintento: `${MSG_COTIZ_REINTENTO}\n\n_Escribe *1*, *2*, *3* o *4*, o algo como *10 días*, *5 días*, *10-15 días*._`,
+                    reintento: `${MSG_COTIZ_REINTENTO}\n\n_Escribe *1* para 5 días hábiles (urgente) o *2* para 10 días hábiles (estándar)._`,
                     escala: MSG_COTIZ_ESCALA,
                     claveIntentos: I_COTIZ,
                     motivoEscalado: 'Cotización: paso 7 — tiempo de entrega no reconocido'
@@ -1054,7 +1051,7 @@ function formatearOrdenAgrupada(lista) {
         });
         m += '\n';
     }
-    m += '_Escribe *0* para el menú principal._';
+    m += '_¿Tienes otra orden que consultar? Escríbela directamente o escribe *0* para el menú._';
     return m;
 }
 
@@ -1142,7 +1139,7 @@ function formatearRespuestaEstatus(eq) {
         ? new Date(eq.fecha_entrega).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' })
         : 'Pendiente de confirmar';
 
-    return `🔍 *Estatus de Equipo*\n\n📦 *Instrumento:* ${eq.nombre_instrumento}\n🏭 *Cliente:* ${eq.empresa || eq.persona || '—'}\n🏷️ *Orden:* ${eq.orden_cotizacion || '—'}\n🚩 *Etapa actual:* ${etap[eq.estatus_actual] || eq.estatus_actual}\n📅 *Entrega:* ${fechaEntrega}\n\n_Escribe *0* para el menú principal._`;
+    return `🔍 *Estatus de Equipo*\n\n📦 *Instrumento:* ${eq.nombre_instrumento}\n🏭 *Cliente:* ${eq.empresa || eq.persona || '—'}\n🏷️ *Orden:* ${eq.orden_cotizacion || '—'}\n🚩 *Etapa actual:* ${etap[eq.estatus_actual] || eq.estatus_actual}\n📅 *Entrega:* ${fechaEntrega}\n\n_¿Consultas otra orden? Escríbela directamente o escribe *0* para el menú._`;
 }
 
 // ─── FLUJO REGISTRO EQUIPO ────────────────────────────────────────────────────
