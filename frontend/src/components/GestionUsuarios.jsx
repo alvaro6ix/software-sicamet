@@ -12,7 +12,25 @@ const GestionUsuarios = ({ darkMode }) => {
 
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
-  const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'recepcionista' });
+  const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'recepcionista', permisos: [] });
+
+  const MODULOS_DISPONIBLES = [
+    { id: '/', nombre: 'Dashboard' },
+    { id: '/registro', nombre: 'Registro Ágil' },
+    { id: '/equipos', nombre: 'Lista Gral. Equipos' },
+    { id: '/kanban', nombre: 'Pipeline Kanban' },
+    { id: '/metrologia', nombre: 'Centro Metrología' },
+    { id: '/validacion', nombre: 'Aseguramiento' },
+    { id: '/clientes', nombre: 'Clientes' },
+    { id: '/catalogo-instrumentos', nombre: 'Catálogos' },
+    { id: '/flujos-whatsapp', nombre: 'Flujos WhatsApp' },
+    { id: '/conversaciones', nombre: 'Conversaciones WA' },
+    { id: '/leads', nombre: 'Posibles Clientes' },
+    { id: '/marcas', nombre: 'Catálogo Marcas' },
+    { id: '/modelos', nombre: 'Catálogo Modelos' },
+    { id: '/whatsapp-qr', nombre: 'Vincular WhatsApp' },
+    { id: '/usuarios', nombre: 'Gestión Usuarios' }
+  ];
 
   const boxBg = darkMode ? 'bg-[#253916] border-[#C9EA63]/20' : 'bg-white border-gray-100 shadow-xl';
   const textTitle = darkMode ? 'text-[#F2F6F0]' : 'text-slate-800';
@@ -46,7 +64,7 @@ const GestionUsuarios = ({ darkMode }) => {
       }
       setModalAbierto(false);
       setEditandoId(null);
-      setForm({ nombre: '', email: '', password: '', rol: 'recepcionista' });
+      setForm({ nombre: '', email: '', password: '', rol: 'recepcionista', permisos: [] });
       fetchUsuarios();
     } catch (err) {
       alert(err.response?.data?.error || "Error al procesar usuario");
@@ -71,7 +89,11 @@ const GestionUsuarios = ({ darkMode }) => {
 
   const abrirEditar = (u) => {
     setEditandoId(u.id);
-    setForm({ nombre: u.nombre, email: u.email, password: '', rol: u.rol || 'recepcionista' });
+    let permisosParsed = [];
+    try {
+        if (u.permisos) permisosParsed = typeof u.permisos === 'string' ? JSON.parse(u.permisos) : u.permisos;
+    } catch(e) {}
+    setForm({ nombre: u.nombre, email: u.email, password: '', rol: u.rol || 'recepcionista', permisos: permisosParsed });
     setModalAbierto(true);
   };
 
@@ -79,6 +101,8 @@ const GestionUsuarios = ({ darkMode }) => {
     u.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
     u.email.toLowerCase().includes(busqueda.toLowerCase())
   );
+
+  const rolesUnicos = [...new Set(usuarios.map(u => u.rol))].filter(Boolean);
 
   return (
     <div className="w-full space-y-6 md:space-y-8 relative animate-in fade-in duration-500">
@@ -94,7 +118,7 @@ const GestionUsuarios = ({ darkMode }) => {
         </div>
 
         <button
-          onClick={() => { setEditandoId(null); setForm({ nombre: '', email: '', password: '', rol: 'recepcionista' }); setModalAbierto(true); }}
+          onClick={() => { setEditandoId(null); setForm({ nombre: '', email: '', password: '', rol: 'recepcionista', permisos: [] }); setModalAbierto(true); }}
           className={`w-full sm:w-auto px-4 py-3 sm:py-2 rounded-xl font-bold text-sm transition-all focus:outline-none flex items-center justify-center gap-2 shadow-md ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
         >
           <UserPlus size={18} /> Nuevo Usuario
@@ -271,19 +295,62 @@ const GestionUsuarios = ({ darkMode }) => {
                 </div>
 
                 <div className="pt-2">
-                  <label className={`block text-[10px] font-black mb-3 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Perfil y Privilegios</label>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <button type="button" onClick={() => setForm({ ...form, rol: 'recepcionista' })} className={`p-4 rounded-xl border text-xs font-bold flex items-center md:flex-col justify-start md:justify-center gap-3 md:gap-1 transition-all ${form.rol === 'recepcionista' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600 shadow-md') : (darkMode ? 'border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:bg-[#C9EA63]/5' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}`}>
-                      <User size={18} /> Recepcionista
-                    </button>
-                    <button type="button" onClick={() => setForm({ ...form, rol: 'operador' })} className={`p-4 rounded-xl border text-xs font-bold flex items-center md:flex-col justify-start md:justify-center gap-3 md:gap-1 transition-all ${form.rol === 'operador' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600 shadow-md') : (darkMode ? 'border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:bg-[#C9EA63]/5' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}`}>
-                      <Package size={18} /> Metrologo
-                    </button>
-                    <button type="button" onClick={() => setForm({ ...form, rol: 'admin' })} className={`p-4 rounded-xl border text-xs font-bold flex items-center md:flex-col justify-start md:justify-center gap-3 md:gap-1 transition-all ${form.rol === 'admin' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-600 text-white border-emerald-600 shadow-md') : (darkMode ? 'border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:bg-[#C9EA63]/5' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}`}>
-                      <Shield size={18} /> Admin
-                    </button>
+                  <label className={`block text-[10px] font-black mb-3 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Rol / Puesto (Escribe o Selecciona)</label>
+                  <div className="relative">
+                    <User size={16} className="absolute left-3 top-3 opacity-40" />
+                    <input 
+                      required 
+                      type="text" 
+                      list="roles-sugeridos"
+                      placeholder="Ej. admin, finanzas, validador..." 
+                      value={form.rol} 
+                      onChange={e => setForm({ ...form, rol: e.target.value.toLowerCase().replace(/\s+/g, '_') })} 
+                      className={`w-full pl-10 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none transition-all ${inputBg}`} 
+                    />
+                    <datalist id="roles-sugeridos">
+                      {rolesUnicos.map(rol => (
+                        <option key={rol} value={rol} />
+                      ))}
+                      {!rolesUnicos.includes('admin') && <option value="admin" />}
+                      {!rolesUnicos.includes('recepcionista') && <option value="recepcionista" />}
+                      {!rolesUnicos.includes('operador') && <option value="operador" />}
+                    </datalist>
+                  </div>
+                  <p className="text-[10px] mt-1.5 opacity-60 italic">
+                    Escribe <span className="font-bold">admin</span> para otorgar acceso total. Escribe un texto nuevo para crear un rol y asígnale permisos abajo.
+                  </p>
+                </div>
+
+                {form.rol !== 'admin' && (
+                <div className="pt-2">
+                  <label className={`block text-[10px] font-black mb-3 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Permisos de Módulos (Opcional)</label>
+                  <p className={`text-[10px] mb-2 italic ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>Si no seleccionas ninguno, el usuario usará los de su rol.</p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {MODULOS_DISPONIBLES.map(mod => {
+                        const seleccionado = form.permisos.includes(mod.id);
+                        return (
+                            <button
+                                key={mod.id}
+                                type="button"
+                                onClick={() => {
+                                    if (seleccionado) {
+                                        setForm({...form, permisos: form.permisos.filter(p => p !== mod.id)});
+                                    } else {
+                                        setForm({...form, permisos: [...form.permisos, mod.id]});
+                                    }
+                                }}
+                                className={`text-left p-2 rounded-lg border text-[11px] font-bold transition-all flex items-center gap-2 ${seleccionado ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-100 text-emerald-800 border-emerald-300') : (darkMode ? 'bg-transparent border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:border-[#C9EA63]/40' : 'bg-transparent border-slate-200 text-slate-500 hover:bg-slate-50')}`}
+                            >
+                                <div className={`w-3 h-3 flex-shrink-0 rounded flex items-center justify-center border ${seleccionado ? (darkMode ? 'bg-[#141f0b] border-transparent' : 'bg-emerald-600 border-emerald-600 text-white') : (darkMode ? 'border-[#C9EA63]/40' : 'border-slate-300')}`}>
+                                    {seleccionado && <div className={`w-1.5 h-1.5 rounded-sm ${darkMode ? 'bg-[#C9EA63]' : 'bg-white'}`} />}
+                                </div>
+                                <span className="truncate">{mod.nombre}</span>
+                            </button>
+                        );
+                    })}
                   </div>
                 </div>
+                )}
 
                 <div className="pt-4 flex gap-3">
                   <button type="button" onClick={() => setModalAbierto(false)} className={`hidden sm:block flex-1 font-bold py-3 px-4 rounded-xl transition-all ${darkMode ? 'text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'text-slate-400 hover:text-slate-600'}`}>

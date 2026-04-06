@@ -132,14 +132,13 @@ const Clientes = ({ darkMode }) => {
 
   return (
     <div className="w-full space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-6 border-opacity-20 border-[#C9EA63]">
-        {/* ... */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 border-b pb-6 border-opacity-20 border-[#C9EA63]">
         <div>
-          <h2 className={`text-3xl font-bold flex items-center gap-3 ${textTitle}`}>
+          <h2 className={`text-2xl md:text-3xl font-bold flex items-center gap-3 ${textTitle}`}>
             <Users className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} size={32} />
             Directorio de Clientes
           </h2>
-          <p className={`mt-2 text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
+          <p className={`mt-1 md:mt-2 text-xs md:text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
             Gestiona la lista de empresas, teléfonos y carga masiva de clientes.
           </p>
         </div>

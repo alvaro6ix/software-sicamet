@@ -15,6 +15,8 @@ import WhatsappQR from './components/WhatsappQR';
 import TableroKanban from './components/TableroKanban';
 import GestionUsuarios from './components/GestionUsuarios';
 import Login from './components/Login';
+import MetrologiaDashboard from './components/MetrologiaDashboard';
+import Validacion from './components/Validacion';
 import io from 'socket.io-client';
 
 import { ToastContainer, toast } from 'react-toastify';
@@ -51,7 +53,7 @@ axios.interceptors.response.use(
 import { 
   LayoutDashboard, FileText, List, Moon, Sun, Menu, X, 
   Users, BookOpen, Tag, Package, MessageSquare, 
-  Bot, ScanLine, Target, LogOut, ShieldCheck, UserCircle, Save
+  Bot, ScanLine, Target, LogOut, ShieldCheck, UserCircle, Save, FileCheck
 } from 'lucide-react';
 
 const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, onLogout, counts, sidebarOculta, setSidebarOculta }) => {
@@ -61,18 +63,33 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['admin', 'recepcionista'] },
     { name: 'Registro Ágil', path: '/registro', icon: FileText, roles: ['admin', 'recepcionista'] },
-    { name: 'Lista Instrumentos', path: '/equipos', icon: List, roles: ['admin', 'recepcionista'] },
+    { name: 'Lista Gral. Equipos', path: '/equipos', icon: List, roles: ['admin', 'recepcionista'] },
     { name: 'Pipeline Kanban', path: '/kanban', icon: Package, roles: ['admin', 'recepcionista', 'operador'] },
+    { name: 'Centro Metrología', path: '/metrologia', icon: Package, roles: ['admin', 'operador'] },
+    { name: 'Aseguramiento', path: '/validacion', icon: FileCheck, roles: ['admin'] },
     { name: 'Clientes', path: '/clientes', icon: Users, roles: ['admin', 'recepcionista'] },
     { name: 'Catálogo Inst.', path: '/catalogo-instrumentos', icon: BookOpen, roles: ['admin', 'recepcionista'] },
     { name: 'Catálogo Marcas', path: '/marcas', icon: Tag, roles: ['admin'] },
     { name: 'Catálogo Modelos', path: '/modelos', icon: Package, roles: ['admin'] },
     { name: 'Flujos WhatsApp', path: '/flujos-whatsapp', icon: Bot, roles: ['admin', 'recepcionista'] },
-    { name: 'Conversaciones', path: '/conversaciones', icon: MessageSquare, roles: ['admin', 'recepcionista'] },
+    { name: 'Conversaciones WA', path: '/conversaciones', icon: MessageSquare, roles: ['admin', 'recepcionista'] },
     { name: 'Posibles Clientes', path: '/leads', icon: Target, roles: ['admin', 'recepcionista'] },
     { name: 'Vincular WhatsApp', path: '/whatsapp-qr', icon: ScanLine, roles: ['admin', 'recepcionista'] },
     { name: 'Gestión Usuarios', path: '/usuarios', icon: Users, roles: ['admin'] },
-  ].filter(item => item.roles.includes(usuario?.rol || 'recepcionista'));
+  ].filter(item => {
+      // Si el usuario tiene permisos específicos (y no es array vacío), filtramos por eso
+      let permisosList = [];
+      try {
+          if (usuario?.permisos) permisosList = typeof usuario.permisos === 'string' ? JSON.parse(usuario.permisos) : usuario.permisos;
+      } catch(e) {}
+      
+      if (permisosList && permisosList.length > 0 && usuario.rol !== 'admin') {
+          return permisosList.includes(item.path);
+      }
+      
+      // Fallback a lógica de roles si no hay permisos customizados
+      return item.roles.includes(usuario?.rol || 'recepcionista');
+  });
 
   const NavContent = () => (
     <div className="flex flex-col h-full overflow-y-auto custom-scrollbar relative">
@@ -201,15 +218,20 @@ const Layout = () => {
   }, [darkMode]);
 
   useEffect(() => {
-    // Verificar sesión guardada
     const token = localStorage.getItem('crm_token');
-    const usr = localStorage.getItem('crm_usuario');
-    if (token && usr) {
-      try {
-        setUsuario(JSON.parse(usr));
-      } catch {}
+    if (token) {
+      axios.get('/api/auth/me')
+        .then(res => {
+          setUsuario(res.data.usuario);
+          localStorage.setItem('crm_usuario', JSON.stringify(res.data.usuario));
+        })
+        .catch(() => {
+          // Si el token es súper viejo o no auth, se maneja por el interceptor
+        })
+        .finally(() => setVerificando(false));
+    } else {
+      setVerificando(false);
     }
-    setVerificando(false);
   }, []);
 
   const handleLogin = (usr) => setUsuario(usr);
@@ -313,6 +335,8 @@ const Layout = () => {
               <Route path="/registro" element={<Registro darkMode={darkMode} />} />
               <Route path="/equipos" element={<ListaEquipos darkMode={darkMode} />} />
               <Route path="/kanban" element={<TableroKanban darkMode={darkMode} />} />
+              <Route path="/metrologia" element={<MetrologiaDashboard darkMode={darkMode} usuario={usuario} />} />
+              <Route path="/validacion" element={<Validacion darkMode={darkMode} usuario={usuario} />} />
               <Route path="/clientes" element={<Clientes darkMode={darkMode} />} />
               <Route path="/catalogo-instrumentos" element={<CatalogoInstrumentos darkMode={darkMode} />} />
               <Route path="/marcas" element={<Marcas darkMode={darkMode} />} />

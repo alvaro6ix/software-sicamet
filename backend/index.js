@@ -148,6 +148,19 @@ const uploadDisk = multer({
     limits: { fileSize: 20 * 1024 * 1024 } // 20MB max
 });
 
+const uploadsDirComentarios = path.join(__dirname, 'uploads', 'comentarios');
+if (!fs.existsSync(uploadsDirComentarios)) fs.mkdirSync(uploadsDirComentarios, { recursive: true });
+const uploadComentarios = multer({
+    storage: multer.diskStorage({
+        destination: (req, file, cb) => cb(null, uploadsDirComentarios),
+        filename: (req, file, cb) => {
+            const ext = path.extname(file.originalname);
+            cb(null, `comentario_${Date.now()}${ext}`);
+        }
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB max
+});
+
 app.use(cors());
 app.use(express.json());
 // Servir archivos subidos públicamente
@@ -347,18 +360,93 @@ app.get('/api/instrumentos', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/instrumentos/:id/estatus', async (req, res) => {
+app.put('/api/instrumentos/:id/estatus', verificarToken(), async (req, res) => {
     try {
-        const estatus = req.body.estatus;
+        const { estatus, comentario } = req.body;
+        const id = req.params.id;
+        const [oldest] = await db.query('SELECT estatus_actual FROM instrumentos_estatus WHERE id = ?', [id]);
+        const oldStatus = oldest[0]?.estatus_actual;
+
         if (estatus === 'Entregado') {
-            await db.query('UPDATE instrumentos_estatus SET estatus_actual = ?, fecha_entrega = CURRENT_TIMESTAMP WHERE id = ?', [estatus, req.params.id]);
+            await db.query('UPDATE instrumentos_estatus SET estatus_actual = ?, fecha_entrega = CURRENT_TIMESTAMP WHERE id = ?', [estatus, id]);
         } else {
-            await db.query('UPDATE instrumentos_estatus SET estatus_actual = ? WHERE id = ?', [estatus, req.params.id]);
+            await db.query('UPDATE instrumentos_estatus SET estatus_actual = ? WHERE id = ?', [estatus, id]);
+        }
+        
+        await db.query(
+            'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo) VALUES (?, ?, ?, ?)',
+            [id, req.usuario?.id || null, oldStatus, estatus]
+        );
+        
+        if (comentario) {
+            await db.query(
+                `INSERT INTO instrumentos_comentarios (instrumento_id, usuario_id, mensaje, tipo) VALUES (?, ?, ?, ?)`,
+                [id, req.usuario?.id || null, comentario, 'cambio_estatus']
+            );
         }
         
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'estatus_instrumento', id: req.params.id });
         
         res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// NUEVO: BULK UPDATE ESTATUS
+app.post('/api/instrumentos/bulk-status', verificarToken(), async (req, res) => {
+    try {
+        const { ids, estatus, comentario } = req.body;
+        if (!ids || ids.length === 0) return res.status(400).json({ error: "No hay IDs" });
+
+        for (const id of ids) {
+            const [oldest] = await db.query('SELECT estatus_actual FROM instrumentos_estatus WHERE id = ?', [id]);
+            const oldStatus = oldest[0]?.estatus_actual;
+
+            let query = 'UPDATE instrumentos_estatus SET estatus_actual = ?';
+            if (estatus === 'Entregado') query += ', fecha_entrega = CURRENT_TIMESTAMP';
+            query += ' WHERE id = ?';
+            
+            await db.query(query, [estatus, id]);
+            
+            await db.query(
+                'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo) VALUES (?, ?, ?, ?)',
+                [id, req.usuario?.id || null, oldStatus, estatus]
+            );
+
+            if (comentario) {
+                await db.query(
+                    `INSERT INTO instrumentos_comentarios (instrumento_id, usuario_id, mensaje, tipo) VALUES (?, ?, ?, ?)`,
+                    [id, req.usuario?.id || null, comentario, 'cambio_estatus_masivo']
+                );
+            }
+        }
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'estatus_masivo' });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// COMENTARIOS
+app.get('/api/instrumentos/:id/comentarios', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query(`
+            SELECT c.*, u.nombre as usuario_nombre 
+            FROM instrumentos_comentarios c 
+            LEFT JOIN usuarios u ON c.usuario_id = u.id 
+            WHERE c.instrumento_id = ? 
+            ORDER BY c.fecha DESC
+        `, [req.params.id]);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/instrumentos/:id/comentarios', verificarToken(), uploadComentarios.single('archivo'), async (req, res) => {
+    try {
+        const { mensaje } = req.body;
+        const archivoUrl = req.file ? `/uploads/comentarios/${req.file.filename}` : null;
+        await db.query(
+            `INSERT INTO instrumentos_comentarios (instrumento_id, usuario_id, mensaje, archivo_url) VALUES (?, ?, ?, ?)`,
+            [req.params.id, req.usuario?.id || null, mensaje, archivoUrl]
+        );
+        res.json({ success: true, archivo_url: archivoUrl });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1136,7 +1224,7 @@ app.post('/api/auth/login', async (req, res) => {
         const token = generarToken(usuario);
         res.json({
             token,
-            usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol }
+            usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol, permisos: usuario.permisos }
         });
     } catch (err) {
         console.error('Error en login:', err.message);
@@ -1144,27 +1232,33 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-app.get('/api/auth/me', verificarToken(), (req, res) => {
-    res.json({ usuario: req.usuario });
+app.get('/api/auth/me', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT id, nombre, email, rol, permisos FROM usuarios WHERE id = ?', [req.usuario.id]);
+        if (rows.length === 0) return res.status(401).json({ error: 'Usuario no encontrado' });
+        res.json({ usuario: rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: 'Error del servidor al obtener usuario' });
+    }
 });
 
 // Gestión de usuarios (solo admin)
 app.get('/api/usuarios', verificarToken(['admin']), async (req, res) => {
     try {
-        const [rows] = await db.query('SELECT id, nombre, email, rol, activo, created_at FROM usuarios ORDER BY created_at DESC');
+        const [rows] = await db.query('SELECT id, nombre, email, rol, activo, permisos, created_at FROM usuarios ORDER BY created_at DESC');
         res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/usuarios', verificarToken(['admin']), async (req, res) => {
     try {
-        const { nombre, email, password, rol } = req.body;
+        const { nombre, email, password, rol, permisos } = req.body;
         if (!nombre || !email || !password) return res.status(400).json({ error: 'Faltan datos' });
         const bcrypt = require('bcryptjs');
         const hash = await bcrypt.hash(password, 12);
         const [r] = await db.query(
-            'INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)',
-            [nombre, email.toLowerCase(), hash, rol || 'recepcionista']
+            'INSERT INTO usuarios (nombre, email, password_hash, rol, permisos) VALUES (?, ?, ?, ?, ?)',
+            [nombre, email.toLowerCase(), hash, rol || 'recepcionista', permisos ? JSON.stringify(permisos) : null]
         );
         res.json({ success: true, id: r.insertId });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1172,11 +1266,11 @@ app.post('/api/usuarios', verificarToken(['admin']), async (req, res) => {
 
 app.put('/api/usuarios/:id', verificarToken(['admin']), async (req, res) => {
     try {
-        const { nombre, email, password, rol } = req.body;
+        const { nombre, email, password, rol, permisos } = req.body;
         const id = req.params.id;
 
-        let query = 'UPDATE usuarios SET nombre = ?, email = ?, rol = ?';
-        let params = [nombre, email.toLowerCase(), rol];
+        let query = 'UPDATE usuarios SET nombre = ?, email = ?, rol = ?, permisos = ?';
+        let params = [nombre, email.toLowerCase(), rol, permisos ? JSON.stringify(permisos) : null];
 
         if (password && password.trim() !== "") {
             const bcrypt = require('bcryptjs');

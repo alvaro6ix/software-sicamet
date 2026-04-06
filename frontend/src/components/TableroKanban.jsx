@@ -87,10 +87,15 @@ const TableroKanban = ({ darkMode }) => {
 
     return (
         <div className="w-full h-[calc(100vh-6rem)] flex flex-col">
-            <header className="mb-6 flex justify-between items-end shrink-0">
+            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b pb-6 border-opacity-20 border-[#C9EA63] shrink-0">
                 <div>
-                    <h1 className={`text-3xl font-black ${textTitle}`}>Pipeline de Calibración</h1>
-                    <p className={`text-sm font-medium ${textBody}`}>Arrastra las tarjetas para cambiar el estado operativo en tiempo real.</p>
+                    <h2 className={`text-2xl md:text-3xl font-bold flex items-center gap-3 ${textTitle}`}>
+                        <Package className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} size={32} />
+                        Pipeline de Calibración
+                    </h2>
+                    <p className={`mt-1 md:mt-2 text-xs md:text-sm ${textBody}`}>
+                        Arrastra las tarjetas para cambiar el estado operativo en tiempo real.
+                    </p>
                 </div>
             </header>
 
