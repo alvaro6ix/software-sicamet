@@ -16,6 +16,13 @@ const TableroKanban = ({ darkMode }) => {
     const [modalDetalle, setModalDetalle] = useState(false);
     const [equipoDetalle, setEquipoDetalle] = useState(null);
 
+    // Detectar rol para modo lectura
+    const userRaw = localStorage.getItem('crm_usuario');
+    let userRol = 'recepcionista';
+    try { userRol = JSON.parse(userRaw)?.rol || 'recepcionista'; } catch(_) {}
+    const puedeModificarEstatus = ['admin', 'aseguramiento', 'validacion'].includes(userRol);
+    const esSoloLectura = !puedeModificarEstatus;
+
     const fetchEquipos = async () => {
         try {
             const res = await axios.get('/api/instrumentos');
@@ -34,13 +41,14 @@ const TableroKanban = ({ darkMode }) => {
     }, []);
 
     const onDragStart = (e, equipo) => {
+        if (esSoloLectura) { e.preventDefault(); return; }
         e.dataTransfer.setData('equipoId', equipo.id);
-        // Visual tweak para que el drag ghost se vea mejor
         e.dataTransfer.effectAllowed = "move";
     };
 
     const onDrop = async (e, estatusDestino) => {
         e.preventDefault();
+        if (esSoloLectura) return;
         const equipoId = e.dataTransfer.getData('equipoId');
         if (!equipoId) return;
 
@@ -94,9 +102,16 @@ const TableroKanban = ({ darkMode }) => {
                         Pipeline de Calibración
                     </h2>
                     <p className={`mt-1 md:mt-2 text-xs md:text-sm ${textBody}`}>
-                        Arrastra las tarjetas para cambiar el estado operativo en tiempo real.
+                        {esSoloLectura
+                            ? '🔒 Modo lectura — Solo Aseguramiento puede cambiar estatus de equipos.'
+                            : 'Arrastra las tarjetas para cambiar el estado operativo en tiempo real.'}
                     </p>
                 </div>
+                {esSoloLectura && (
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold ${darkMode ? 'bg-rose-900/30 text-rose-400 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'}`}>
+                        <Info size={14} /> Solo lectura
+                    </div>
+                )}
             </header>
 
             <div className={`flex-1 min-h-0 flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory gap-3 lg:gap-4 pb-2 h-full custom-scrollbar`}>
@@ -108,8 +123,8 @@ const TableroKanban = ({ darkMode }) => {
                         <div 
                             key={columna.id}
                             className={`flex flex-col shrink-0 w-[85vw] md:w-[320px] lg:w-0 lg:flex-1 min-w-0 min-h-0 h-full rounded-2xl border transition-colors snap-center ${darkMode ? 'border-[#C9EA63]/20 bg-[#1b2b10]/40' : 'border-slate-200 bg-slate-50/50'}`}
-                            onDrop={(e) => onDrop(e, columna.id)}
-                            onDragOver={onDragOver}
+                            onDrop={esSoloLectura ? undefined : (e) => onDrop(e, columna.id)}
+                            onDragOver={esSoloLectura ? undefined : onDragOver}
                         >
                             {/* Cabecera Columna */}
                             <div className={`p-4 border-b flex items-center justify-between ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-200'} ${columna.bg} rounded-t-2xl`}>
@@ -127,11 +142,11 @@ const TableroKanban = ({ darkMode }) => {
                                 {equiposColumna.map(equipo => (
                                     <div 
                                         key={equipo.id}
-                                        draggable
+                                        draggable={!esSoloLectura}
                                         onDragStart={(e) => onDragStart(e, equipo)}
                                         onClick={() => { setEquipoDetalle(equipo); setModalDetalle(true); }}
                                         style={{ backgroundColor: getOsaColor(equipo.orden_cotizacion, darkMode) }}
-                                        className={`p-4 rounded-xl shadow-sm border cursor-pointer hover:shadow-md transition-all relative overflow-hidden group ${darkMode ? 'border-[#C9EA63]/20 hover:brightness-125' : 'border-slate-200 hover:brightness-95'}`}
+                                        className={`p-4 rounded-xl shadow-sm border transition-all relative overflow-hidden group ${esSoloLectura ? 'cursor-pointer' : 'cursor-grab hover:cursor-grab'} hover:shadow-md ${darkMode ? 'border-[#C9EA63]/20 hover:brightness-125' : 'border-slate-200 hover:brightness-95'}`}
                                     >
                                         <div className={`absolute top-0 left-0 w-1 rounded-l-xl h-full ${columna.bg.split('/')[0]}`} />
                                         <div className="flex justify-between items-start mb-2">
@@ -144,7 +159,9 @@ const TableroKanban = ({ darkMode }) => {
                                         <p className={`text-[10px] truncate ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>{equipo.empresa || equipo.persona}</p>
                                         
                                         <div className={`mt-3 pt-3 border-t flex justify-between items-center ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-100'}`}>
-                                            <div className="text-[10px] font-medium opacity-60">SLA: {equipo.sla} días</div>
+                                            <div className="text-[10px] font-medium opacity-60">
+                                                SLA: {equipo.sla ? `${equipo.sla - Math.floor((new Date() - new Date(equipo.fecha_ingreso)) / (1000*60*60*24))} d restantes` : 'N/A'}
+                                            </div>
                                             <div className="text-[10px] font-medium opacity-70 border px-2 py-0.5 rounded-md">{equipo.identificacion || equipo.no_serie || 'N/A'}</div>
                                         </div>
                                     </div>
@@ -264,18 +281,26 @@ const TableroKanban = ({ darkMode }) => {
                                                 <span className={`font-black text-sm ${equipoDetalle.sla <= 2 ? 'text-rose-500' : ''}`}>{equipoDetalle.sla} d</span>
                                             </div>
                                             <div className="pt-4 border-t border-inherit">
-                                                <div className="text-[10px] uppercase font-black tracking-widest mb-2 opacity-50 text-center">Cambiar Estado Operativo</div>
-                                                <select 
-                                                    value={equipoDetalle.estatus_actual}
-                                                    onChange={(e) => onDrop({ preventDefault: () => {}, dataTransfer: { getData: () => equipoDetalle.id.toString() } }, e.target.value)}
-                                                    className={`w-full text-center font-black py-2.5 rounded-xl text-xs appearance-none cursor-pointer transition-all border outline-none shadow-sm ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/30 text-[#C9EA63] hover:border-[#C9EA63]' : 'bg-white border-emerald-200 text-emerald-700 hover:border-emerald-500'}`}
-                                                >
-                                                    <option value="Recepción">Recepción</option>
-                                                    <option value="Laboratorio">Laboratorio</option>
-                                                    <option value="Certificación">Certificación</option>
-                                                    <option value="Listo">Listo</option>
-                                                    <option value="Entregado">Entregado</option>
-                                                </select>
+                                                {puedeModificarEstatus ? (
+                                                    <>
+                                                        <div className="text-[10px] uppercase font-black tracking-widest mb-2 opacity-50 text-center">Cambiar Estado Operativo</div>
+                                                        <select 
+                                                            value={equipoDetalle.estatus_actual}
+                                                            onChange={(e) => onDrop({ preventDefault: () => {}, dataTransfer: { getData: () => equipoDetalle.id.toString() } }, e.target.value)}
+                                                            className={`w-full text-center font-black py-2.5 rounded-xl text-xs appearance-none cursor-pointer transition-all border outline-none shadow-sm ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/30 text-[#C9EA63] hover:border-[#C9EA63]' : 'bg-white border-emerald-200 text-emerald-700 hover:border-emerald-500'}`}
+                                                        >
+                                                            <option value="Recepción">Recepción</option>
+                                                            <option value="Laboratorio">Laboratorio</option>
+                                                            <option value="Certificación">Certificación</option>
+                                                            <option value="Listo">Listo</option>
+                                                            <option value="Entregado">Entregado</option>
+                                                        </select>
+                                                    </>
+                                                ) : (
+                                                    <div className={`flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]/40' : 'bg-slate-100 text-slate-400'}`}>
+                                                        <Info size={14} /> Solo Aseguramiento puede cambiar el estatus
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>

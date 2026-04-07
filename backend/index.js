@@ -69,6 +69,17 @@ async function ensureWhatsappChatsColumns() {
             }
         }
     }
+    // Migración de nuevas columnas SICAMET 2026
+    const nuevasMigraciones = [
+        "ALTER TABLE usuarios ADD COLUMN area VARCHAR(100) NULL AFTER rol",
+        "ALTER TABLE instrumentos_estatus ADD COLUMN area_laboratorio VARCHAR(100) NULL AFTER sla",
+        "ALTER TABLE instrumentos_estatus ADD COLUMN metrologo_asignado_id INT NULL AFTER area_laboratorio",
+        `CREATE TABLE IF NOT EXISTS laboratorio_areas (id INT AUTO_INCREMENT PRIMARY KEY, nombre VARCHAR(100) NOT NULL UNIQUE, descripcion TEXT NULL, activa TINYINT DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`
+    ];
+    for (const sql of nuevasMigraciones) {
+        try { await db.query(sql); } catch (e) { /* columna ya existe o tabla ya existe */ }
+    }
+    console.log('✅ Migraciones SICAMET 2026 verificadas.');
 }
 
 /** Limpia sesión del motor del bot y memoria de conversación bot por número CRM (solo dígitos). */
@@ -330,22 +341,23 @@ app.delete('/api/whatsapp/chats/:numero', verificarToken(), async (req, res) => 
 });
 
 // --- OPERACIONES DE INSTRUMENTOS (CRUD MULTIRREGISTRO) ---
-app.post('/api/instrumentos-multiple', async (req, res) => {
+app.post('/api/instrumentos-multiple', verificarToken(), async (req, res) => {
     const { instrumentos } = req.body; 
     if (!instrumentos || instrumentos.length === 0) return res.status(400).json({error: "No hay datos"});
 
     try {
         const query = `INSERT INTO instrumentos_estatus 
-            (orden_cotizacion, empresa, persona, tipo_servicio, nombre_instrumento, marca, modelo, no_serie, identificacion, ubicacion, requerimientos_especiales, puntos_calibrar, sla, estatus_actual) 
+            (orden_cotizacion, empresa, persona, tipo_servicio, nombre_instrumento, marca, modelo, no_serie, identificacion, ubicacion, requerimientos_especiales, puntos_calibrar, sla, estatus_actual, area_laboratorio, metrologo_asignado_id) 
             VALUES ?`; 
         
         const valores = instrumentos.map(ins => [
             ins.orden_cotizacion, ins.empresa, ins.persona, ins.tipo_servicio, ins.nombre_instrumento, 
-            ins.marca, ins.modelo, ins.no_serie, ins.identificacion, ins.ubicacion, ins.requerimientos_especiales, ins.puntos_calibrar, ins.sla, 'Recepción'
+            ins.marca, ins.modelo, ins.no_serie, ins.identificacion, ins.ubicacion, ins.requerimientos_especiales, ins.puntos_calibrar, ins.sla, 'Laboratorio',
+            ins.area_laboratorio || null, ins.metrologo_asignado_id || null
         ]);
 
         await db.query(query, [valores]);
-        console.log(`✅ Registradas ${instrumentos.length} partidas de la orden ${instrumentos[0].orden_cotizacion}`);
+        console.log(`✅ Registradas ${instrumentos.length} partidas de la orden ${instrumentos[0].orden_cotizacion} → área: ${instrumentos[0].area_laboratorio}`);
         
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'registro_multiple' });
         
@@ -353,10 +365,89 @@ app.post('/api/instrumentos-multiple', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/instrumentos', async (req, res) => {
+app.get('/api/instrumentos', verificarToken(), async (req, res) => {
     try {
-        const [equipos] = await db.query('SELECT * FROM instrumentos_estatus ORDER BY fecha_ingreso DESC');
+        const { rol, area, id: userId } = req.usuario;
+        let query = 'SELECT ie.*, u.nombre as metrologo_nombre FROM instrumentos_estatus ie LEFT JOIN usuarios u ON ie.metrologo_asignado_id = u.id';
+        let params = [];
+
+        if (rol === 'admin') {
+            // Admin ve todo
+            query += ' ORDER BY ie.fecha_ingreso DESC';
+        } else if (rol === 'aseguramiento' || rol === 'validacion') {
+            // Aseguramiento / Validación ve equipos en su etapa
+            query += " WHERE ie.estatus_actual IN ('Validación','Aseguramiento','Certificación','Listo','Entregado') ORDER BY ie.fecha_ingreso DESC";
+        } else if (rol === 'metrologo' || rol === 'operador') {
+            // Metrólogo: si tiene área asignada, ve todos los de su área; de lo contrario solo los asignados a él
+            if (area) {
+                // Revisar si es supervisor (permisos de supervisión = ve todo el área)
+                const [userRow] = await db.query('SELECT permisos FROM usuarios WHERE id = ?', [userId]);
+                let permisos = [];
+                try { permisos = JSON.parse(userRow[0]?.permisos || '[]'); } catch(_) {}
+                if (permisos.includes('supervisor_area')) {
+                    // Supervisor: ve todo lo de su área
+                    query += " WHERE ie.area_laboratorio = ? ORDER BY ie.fecha_ingreso DESC";
+                    params = [area];
+                } else {
+                    // Metrólogo normal: ve solo los asignados a él en su área
+                    query += " WHERE (ie.metrologo_asignado_id = ? OR ie.area_laboratorio = ?) ORDER BY ie.fecha_ingreso DESC";
+                    params = [userId, area];
+                }
+            } else {
+                // Sin área definida: solo sus asignados
+                query += " WHERE ie.metrologo_asignado_id = ? ORDER BY ie.fecha_ingreso DESC";
+                params = [userId];
+            }
+        } else {
+            // Recepcionista y otros: ven todos (para crear registros y dar seguimiento)
+            query += ' ORDER BY ie.fecha_ingreso DESC';
+        }
+
+        const [equipos] = await db.query(query, params);
         res.json(equipos);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── ÁREAS DE LABORATORIO ────────────────────────────────────────────────────
+app.get('/api/areas', verificarToken(), async (req, res) => {
+    try {
+        const [areas] = await db.query('SELECT * FROM laboratorio_areas ORDER BY nombre ASC');
+        res.json(areas);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/areas', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { nombre, descripcion } = req.body;
+        if (!nombre) return res.status(400).json({ error: 'Nombre del área requerido' });
+        const [r] = await db.query('INSERT INTO laboratorio_areas (nombre, descripcion) VALUES (?, ?)', [nombre.trim(), descripcion || '']);
+        res.json({ success: true, id: r.insertId });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/areas/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { nombre, descripcion, activa } = req.body;
+        await db.query('UPDATE laboratorio_areas SET nombre = ?, descripcion = ?, activa = ? WHERE id = ?', [nombre, descripcion || '', activa !== undefined ? activa : 1, req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/areas/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        await db.query('DELETE FROM laboratorio_areas WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Metrólogos de un área específica
+app.get('/api/areas/:area/metrologos', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            "SELECT id, nombre, email, rol FROM usuarios WHERE area = ? AND activo = 1 AND rol IN ('metrologo','operador') ORDER BY nombre ASC",
+            [req.params.area]
+        );
+        res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -364,6 +455,14 @@ app.put('/api/instrumentos/:id/estatus', verificarToken(), async (req, res) => {
     try {
         const { estatus, comentario } = req.body;
         const id = req.params.id;
+        const { rol } = req.usuario;
+
+        // Solo aseguramiento y admin pueden cambiar estatus
+        const rolesPermitidos = ['admin', 'aseguramiento', 'validacion'];
+        if (!rolesPermitidos.includes(rol)) {
+            return res.status(403).json({ error: 'No tienes permisos para cambiar el estatus de los equipos. Solo Aseguramiento puede hacerlo.' });
+        }
+
         const [oldest] = await db.query('SELECT estatus_actual FROM instrumentos_estatus WHERE id = ?', [id]);
         const oldStatus = oldest[0]?.estatus_actual;
 
@@ -393,6 +492,11 @@ app.put('/api/instrumentos/:id/estatus', verificarToken(), async (req, res) => {
 
 // NUEVO: BULK UPDATE ESTATUS
 app.post('/api/instrumentos/bulk-status', verificarToken(), async (req, res) => {
+    // Verificar permisos - solo aseguramiento y admin y metrología (hacia validación)
+    const { rol } = req.usuario;
+    if (!['admin', 'aseguramiento', 'validacion', 'metrologo', 'operador'].includes(rol)) {
+        return res.status(403).json({ error: 'No tienes permisos para esta acción.' });
+    }
     try {
         const { ids, estatus, comentario } = req.body;
         if (!ids || ids.length === 0) return res.status(400).json({ error: "No hay IDs" });
@@ -474,13 +578,7 @@ app.put('/api/instrumentos/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/instrumentos/:id/estatus', async (req, res) => {
-    try {
-        const { estatus } = req.body;
-        await db.query('UPDATE instrumentos_estatus SET estatus_actual=? WHERE id=?', [estatus, req.params.id]);
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
+// Endpoint interno (sin token) eliminado - usar el verificado de arriba
 
 app.delete('/api/instrumentos/:id', async (req, res) => {
     try {
@@ -1261,20 +1359,22 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
         const rol = req.usuario?.rol || 'recepcionista';
         const esAdmin = rol === 'admin';
 
-        // 1. Equipos con SLA crítico (0 o negativo = vencido, 1 = urgente)
-        if (esAdmin || ['operador', 'metrolog', 'laboratorio'].some(r => rol.includes(r))) {
+        // 1. Equipos con SLA crítico (usa días naturales: DATEDIFF desde fecha_ingreso)
+        if (esAdmin || ['operador', 'metrolog', 'laboratorio', 'metrologo', 'aseguramiento'].some(r => rol.includes(r))) {
             const [vencidos] = await db.query(
-                `SELECT id, nombre_instrumento, orden_cotizacion, empresa, sla, estatus_actual
+                `SELECT id, nombre_instrumento, orden_cotizacion, empresa, sla, fecha_ingreso, estatus_actual,
+                        (sla - DATEDIFF(NOW(), fecha_ingreso)) as sla_restante
                  FROM instrumentos_estatus
-                 WHERE sla <= 1 AND estatus_actual NOT IN ('Listo','Entregado','Validación','Aseguramiento')
-                 ORDER BY sla ASC LIMIT 10`
+                 WHERE (sla - DATEDIFF(NOW(), fecha_ingreso)) <= 2
+                   AND estatus_actual NOT IN ('Listo','Entregado')
+                 ORDER BY sla_restante ASC LIMIT 10`
             );
             vencidos.forEach(e => {
-                const vencido = e.sla <= 0;
+                const vencido = e.sla_restante <= 0;
                 notifs.push({
                     tipo: 'sla',
                     id: `sla_${e.id}`,
-                    titulo: vencido ? `⏰ SLA vencido: ${e.nombre_instrumento}` : `⚠️ SLA crítico: ${e.nombre_instrumento}`,
+                    titulo: vencido ? `⏰ SLA VENCIDO: ${e.nombre_instrumento}` : `⚠️ SLA crítico (${e.sla_restante}d): ${e.nombre_instrumento}`,
                     detalle: `OC ${e.orden_cotizacion || '—'} · ${e.empresa || '—'} · Etapa: ${e.estatus_actual}`,
                     ruta: '/equipos',
                     urgencia: vencido ? 'alta' : 'media',
@@ -1365,7 +1465,7 @@ app.post('/api/auth/login', async (req, res) => {
         const token = generarToken(usuario);
         res.json({
             token,
-            usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol, permisos: usuario.permisos }
+            usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol, area: usuario.area || null, permisos: usuario.permisos }
         });
     } catch (err) {
         console.error('Error en login:', err.message);
@@ -1375,7 +1475,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', verificarToken(), async (req, res) => {
     try {
-        const [rows] = await db.query('SELECT id, nombre, email, rol, permisos FROM usuarios WHERE id = ?', [req.usuario.id]);
+        const [rows] = await db.query('SELECT id, nombre, email, rol, area, permisos FROM usuarios WHERE id = ?', [req.usuario.id]);
         if (rows.length === 0) return res.status(401).json({ error: 'Usuario no encontrado' });
         res.json({ usuario: rows[0] });
     } catch (err) {
@@ -1386,20 +1486,20 @@ app.get('/api/auth/me', verificarToken(), async (req, res) => {
 // Gestión de usuarios (solo admin)
 app.get('/api/usuarios', verificarToken(['admin']), async (req, res) => {
     try {
-        const [rows] = await db.query('SELECT id, nombre, email, rol, activo, permisos, created_at FROM usuarios ORDER BY created_at DESC');
+        const [rows] = await db.query('SELECT id, nombre, email, rol, area, activo, permisos, created_at FROM usuarios ORDER BY created_at DESC');
         res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/usuarios', verificarToken(['admin']), async (req, res) => {
     try {
-        const { nombre, email, password, rol, permisos } = req.body;
+        const { nombre, email, password, rol, area, permisos } = req.body;
         if (!nombre || !email || !password) return res.status(400).json({ error: 'Faltan datos' });
         const bcrypt = require('bcryptjs');
         const hash = await bcrypt.hash(password, 12);
         const [r] = await db.query(
-            'INSERT INTO usuarios (nombre, email, password_hash, rol, permisos) VALUES (?, ?, ?, ?, ?)',
-            [nombre, email.toLowerCase(), hash, rol || 'recepcionista', permisos ? JSON.stringify(permisos) : null]
+            'INSERT INTO usuarios (nombre, email, password_hash, rol, area, permisos) VALUES (?, ?, ?, ?, ?, ?)',
+            [nombre, email.toLowerCase(), hash, rol || 'recepcionista', area || null, permisos ? JSON.stringify(permisos) : null]
         );
         res.json({ success: true, id: r.insertId });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1407,11 +1507,11 @@ app.post('/api/usuarios', verificarToken(['admin']), async (req, res) => {
 
 app.put('/api/usuarios/:id', verificarToken(['admin']), async (req, res) => {
     try {
-        const { nombre, email, password, rol, permisos } = req.body;
+        const { nombre, email, password, rol, area, permisos } = req.body;
         const id = req.params.id;
 
-        let query = 'UPDATE usuarios SET nombre = ?, email = ?, rol = ?, permisos = ?';
-        let params = [nombre, email.toLowerCase(), rol, permisos ? JSON.stringify(permisos) : null];
+        let query = 'UPDATE usuarios SET nombre = ?, email = ?, rol = ?, area = ?, permisos = ?';
+        let params = [nombre, email.toLowerCase(), rol, area || null, permisos ? JSON.stringify(permisos) : null];
 
         if (password && password.trim() !== "") {
             const bcrypt = require('bcryptjs');

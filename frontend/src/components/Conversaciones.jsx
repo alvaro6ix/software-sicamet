@@ -331,62 +331,83 @@ const Conversaciones = ({ darkMode }) => {
                         {/* Contenedor de Mensajes */}
                         <div 
                             ref={chatContainerRef}
-                            className={`flex-1 overflow-y-auto p-4 md:p-6 space-y-4 custom-scrollbar ${darkMode ? 'bg-[#141f0b]' : 'bg-[#e5ddd5]/20'}`}
+                            className={`flex-1 overflow-y-auto p-4 md:p-6 flex flex-col space-y-1 relative custom-scrollbar ${darkMode ? 'bg-[#0b141a]' : 'bg-[#efeae2]'}`}
                         >
-                            {loading && <div className="text-center p-4 text-xs opacity-50 italic">Cargando historial operativo...</div>}
-                            {mensajes.map((msg, i) => (
-                                <div key={i} className={`flex ${msg.direccion === 'saliente' ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[85%] md:max-w-[70%] p-3 rounded-2xl shadow-sm text-sm group relative ${
-                                        msg.direccion === 'saliente'
-                                            ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white shadow-emerald-500/10') + ' rounded-tr-none'
-                                            : (darkMode ? 'bg-[#253916] text-[#F2F6F0]' : 'bg-white text-slate-800') + ' rounded-tl-none'
-                                    }`}>
-                                        {/* Renderizado de Media */}
-                                        {msg.tipo === 'imagen' && msg.url_media && (
-                                            <div className="mb-2 rounded-lg overflow-hidden border border-black/10">
-                                                <img src={`${API}${msg.url_media}`} alt="WhatsApp" className="max-w-full h-auto cursor-zoom-in" onClick={() => window.open(`${API}${msg.url_media}`)} />
-                                            </div>
-                                        )}
-                                        {msg.tipo === 'archivo' && msg.url_media && (
-                                            <a 
-                                                href={`${API}${msg.url_media}`} 
-                                                target="_blank" 
-                                                rel="noreferrer"
-                                                className={`flex items-center gap-3 p-3 rounded-xl mb-2 transition-colors ${msg.direccion === 'saliente' ? 'bg-black/10 hover:bg-black/20' : 'bg-emerald-500/10 hover:bg-emerald-500/20'}`}
+                            <div className="absolute inset-0 opacity-[0.06] dark:opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'url("https://w7.pngwing.com/pngs/365/157/png-transparent-whatsapp-logo-whatsapp-pattern-texture-pattern-thumbnail.png")', backgroundSize: '300px', backgroundRepeat: 'repeat' }}></div>
+                            
+                            <div className="relative z-10 flex flex-col w-full pb-4">
+                                {loading && <div className="text-center p-4 text-xs opacity-50 italic w-full">Cargando historial operativo...</div>}
+                                {mensajes.map((msg, i, arr) => {
+                                    const soyYo = msg.direccion === 'saliente';
+                                    const prevMsg = arr[i - 1];
+                                    const nextMsg = arr[i + 1];
+                                    const sameUserPrev = prevMsg && (prevMsg.direccion === 'saliente') === soyYo;
+                                    const sameUserNext = nextMsg && (nextMsg.direccion === 'saliente') === soyYo;
+                                    
+                                    const msgBg = soyYo 
+                                        ? (darkMode ? 'bg-[#005c4b] text-[#e9edef]' : 'bg-[#d9fdd3] text-[#111b21]') 
+                                        : (darkMode ? 'bg-[#202c33] text-[#e9edef]' : 'bg-white text-[#111b21]');
+
+                                    return (
+                                        <div key={i} className={`flex flex-col w-full group relative ${soyYo ? 'items-end' : 'items-start'} ${sameUserNext ? 'mb-[2px]' : 'mb-3'}`}>
+                                            <div className={`relative max-w-[85%] sm:max-w-[75%] px-3 py-2 shadow-[0_1px_0.5px_rgba(0,0,0,0.13)] ${msgBg}`}
+                                                 style={{
+                                                    borderTopLeftRadius: !soyYo && !sameUserPrev ? '0' : '8px',
+                                                    borderTopRightRadius: soyYo && !sameUserPrev ? '0' : '8px',
+                                                    borderBottomLeftRadius: '8px',
+                                                    borderBottomRightRadius: '8px'
+                                                 }}
                                             >
-                                                <div className="p-2 bg-indigo-500 rounded-lg text-white shadow-sm"><FileText size={20}/></div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-xs font-bold truncate">{msg.cuerpo}</p>
-                                                    <p className="text-[9px] opacity-70 italic font-mono uppercase tracking-tighter">Archivo Adjunto</p>
+                                                {/* Renderizado de Media */}
+                                                {msg.tipo === 'imagen' && msg.url_media && (
+                                                    <div className="mb-2 rounded-lg overflow-hidden border border-black/10">
+                                                        <img src={`${API}${msg.url_media}`} alt="WhatsApp" className="max-w-full max-h-[300px] object-cover cursor-zoom-in" onClick={() => window.open(`${API}${msg.url_media}`)} />
+                                                    </div>
+                                                )}
+                                                {msg.tipo === 'archivo' && msg.url_media && (
+                                                    <a 
+                                                        href={`${API}${msg.url_media}`} 
+                                                        target="_blank" 
+                                                        rel="noreferrer"
+                                                        className={`flex items-center gap-3 p-3 rounded-xl mb-2 transition-colors ${msg.direccion === 'saliente' ? 'bg-black/10 hover:bg-black/20' : 'bg-black/5 hover:bg-black/10'}`}
+                                                    >
+                                                        <div className="p-2 bg-[#00a884] rounded-lg text-white shadow-sm"><FileText size={20}/></div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-xs font-bold truncate">{msg.cuerpo || 'Documento'}</p>
+                                                            <p className="text-[9px] opacity-70 italic font-mono uppercase tracking-tighter">Archivo Adjunto</p>
+                                                        </div>
+                                                        <Download size={14} className="shrink-0" />
+                                                    </a>
+                                                )}
+
+                                                <p className="text-[14.2px] leading-[19px] whitespace-pre-wrap word-break">
+                                                    {msg.tipo === 'texto' ? msg.cuerpo : (msg.tipo === 'imagen' && !msg.cuerpo.includes('Imagen/Archivo') ? msg.cuerpo : '')}
+                                                </p>
+                                                
+                                                <div className={`float-right ml-3 mt-1 flex items-center justify-end gap-1 font-medium`}>
+                                                    <span className={`text-[10.5px] ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>
+                                                        {new Date(msg.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                    {soyYo && <CheckCircle size={14} className={darkMode ? "text-[#53bdeb]" : "text-[#53bdeb]"} />}
                                                 </div>
-                                                <Download size={14} className="shrink-0" />
-                                            </a>
-                                        )}
 
-                                        <p className="whitespace-pre-wrap leading-relaxed">
-                                            {msg.tipo === 'texto' ? msg.cuerpo : (msg.tipo === 'imagen' && !msg.cuerpo.includes('Imagen/Archivo') ? msg.cuerpo : '')}
-                                        </p>
-                                        
-                                        <div className={`text-[9px] mt-1 flex items-center justify-end gap-1 opacity-60 font-black uppercase tracking-widest ${msg.direccion === 'saliente' ? 'text-black/60' : 'text-emerald-500'}`}>
-                                            {new Date(msg.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            {msg.direccion === 'saliente' && <CheckCircle size={10} />}
+                                                {/* Botón Flotante de Reenvío (Aparece en Hover) */}
+                                                <button 
+                                                    onClick={() => handleReenviar(msg)}
+                                                    title="Reenviar mensaje"
+                                                    className={`absolute top-1 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full shadow-lg border z-10 ${
+                                                        msg.direccion === 'saliente' 
+                                                            ? `-left-10 ${darkMode ? 'bg-[#202c33] border-[#2a3942] text-[#8696a0]' : 'bg-white border-slate-200 text-slate-500'}` 
+                                                            : `-right-10 ${darkMode ? 'bg-[#202c33] border-[#2a3942] text-[#8696a0]' : 'bg-white border-slate-200 text-slate-500'}`
+                                                    }`}
+                                                >
+                                                    <RefreshCcw size={14} />
+                                                </button>
+                                            </div>
                                         </div>
-
-                                        {/* Botón Flotante de Reenvío (Aparece en Hover) */}
-                                        <button 
-                                            onClick={() => handleReenviar(msg)}
-                                            title="Reenviar mensaje"
-                                            className={`absolute top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full shadow-lg border z-10 ${
-                                                msg.direccion === 'saliente' 
-                                                    ? `-left-10 ${darkMode ? 'bg-[#253916] border-[#C9EA63]/30 text-[#C9EA63]' : 'bg-white border-slate-200 text-slate-500'}` 
-                                                    : `-right-10 ${darkMode ? 'bg-[#C9EA63] border-none text-[#141f0b]' : 'bg-emerald-600 border-none text-white'}`
-                                            }`}
-                                        >
-                                            <RefreshCcw size={14} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
+                                    );
+                                })}
+                            </div>
                         </div>
 
                         {/* Barra de Atajos y Bot Control */}

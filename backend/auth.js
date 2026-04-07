@@ -12,7 +12,7 @@ const JWT_EXPIRES = '8h'; // Duración de un turno laboral
  */
 function generarToken(usuario) {
     return jwt.sign(
-        { id: usuario.id, email: usuario.email, rol: usuario.rol, nombre: usuario.nombre },
+        { id: usuario.id, email: usuario.email, rol: usuario.rol, nombre: usuario.nombre, area: usuario.area || null },
         JWT_SECRET,
         { expiresIn: JWT_EXPIRES }
     );

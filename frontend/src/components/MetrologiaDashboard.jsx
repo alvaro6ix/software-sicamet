@@ -53,13 +53,8 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
         return () => window.removeEventListener('crm:refresh', fetchData);
     }, []);
 
-    // Derived State
-    const equipos = tabActual === 'Laboratorio'
-        ? equiposGlobales.filter(e => e.estatus_actual === 'Laboratorio')
-        : equiposGlobales.filter(e => ['Validación', 'Certificación', 'Entregado'].includes(e.estatus_actual));
-
     // Calcular Prioridades
-    const equiposConSLA = equipos.map(e => {
+    const equiposConSLA = equiposGlobales.map(e => {
         const dIngreso = new Date(e.fecha_ingreso);
         const hoy = new Date();
         const diasPasados = Math.floor((hoy - dIngreso) / (1000 * 60 * 60 * 24));
@@ -72,7 +67,19 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
         return { ...e, slaRestante, prioridad, diasPasados };
     });
 
-    const filtrados = equiposConSLA.filter(e => 
+    // Derived State
+    let equiposFiltroTab = [];
+    if (tabActual === 'Laboratorio') {
+        equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Laboratorio');
+    } else if (tabActual === 'Historial') {
+        equiposFiltroTab = equiposConSLA.filter(e => ['Validación', 'Aseguramiento', 'Certificación', 'Listo'].includes(e.estatus_actual));
+    } else if (tabActual === 'Entregados') {
+        equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Entregado');
+    } else if (tabActual === 'Vencidos') {
+        equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Laboratorio' && e.slaRestante <= 0);
+    }
+
+    const filtrados = equiposFiltroTab.filter(e => 
         (e.orden_cotizacion || '').toLowerCase().includes(busqueda.toLowerCase()) ||
         (e.empresa || '').toLowerCase().includes(busqueda.toLowerCase()) ||
         (e.nombre_instrumento || '').toLowerCase().includes(busqueda.toLowerCase())
@@ -85,11 +92,12 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
         gruposOC[e.orden_cotizacion].push(e);
     });
 
-    // KPIs
-    const countTotal = filtrados.length;
-    const countRojo = filtrados.filter(e => e.prioridad === 'Rojo').length;
-    const countAmarillo = filtrados.filter(e => e.prioridad === 'Amarillo').length;
-    const countVerde = filtrados.filter(e => e.prioridad === 'Verde').length;
+    // KPIs (Siempre calculados sobre los de Laboratorio independientemente de la pestaña)
+    const enLaboratorioKPIs = equiposConSLA.filter(e => e.estatus_actual === 'Laboratorio');
+    const countTotal = enLaboratorioKPIs.length;
+    const countRojo = enLaboratorioKPIs.filter(e => e.prioridad === 'Rojo').length;
+    const countAmarillo = enLaboratorioKPIs.filter(e => e.prioridad === 'Amarillo').length;
+    const countVerde = enLaboratorioKPIs.filter(e => e.prioridad === 'Verde').length;
 
     // Lógica Magica (Selección)
     const toggleSeleccion = (id) => {
@@ -116,12 +124,12 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
 
     const prepararEnvio = () => {
         // Verificar integridad
-        const alertas = [];
-        const ocsAfectadas = [...new Set(equipos.filter(e => seleccionados.includes(e.id)).map(e => e.orden_cotizacion))];
+        const ocsAfectadas = [...new Set(equiposConSLA.filter(e => seleccionados.includes(e.id)).map(e => e.orden_cotizacion))];
+        let alertasLocales = [];
         
         for (const oc of ocsAfectadas) {
             const totalesDoc = equiposGlobales.filter(e => e.orden_cotizacion === oc);
-            const mandadosDoc = equipos.filter(e => e.orden_cotizacion === oc && seleccionados.includes(e.id));
+            const mandadosDoc = equiposConSLA.filter(e => e.orden_cotizacion === oc && seleccionados.includes(e.id));
             if (mandadosDoc.length < totalesDoc.length) {
                 const estatusList = totalesDoc.map(e => e.estatus_actual);
                 const enRec = estatusList.filter(s => s === 'Recepción').length;
@@ -134,11 +142,11 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                 if (enLabNoSel) d.push(`${enLabNoSel} sin marcar en Lab`);
                 const rest = d.length > 0 ? ` Faltan: ${d.join(', ')}.` : '';
                 
-                alertas.push(`OC ${oc}: Estás enviando ${mandadosDoc.length} de ${totalesDoc.length} equipos totales.${rest}`);
+                alertasLocales.push(`OC ${oc}: Estás enviando ${mandadosDoc.length} de ${totalesDoc.length} equipos totales.${rest}`);
             }
         }
 
-        setAlertasConf(alertas);
+        setAlertasConf(alertasLocales);
         setModalConf(true);
     };
 
@@ -227,18 +235,30 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                 </div>
             
             {/* Tabs */}
-            <div className={`flex items-center gap-2 mb-4 border-b ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'}`}>
+            <div className={`flex items-center gap-2 mb-4 border-b overflow-x-auto custom-scrollbar ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'}`}>
                 <button 
                     onClick={() => setTabActual('Laboratorio')}
-                    className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors ${tabActual === 'Laboratorio' ? (darkMode ? 'border-[#C9EA63] text-[#C9EA63]' : 'border-emerald-600 text-emerald-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
+                    className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Laboratorio' ? (darkMode ? 'border-[#C9EA63] text-[#C9EA63]' : 'border-emerald-600 text-emerald-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
                 >
                     En Laboratorio
                 </button>
                 <button 
-                    onClick={() => setTabActual('Historial')}
-                    className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors ${tabActual === 'Historial' ? (darkMode ? 'border-emerald-500 text-emerald-400' : 'border-emerald-600 text-emerald-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
+                    onClick={() => setTabActual('Vencidos')}
+                    className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Vencidos' ? 'border-rose-500 text-rose-500' : 'border-transparent opacity-50 hover:opacity-100 hover:text-rose-500'}`}
                 >
-                    Historial (Enviados)
+                    SLA Vencido
+                </button>
+                <button 
+                    onClick={() => setTabActual('Historial')}
+                    className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Historial' ? (darkMode ? 'border-amber-500 text-amber-500' : 'border-amber-600 text-amber-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
+                >
+                    En Aseguramiento/Listo
+                </button>
+                <button 
+                    onClick={() => setTabActual('Entregados')}
+                    className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Entregados' ? (darkMode ? 'border-blue-500 text-blue-400' : 'border-blue-600 text-blue-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
+                >
+                    Entregados
                 </button>
             </div>
 
@@ -301,32 +321,40 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                             if (eq.prioridad === 'Amarillo') { badgeColor = 'bg-amber-500 text-white'; colorPrioridad = darkMode ? 'border-amber-900 bg-amber-950/20' : 'border-amber-200 bg-amber-50'; }
                                             
                                             return (
-                                                <div key={eq.id} className={`flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border transition-all ${colorPrioridad} ${sel ? (darkMode ? 'ring-2 ring-emerald-500/50' : 'ring-2 ring-emerald-500') : ''}`}>
-                                                    <div className="flex items-start sm:items-center gap-3">
+                                                <div 
+                                                    key={eq.id} 
+                                                    onClick={() => abrirDetalles(eq)}
+                                                    className={`flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${colorPrioridad} ${sel ? (darkMode ? 'ring-2 ring-emerald-500/50 bg-[#1b2b10]' : 'ring-2 ring-emerald-500 bg-emerald-50') : (darkMode ? 'hover:bg-[#1b2b10]/60' : 'hover:bg-white')}`}
+                                                >
+                                                    <div className="flex items-start sm:items-center gap-3 w-full sm:w-auto">
                                                         {tabActual === 'Laboratorio' && (
-                                                            <button onClick={() => toggleSeleccion(eq.id)} className={`mt-1 sm:mt-0 p-1 rounded transition-colors ${sel ? 'text-emerald-500' : 'text-gray-400'}`}>
-                                                                {sel ? <CheckSquare size={18} /> : <Square size={18} />}
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); toggleSeleccion(eq.id); }} 
+                                                                className={`mt-1 sm:mt-0 p-2 -ml-2 rounded transition-colors ${sel ? 'text-emerald-500' : 'text-gray-400 hover:text-emerald-400'}`}
+                                                            >
+                                                                {sel ? <CheckSquare size={20} /> : <Square size={20} />}
                                                             </button>
                                                         )}
-                                                        <div className={`flex flex-col max-w-[200px] md:max-w-md transition-colors`}>
+                                                        <div className={`flex flex-col flex-1 sm:max-w-md transition-colors ${tabActual !== 'Laboratorio' ? 'ml-2' : ''}`}>
                                                             <span className={`font-bold text-sm truncate flex items-center gap-2`} title={eq.nombre_instrumento}>
                                                                 {eq.nombre_instrumento}
-                                                                <button onClick={() => abrirDetalles(eq)} className={`p-1 rounded opacity-50 hover:opacity-100 transition-colors ${darkMode ? 'hover:text-[#C9EA63] text-emerald-500' : 'hover:text-emerald-600 text-emerald-500'}`} title="Ver Detalles">
-                                                                    <Eye size={16} />
-                                                                </button>
                                                             </span>
                                                             <span className="text-[10px] opacity-60 font-mono">ID: {eq.identificacion || eq.no_serie || 'S/N'}</span>
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center gap-4 mt-3 sm:mt-0 ml-7 sm:ml-0">
+                                                    <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4 mt-3 sm:mt-0 ml-1 sm:ml-0 pl-7 sm:pl-0">
                                                         <div className="flex items-center gap-1.5 text-xs font-medium">
                                                             <Clock size={14} className="opacity-40" />
-                                                            <span title={`Fecha de ingreso: ${eq.fecha_ingreso}`}>SLA: </span>
-                                                            <span className={`px-1.5 py-0.5 rounded font-black ${badgeColor || (darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-slate-200 text-slate-700')}`}>
-                                                                {eq.slaRestante} días rest.
+                                                            <span title={`SLA Total: ${eq.sla} días`}>Restante: </span>
+                                                            <span className={`px-2 py-0.5 rounded font-black ${badgeColor || (darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-slate-200 text-slate-700')}`}>
+                                                                {eq.slaRestante} d
                                                             </span>
                                                         </div>
-                                                        <button onClick={() => abrirComentarios(eq.id)} className={`p-1.5 rounded-lg border transition-colors relative ${darkMode ? 'border-[#C9EA63]/30 hover:bg-[#C9EA63]/10 text-[#C9EA63]' : 'border-slate-300 hover:bg-slate-100 text-slate-700'}`} title="Ver observaciones y trazabilidad">
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); abrirComentarios(eq.id); }} 
+                                                            className={`p-2 rounded-lg border transition-all relative ${darkMode ? 'border-[#C9EA63]/30 hover:bg-[#C9EA63] hover:text-[#141f0b] text-[#C9EA63]' : 'border-slate-300 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 text-slate-700'} ${eq.comentarios_count > 0 ? 'ring-2 ring-emerald-500/50' : ''}`} 
+                                                            title="Bitácora y chat"
+                                                        >
                                                             <MessageSquare size={16} />
                                                         </button>
                                                     </div>
@@ -400,71 +428,126 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
             {comentariosActivos && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-end">
                     <div className={`w-full md:w-[400px] h-full shadow-2xl flex flex-col border-l animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
-                        <div className={`p-4 border-b flex justify-between items-center ${darkMode ? 'bg-[#253916] border-[#C9EA63]/20' : 'bg-slate-50 border-slate-200'}`}>
-                            <div>
-                                <h3 className={`font-black ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>Bitácora Técnica</h3>
-                                <p className="text-[10px] uppercase font-bold opacity-50">Equipo ID: {comentariosActivos}</p>
+                        <div className={`p-4 border-b flex justify-between items-center z-10 shadow-sm ${darkMode ? 'bg-[#202c33] border-slate-700' : 'bg-[#f0f2f5] border-slate-200'}`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${darkMode ? 'bg-[#111b21] text-[#00a884]' : 'bg-[#dfe5e7] text-[#00a884]'}`}>
+                                    <Package size={20} />
+                                </div>
+                                <div className="flex flex-col">
+                                    <h3 className={`font-bold text-sm leading-tight ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>Bitácora del Equipo</h3>
+                                    <span className={`text-[11px] ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>ID: {comentariosActivos}</span>
+                                </div>
                             </div>
-                            <button onClick={() => setComentariosActivos(null)} className="p-2 rounded-xl transition-colors hover:bg-rose-500/10 text-rose-500">
+                            <button onClick={() => setComentariosActivos(null)} className={`p-2 rounded-full transition-colors ${darkMode ? 'hover:bg-[#111b21] text-[#8696a0]' : 'hover:bg-[#dfe5e7] text-[#54656f]'}`}>
                                 <X size={20} />
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4 flex flex-col-reverse space-y-4 space-y-reverse custom-scrollbar">
-                            {listaComentarios.length === 0 ? (
-                                <p className="text-center opacity-40 text-xs my-10">Ninguna observación registrada aún.</p>
-                            ) : (
-                                listaComentarios.map(c => {
-                                    const soyYo = c.usuario_id === usuario?.id;
-                                    return (
-                                    <div key={c.id} className={`flex flex-col ${soyYo ? 'items-end' : 'items-start'}`}>
-                                        <div className={`p-3 max-w-[85%] text-sm shadow-sm ${soyYo ? (darkMode ? 'bg-[#253916] border border-emerald-900 rounded-2xl rounded-br-none' : 'bg-emerald-100 border border-emerald-200 rounded-2xl rounded-br-none') : (darkMode ? 'bg-[#1b2b10] border border-slate-700 rounded-2xl rounded-bl-none' : 'bg-white border border-slate-200 rounded-2xl rounded-bl-none')}`}>
-                                            <p className={`font-medium mb-1 ${darkMode ? 'text-white' : 'text-slate-800'}`}>{c.mensaje}</p>
-                                            
-                                            {c.archivo_url && (
-                                                c.archivo_url.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
-                                                    <a href={c.archivo_url} target="_blank" rel="noreferrer" className="block mt-2">
-                                                        <img src={c.archivo_url} alt="Evidencia" className="max-w-full rounded-lg border border-slate-200/20 max-h-48 object-cover" />
-                                                    </a>
-                                                ) : (
-                                                    <a href={c.archivo_url} target="_blank" rel="noreferrer" className={`flex items-center gap-2 p-2 mt-2 rounded-lg border text-xs font-bold w-fit transition-colors ${darkMode ? 'bg-[#253916] border-[#C9EA63]/30 hover:border-[#C9EA63] text-[#C9EA63]' : 'bg-white border-slate-300 hover:border-emerald-500 text-emerald-600'}`}>
-                                                        <FileText size={14}/> Ver adjunto
-                                                    </a>
-                                                )
-                                            )}
-                                            
-                                            <div className="flex justify-between items-center text-[10px] opacity-60 font-bold mt-1 pt-1 gap-4">
-                                                <span>{soyYo ? 'Tú' : c.usuario_nombre || 'Sistema'}</span>
-                                                <span>{new Date(c.fecha).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                                            </div>
+                        {/* WhatsApp pattern background overlay */}
+                        <div className={`flex-1 overflow-y-auto p-4 md:p-6 flex flex-col-reverse space-y-4 space-y-reverse custom-scrollbar relative ${darkMode ? 'bg-[#0b141a]' : 'bg-[#efeae2]'}`}>
+                            {/* SVG Pattern */}
+                            <div className="absolute inset-0 opacity-[0.06] dark:opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'url("https://w7.pngwing.com/pngs/365/157/png-transparent-whatsapp-logo-whatsapp-pattern-texture-pattern-thumbnail.png")', backgroundSize: '300px', backgroundRepeat: 'repeat' }}></div>
+                            
+                            <div className="relative z-10 flex flex-col w-full space-y-4">
+                                {listaComentarios.length === 0 ? (
+                                    <div className="flex justify-center my-6">
+                                        <div className={`px-4 py-2 rounded-lg text-xs shadow-sm ${darkMode ? 'bg-[#182229] text-[#8696a0]' : 'bg-[#ffeecd] text-[#54656f]'}`}>
+                                            El chat de este equipo está vacío.
                                         </div>
                                     </div>
-                                    );
-                                })
-                            )}
+                                ) : (
+                                    listaComentarios.slice().reverse().map((c, i, arr) => {
+                                        const soyYo = c.usuario_id === usuario?.id;
+                                        const nextMsg = arr[i + 1];
+                                        const sameUserNext = nextMsg && nextMsg.usuario_id === c.usuario_id;
+                                        const msgBg = soyYo 
+                                            ? (darkMode ? 'bg-[#005c4b] text-[#e9edef]' : 'bg-[#d9fdd3] text-[#111b21]') 
+                                            : (darkMode ? 'bg-[#202c33] text-[#e9edef]' : 'bg-white text-[#111b21]');
+
+                                        return (
+                                        <div key={c.id} className={`flex flex-col w-full ${soyYo ? 'items-end' : 'items-start'} ${sameUserNext ? 'mb-1' : 'mb-3'}`}>
+                                            <div className={`relative max-w-[85%] sm:max-w-[75%] px-3 py-2 shadow-[0_1px_0.5px_rgba(0,0,0,0.13)] ${msgBg}`}
+                                                 style={{
+                                                    borderTopLeftRadius: !soyYo && !sameUserNext ? '0' : '8px',
+                                                    borderTopRightRadius: soyYo && !sameUserNext ? '0' : '8px',
+                                                    borderBottomLeftRadius: '8px',
+                                                    borderBottomRightRadius: '8px'
+                                                 }}
+                                            >
+                                                {!soyYo && !sameUserNext && (
+                                                    <span className={`text-[11px] font-bold block mb-1 ${darkMode ? 'text-[#53bdeb]' : 'text-[#1fa855]'}`}>
+                                                        {c.usuario_nombre || 'Sistema'}
+                                                    </span>
+                                                )}
+
+                                                <p className="text-[13px] leading-relaxed whitespace-pre-wrap word-break">{c.mensaje}</p>
+                                                
+                                                {c.archivo_url && (
+                                                    <div className="mt-2 mb-1">
+                                                        {c.archivo_url.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
+                                                            <a href={c.archivo_url} target="_blank" rel="noreferrer" className="block cursor-zoom-in">
+                                                                <img src={c.archivo_url} alt="Evidencia" className="rounded-lg max-w-full max-h-[250px] object-cover" />
+                                                            </a>
+                                                        ) : (
+                                                            <a href={c.archivo_url} target="_blank" rel="noreferrer" className={`flex items-center gap-3 p-3 rounded border text-xs font-bold transition-colors ${darkMode ? 'bg-[#182229] border-[#2a3942] text-[#8696a0] hover:bg-[#202c33]' : 'bg-[#f0f2f5] border-[#d1d7db] text-[#54656f] hover:bg-[#e9edef]'}`}>
+                                                                <FileText size={18}/> <span>Ver Documento Adjunto</span>
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                
+                                                <div className="float-right ml-3 mt-1 flex items-center justify-end gap-1">
+                                                    <span className={`text-[10px] ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>
+                                                        {new Date(c.fecha).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                    </span>
+                                                    {soyYo && <CheckCircle size={13} className={darkMode ? "text-[#53bdeb]" : "text-[#53bdeb]"} />}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        );
+                                    })
+                                )}
+                            </div>
                         </div>
 
-                        <form onSubmit={enviarComentario} className={`p-4 border-t flex flex-col gap-2 ${darkMode ? 'bg-[#253916] border-[#C9EA63]/20' : 'bg-slate-50 border-slate-200'}`}>
-                            {archivoChat && (
-                                <div className={`flex items-center justify-between p-2 rounded-lg text-xs font-bold border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/30 text-[#C9EA63]' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
-                                    <span className="truncate">{archivoChat.name}</span>
-                                    <button type="button" onClick={() => setArchivoChat(null)}><X size={14}/></button>
+                        <form onSubmit={enviarComentario} className={`p-3 md:p-4 z-10 flex items-end gap-2 shadow-[0_-1px_3px_rgba(0,0,0,0.05)] ${darkMode ? 'bg-[#202c33]' : 'bg-[#f0f2f5]'}`}>
+                            <div className="flex-1 flex flex-col gap-2 relative">
+                                {archivoChat && (
+                                    <div className={`absolute bottom-full mb-3 left-0 right-0 p-3 rounded-lg flex justify-between items-center shadow-lg ${darkMode ? 'bg-[#2a3942] text-[#e9edef]' : 'bg-white text-[#111b21]'}`}>
+                                        <div className="flex items-center gap-2 truncate text-sm font-medium">
+                                            <Paperclip size={16} className={darkMode ? 'text-[#8696a0]' : 'text-[#8696a0]'} />
+                                            {archivoChat.name}
+                                        </div>
+                                        <button type="button" onClick={() => setArchivoChat(null)} className={`p-1.5 rounded-full ${darkMode ? 'hover:bg-[#202c33]' : 'hover:bg-[#f0f2f5]'}`}><X size={16}/></button>
+                                    </div>
+                                )}
+                                
+                                <div className={`flex items-end rounded-2xl md:rounded-full px-2 min-h-[44px] ${darkMode ? 'bg-[#2a3942]' : 'bg-white'}`}>
+                                    <label className={`p-3 shrink-0 cursor-pointer rounded-full transition-colors ${darkMode ? 'text-[#8696a0] hover:text-[#e9edef]' : 'text-[#54656f] hover:text-[#111b21]'}`}>
+                                        <Paperclip size={20} />
+                                        <input type="file" className="hidden" onChange={e => { e.target.files[0] && setArchivoChat(e.target.files[0]); e.target.value = null; }} />
+                                    </label>
+                                    <textarea 
+                                        value={nuevoComentario} onChange={e => setNuevoComentario(e.target.value)} required
+                                        placeholder="Escribe un mensaje"
+                                        className={`flex-1 py-3 px-1 text-[15px] bg-transparent outline-none resize-none max-h-[120px] custom-scrollbar leading-tight placeholder:opacity-70 ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}
+                                        rows="1"
+                                        onInput={(e) => {
+                                            e.target.style.height = 'auto';
+                                            e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                if (nuevoComentario.trim()) enviarComentario(e);
+                                            }
+                                        }}
+                                    />
                                 </div>
-                            )}
-                            <textarea 
-                                value={nuevoComentario} onChange={e => setNuevoComentario(e.target.value)} required
-                                placeholder="Escribe un comentario técnico..."
-                                className={`w-full p-3 rounded-xl border text-sm max-h-32 min-h-[60px] outline-none transition-all ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/30 text-white focus:border-[#C9EA63]' : 'bg-white border-slate-300 text-slate-800 focus:border-emerald-500'}`}
-                            />
-                            <div className="flex gap-2">
-                                <label className={`flex items-center justify-center p-3 rounded-xl border cursor-pointer transition-colors ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/30 hover:border-[#C9EA63] text-[#F2F6F0]' : 'bg-white border-slate-300 hover:border-emerald-500 text-slate-600'}`}>
-                                    <Paperclip size={18} />
-                                    <input type="file" className="hidden" onChange={e => e.target.files[0] && setArchivoChat(e.target.files[0])} />
-                                </label>
-                                <button type="submit" className={`flex-1 p-3 rounded-xl font-black text-xs flex justify-center items-center gap-2 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white'}`}>
-                                    Enviar <MessageSquare size={14}/>
-                                </button>
                             </div>
+                            <button type="submit" disabled={!nuevoComentario.trim() && !archivoChat} className={`shrink-0 w-12 h-12 rounded-full flex justify-center items-center text-white transition-transform ${(!nuevoComentario.trim() && !archivoChat) ? 'opacity-50 scale-95 cursor-not-allowed' : 'hover:scale-105 active:scale-95'} ${darkMode ? 'bg-[#00a884]' : 'bg-[#00a884]'}`}>
+                                <MessageSquare size={20} className="ml-[-2px]" />
+                            </button>
                         </form>
                     </div>
                 </div>

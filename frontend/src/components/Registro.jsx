@@ -1,8 +1,7 @@
-// ... (rest of imports) ...
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import Select from 'react-select';
-import { Save, ClipboardList, Hash, FileUp, Loader2, Trash2, Building, User, Settings2, Database, Hand } from 'lucide-react';
+import { Save, ClipboardList, Hash, FileUp, Loader2, Trash2, Building, User, Settings2, Hand, FlaskConical, MapPin } from 'lucide-react';
 
 const opcionesSLA = [
   { value: 5, label: '🔴 Urgente (5 días)' },
@@ -26,11 +25,52 @@ const Registro = ({ darkMode }) => {
   const [cargandoExcel, setCargandoExcel] = useState(false);
   const [tipoCatalogo, setTipoCatalogo] = useState('instrumentos');
   
-  // TABS: 'manual' o 'pdf'
   const [modoRegistro, setModoRegistro] = useState('pdf');
 
   const [cabecera, setCabecera] = useState({ orden_cotizacion: '', empresa: '', persona: '', sla: opcionesSLA[2] });
   const [partidas, setPartidas] = useState([]);
+
+  // Área y Metrólogo asignado
+  const [areas, setAreas] = useState([]);
+  const [metrologos, setMetrologos] = useState([]);
+  const [areaSeleccionada, setAreaSeleccionada] = useState(null);
+  const [metrologoSeleccionado, setMetrologoSeleccionado] = useState(null);
+  const [cargandoMetrologos, setCargandoMetrologos] = useState(false);
+
+  // Cargar áreas al montar
+  useEffect(() => {
+    const cargarAreas = async () => {
+      try {
+        const res = await axios.get('/api/areas');
+        setAreas(res.data.filter(a => a.activa).map(a => ({ value: a.nombre, label: a.nombre })));
+      } catch (err) {
+        console.error('Error al cargar áreas:', err);
+      }
+    };
+    cargarAreas();
+  }, []);
+
+  // Cargar metrólogos cuando cambia el área
+  useEffect(() => {
+    if (!areaSeleccionada) {
+      setMetrologos([]);
+      setMetrologoSeleccionado(null);
+      return;
+    }
+    const cargarMetrologos = async () => {
+      setCargandoMetrologos(true);
+      try {
+        const res = await axios.get(`/api/areas/${encodeURIComponent(areaSeleccionada.value)}/metrologos`);
+        setMetrologos(res.data.map(m => ({ value: m.id, label: m.nombre })));
+        setMetrologoSeleccionado(null);
+      } catch (err) {
+        console.error('Error al cargar metrólogos:', err);
+      } finally {
+        setCargandoMetrologos(false);
+      }
+    };
+    cargarMetrologos();
+  }, [areaSeleccionada]);
 
   // --- CARGAR PDF ---
   const handleSubirPDF = async (event) => {
@@ -52,7 +92,7 @@ const Registro = ({ darkMode }) => {
       });
 
       setPartidas(pars);
-      alert(`✅ PDF procesado vía Inteligencia Artificial. Por favor verifica los datos y confirma.`);
+      alert(`✅ PDF procesado vía Inteligencia Artificial. Selecciona el Área y Metrólogo antes de guardar.`);
     } catch (err) { 
         alert("Error al procesar el documento. Puede que el PDF esté corrupto o ilegible."); 
         console.error(err);
@@ -103,22 +143,27 @@ const Registro = ({ darkMode }) => {
   const handleSubmitFinal = async (e) => {
     e.preventDefault();
     if (partidas.length === 0) return alert("No hay instrumentos para guardar.");
+    if (!areaSeleccionada) return alert("⚠️ Debes seleccionar el Área de Laboratorio antes de guardar.");
 
     const instrumentosAGuardar = partidas.map(p => ({
       ...p,
       orden_cotizacion: cabecera.orden_cotizacion,
       empresa: cabecera.empresa,
       persona: cabecera.persona,
-      sla: cabecera.sla.value
+      sla: cabecera.sla.value,
+      area_laboratorio: areaSeleccionada.value,
+      metrologo_asignado_id: metrologoSeleccionado?.value || null
     }));
 
     try {
       setCargandoPdf(true);
       await axios.post('/api/instrumentos-multiple', { instrumentos: instrumentosAGuardar });
-      alert(`✅ ¡Éxito! Se registraron ${partidas.length} equipos bajo la referencia ${cabecera.orden_cotizacion}.`);
+      alert(`✅ ¡Éxito! Se registraron ${partidas.length} equipos para el Área "${areaSeleccionada.label}"${metrologoSeleccionado ? `, asignados a ${metrologoSeleccionado.label}` : ''}.`);
       setCabecera({ orden_cotizacion: '', empresa: '', persona: '', sla: opcionesSLA[2] });
       setPartidas([]);
-    } catch (err) { alert("Error al guardar la orden."); }
+      setAreaSeleccionada(null);
+      setMetrologoSeleccionado(null);
+    } catch (err) { alert(err.response?.data?.error || "Error al guardar la orden."); }
     finally { setCargandoPdf(false); }
   };
 
@@ -130,25 +175,21 @@ const Registro = ({ darkMode }) => {
   const inputBg = darkMode ? 'bg-[#253916] border-[#C9EA63]/40 text-[#F2F6F0] focus:border-[#C9EA63]' : 'bg-white border-gray-300 text-slate-800 focus:border-emerald-500';
 
   const selectStyles = {
-    control: (base) => ({
+    control: (base, state) => ({
       ...base,
       backgroundColor: darkMode ? '#253916' : 'white',
-      borderColor: darkMode ? 'rgba(201, 234, 99, 0.4)' : '#d1d5db',
-      color: darkMode ? '#F2F6F0' : '#1e293b'
+      borderColor: state.isFocused ? '#C9EA63' : (darkMode ? 'rgba(201, 234, 99, 0.4)' : '#d1d5db'),
+      color: darkMode ? '#F2F6F0' : '#1e293b',
+      boxShadow: state.isFocused ? `0 0 0 1px ${darkMode ? '#C9EA63' : '#10b981'}` : 'none',
     }),
-    singleValue: (base) => ({
-      ...base,
-      color: darkMode ? '#F2F6F0' : '#1e293b'
-    }),
-    menu: (base) => ({
-      ...base,
-      backgroundColor: darkMode ? '#253916' : 'white',
-    }),
+    singleValue: (base) => ({ ...base, color: darkMode ? '#F2F6F0' : '#1e293b' }),
+    menu: (base) => ({ ...base, backgroundColor: darkMode ? '#253916' : 'white', zIndex: 50 }),
     option: (base, state) => ({
       ...base,
       backgroundColor: state.isFocused ? (darkMode ? '#314a1c' : '#f1f5f9') : 'transparent',
       color: darkMode ? '#F2F6F0' : '#1e293b'
-    })
+    }),
+    placeholder: (base) => ({ ...base, color: darkMode ? 'rgba(242,246,240,0.4)' : '#9ca3af' }),
   };
 
   return (
@@ -164,7 +205,7 @@ const Registro = ({ darkMode }) => {
               Ingreso de Instrumentos
             </h2>
             <p className={`mt-2 text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
-              Registra los equipos que entran a laboratorio. Usa el modo automático para PDFs.
+              Registra los equipos que entran a laboratorio. <strong>Debes asignar un Área antes de guardar.</strong>
             </p>
           </div>
 
@@ -213,6 +254,51 @@ const Registro = ({ darkMode }) => {
             <div className="md:col-span-1">
               <label className={`text-xs font-bold flex items-center gap-1.5 mb-1 ${labelText}`}><Settings2 size={14}/> SLA (Días)</label>
               <Select options={opcionesSLA} value={cabecera.sla} onChange={(s) => setCabecera({...cabecera, sla: s})} styles={selectStyles} className="text-sm" />
+            </div>
+          </div>
+
+          {/* ---- ASIGNACIÓN DE ÁREA Y METRÓLOGO ---- */}
+          <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 p-6 rounded-xl border mb-6 shadow-sm ${darkMode ? 'bg-[#1b2b10]/60 border-[#C9EA63]/30' : 'bg-emerald-50 border-emerald-200'}`}>
+            <div>
+              <label className={`text-xs font-bold flex items-center gap-1.5 mb-1.5 uppercase tracking-wide ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>
+                <MapPin size={14}/> Área de Laboratorio <span className="text-rose-500">*</span>
+              </label>
+              <Select
+                options={areas}
+                value={areaSeleccionada}
+                onChange={(a) => setAreaSeleccionada(a)}
+                placeholder="Selecciona el área..."
+                noOptionsMessage={() => "Sin áreas configuradas. Crea áreas en Gestión de Personal."}
+                styles={selectStyles}
+                className="text-sm"
+              />
+              {areas.length === 0 && (
+                <p className={`text-[10px] mt-1 italic ${darkMode ? 'text-yellow-400/70' : 'text-orange-500'}`}>
+                  ⚠️ No hay áreas creadas. Ve a Gestión de Personal → Áreas para crearlas.
+                </p>
+              )}
+            </div>
+            <div>
+              <label className={`text-xs font-bold flex items-center gap-1.5 mb-1.5 uppercase tracking-wide ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>
+                <FlaskConical size={14}/> Responsable (Metrólogo)
+                <span className={`text-[10px] font-normal ml-1 ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>(opcional)</span>
+              </label>
+              <Select
+                options={metrologos}
+                value={metrologoSeleccionado}
+                onChange={(m) => setMetrologoSeleccionado(m)}
+                placeholder={areaSeleccionada ? (cargandoMetrologos ? "Cargando..." : "Selecciona un metrólogo...") : "Primero selecciona un área"}
+                isDisabled={!areaSeleccionada || cargandoMetrologos}
+                noOptionsMessage={() => areaSeleccionada ? "Sin metrólogos en esta área" : "Selecciona un área primero"}
+                styles={selectStyles}
+                className="text-sm"
+                isClearable
+              />
+              {areaSeleccionada && metrologos.length === 0 && !cargandoMetrologos && (
+                <p className={`text-[10px] mt-1 italic ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>
+                  Sin metrólogos con rol 'metrologo' asignados a esta área.
+                </p>
+              )}
             </div>
           </div>
 
@@ -275,10 +361,22 @@ const Registro = ({ darkMode }) => {
           )}
 
           {partidas.length > 0 && (
-            <button type="submit" disabled={cargandoPdf} className={`w-full font-bold py-4 px-6 rounded-xl flex justify-center items-center gap-3 transition-all shadow-lg text-lg ${darkMode ? 'bg-[#65D067] hover:bg-[#52ad53] text-[#141f0b]' : 'bg-slate-800 hover:bg-slate-900 text-white'}`}>
-              {cargandoPdf ? <Loader2 className="animate-spin" /> : <Save size={22} />}
-              {`Confirmar y Guardar Registro (${partidas.length} equipos)`}
-            </button>
+            <div className="space-y-3">
+              {!areaSeleccionada && (
+                <div className={`flex items-center gap-3 p-3 rounded-xl border ${darkMode ? 'bg-rose-900/20 border-rose-500/30 text-rose-400' : 'bg-rose-50 border-rose-200 text-rose-600'}`}>
+                  <MapPin size={18} />
+                  <span className="text-sm font-bold">Selecciona el Área de Laboratorio antes de guardar</span>
+                </div>
+              )}
+              <button 
+                type="submit" 
+                disabled={cargandoPdf || !areaSeleccionada} 
+                className={`w-full font-bold py-4 px-6 rounded-xl flex justify-center items-center gap-3 transition-all shadow-lg text-lg disabled:opacity-50 disabled:cursor-not-allowed ${darkMode ? 'bg-[#65D067] hover:bg-[#52ad53] text-[#141f0b]' : 'bg-slate-800 hover:bg-slate-900 text-white'}`}
+              >
+                {cargandoPdf ? <Loader2 className="animate-spin" /> : <Save size={22} />}
+                {`Confirmar y Enviar a Laboratorio (${partidas.length} equipos)${areaSeleccionada ? ` → ${areaSeleccionada.label}` : ''}`}
+              </button>
+            </div>
           )}
         </form>
       </div>
