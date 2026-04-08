@@ -29,6 +29,7 @@ const GestionUsuarios = ({ darkMode }) => {
     { id: '/', nombre: 'Dashboard' },
     { id: '/registro', nombre: 'Registro Ágil' },
     { id: '/equipos', nombre: 'Lista Gral. Equipos' },
+    { id: '/entregas', nombre: 'Entregas' },
     { id: '/kanban', nombre: 'Pipeline Kanban' },
     { id: '/metrologia', nombre: 'Centro Metrología' },
     { id: '/validacion', nombre: 'Aseguramiento' },

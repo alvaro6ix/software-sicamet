@@ -162,8 +162,9 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
             setModalConf(false);
             setComentarioConf('');
             fetchData();
+            window.dispatchEvent(new CustomEvent('actualizacion_operativa'));
         } catch (err) {
-            alert('Error al enviar los equipos');
+            toast.error('Error al enviar los equipos');
         }
     };
 

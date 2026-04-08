@@ -18,6 +18,9 @@ const Validacion = ({ darkMode, usuario }) => {
     const [cargando, setCargando] = useState(true);
     const [tabActual, setTabActual] = useState('Pendientes');
 
+    // Modales de confirmación modernos
+    const [confirmModal, setConfirmModal] = useState({ open: false, title: '', message: '', onConfirm: null, type: 'info' });
+
     // Modal de rechazo
     const [rechazoModal, setRechazoModal] = useState({ activo: false, ids: [] });
     const [motivoRechazo, setMotivoRechazo] = useState('');
@@ -88,18 +91,71 @@ const Validacion = ({ darkMode, usuario }) => {
         gruposOC[e.orden_cotizacion].push(e);
     });
 
-    const procesarAprobacion = async (ids) => {
+    const procesarAprobacion = (ids) => {
+        setConfirmModal({
+            open: true,
+            title: '¿Confirmar Aprobación?',
+            message: `Vas a pasar ${ids.length} equipo(s) a la etapa de Certificación. Asegúrate de que las fotos y datos del metrólogo sean correctos.`,
+            type: 'success',
+            onConfirm: async () => {
+                try {
+                    await axios.post('/api/instrumentos/bulk-status', {
+                        ids,
+                        estatus: 'Certificación',
+                        comentario: 'Aprobado en Aseguramiento'
+                    });
+                    toast.success('Pasa a Certificación correctamente.');
+                    setConfirmModal({ open: false });
+                    fetchData();
+                } catch (err) {
+                    toast.error('Error al aprobar');
+                }
+            }
+        });
+    };
+
+    const subirCertificado = async (id, archivo) => {
+        if (!archivo) return;
         try {
-            await axios.post('/api/instrumentos/bulk-status', {
-                ids,
-                estatus: 'Certificación',
-                comentario: 'Aprobado en Aseguramiento'
-            });
-            toast.success('Pasa a Certificación correctamente.');
+            const fd = new FormData();
+            fd.append('archivo', archivo);
+            await axios.post(`/api/instrumentos/${id}/certificado`, fd);
+            toast.success('Certificado PDF cargado correctamente.');
             fetchData();
         } catch (err) {
-            alert('Error al aprobar');
+            toast.error('Error al subir certificado: ' + (err.response?.data?.error || err.message));
         }
+    };
+
+    const finalizarCertificacion = (ids) => {
+        // Validación de integridad: Todos deben tener PDF
+        const incompletos = equiposGlobales.filter(e => ids.includes(e.id) && !e.certificado_url);
+        if (incompletos.length > 0) {
+            toast.error(`No se pueden liberar ${incompletos.length} equipos porque no tienen el certificado PDF cargado.`);
+            return;
+        }
+
+        setConfirmModal({
+            open: true,
+            title: '¿Liberar para Entrega?',
+            message: `¿Estás seguro de que deseas marcar ${ids.length} equipos como LISTOS? Recepción recibirá una notificación instantánea para entregarlos al cliente.`,
+            type: 'info',
+            onConfirm: async () => {
+                try {
+                    await axios.post('/api/instrumentos/bulk-status', {
+                        ids,
+                        estatus: 'Listo',
+                        comentario: 'Certificación completada por Aseguramiento'
+                    });
+                    toast.success('Equipos movidos a Listos para Entrega.');
+                    setConfirmModal({ open: false });
+                    fetchData();
+                    window.dispatchEvent(new CustomEvent('actualizacion_operativa'));
+                } catch (err) {
+                    toast.error('Error al finalizar certificación');
+                }
+            }
+        });
     };
 
     const abrirRechazo = (ids) => {
@@ -118,8 +174,9 @@ const Validacion = ({ darkMode, usuario }) => {
             toast.error('Enviado de vuelta a Laboratorio.');
             setRechazoModal({ activo: false, ids: [] });
             fetchData();
+            window.dispatchEvent(new CustomEvent('actualizacion_operativa'));
         } catch (err) {
-            alert('Error al rechazar');
+            toast.error('Error al rechazar');
         }
     };
 
@@ -147,14 +204,16 @@ const Validacion = ({ darkMode, usuario }) => {
         } catch(err) {}
     };
 
-    // KPIs generales y de validación
+    // KPIs generales
     const validacionList = equiposConSLA.filter(e => e.estatus_actual === 'Validación');
     const certList = equiposConSLA.filter(e => e.estatus_actual === 'Certificación');
+    const listosList = equiposConSLA.filter(e => e.estatus_actual === 'Listo');
     const entregadosList = equiposConSLA.filter(e => e.estatus_actual === 'Entregado');
     
     const countTotal = validacionList.length;
     const countUrgentes = validacionList.filter(e => e.slaRestante <= 1).length;
     const countCert = certList.length;
+    const countCertSinDoc = certList.filter(e => !e.certificado_url).length;
     const countEntregados = entregadosList.length;
 
     return (
@@ -182,7 +241,7 @@ const Validacion = ({ darkMode, usuario }) => {
                 </div>
                 <div className={`p-4 rounded-xl border flex flex-col ${darkMode ? 'bg-indigo-950/20 border-indigo-900/50 text-indigo-400' : 'bg-indigo-50 border-indigo-200 text-indigo-700'}`}>
                     <div className="text-[10px] uppercase font-bold opacity-80 mb-2 flex items-center gap-1"><FileCheck size={14}/> En Certificación</div>
-                    <div className="text-3xl font-black">{countCert}</div>
+                    <div className="text-3xl font-black">{countCert} <span className="text-xs opacity-60 font-medium">({countCertSinDoc} sin PDF)</span></div>
                 </div>
                 <div className={`p-4 rounded-xl border flex flex-col ${darkMode ? 'bg-blue-950/20 border-blue-900/50 text-blue-400' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
                     <div className="text-[10px] uppercase font-bold opacity-80 mb-2 flex items-center gap-1"><CheckCircle size={14}/> Entregados</div>
@@ -255,6 +314,19 @@ const Validacion = ({ darkMode, usuario }) => {
                                             </button>
                                         </div>
                                     )}
+
+                                    {tabActual === 'Certificacion' && (
+                                        <div className="flex flex-col gap-2 w-full mt-auto">
+                                            <button 
+                                                onClick={() => finalizarCertificacion(items.map(e => e.id))} 
+                                                disabled={items.some(e => !e.certificado_url)}
+                                                className={`w-full flex justify-center items-center py-2 rounded border font-black text-[10px] transition-all ${items.some(e => !e.certificado_url) ? 'opacity-40 cursor-not-allowed border-slate-300' : 'border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600'}`}
+                                            >
+                                                <CheckCircle size={14} className="mr-1" /> Liberar Lote a Entrega
+                                            </button>
+                                            {items.some(e => !e.certificado_url) && <p className="text-[9px] text-center opacity-70 italic">Faltan PDFs en este lote</p>}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Items de la orden */}
@@ -283,6 +355,43 @@ const Validacion = ({ darkMode, usuario }) => {
                                                 </div>
 
                                                 <div className="flex items-center gap-3 mt-3 sm:mt-0">
+                                                    {tabActual === 'Certificacion' && (
+                                                        <div className="flex items-center gap-2 mr-2 pr-3 border-r dark:border-amber-900/40 border-slate-200">
+                                                            {eq.certificado_url ? (
+                                                                <a 
+                                                                    href={eq.certificado_url} 
+                                                                    target="_blank" 
+                                                                    rel="noreferrer" 
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${darkMode ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-600 hover:text-white'}`}
+                                                                >
+                                                                    <FileText size={14} /> PDF LISTO
+                                                                </a>
+                                                            ) : (
+                                                                <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black cursor-pointer transition-all ${darkMode ? 'bg-amber-950/30 text-amber-500 border border-amber-500/30 hover:border-amber-500' : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'}`}>
+                                                                    <Paperclip size={14} /> SUBIR PDF
+                                                                    <input 
+                                                                        type="file" 
+                                                                        accept=".pdf" 
+                                                                        className="hidden" 
+                                                                        onChange={(e) => { e.stopPropagation(); subirCertificado(eq.id, e.target.files[0]); }} 
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                    />
+                                                                </label>
+                                                            )}
+                                                            
+                                                            {eq.certificado_url && (
+                                                                <button 
+                                                                    onClick={(e) => { e.stopPropagation(); finalizarCertificacion([eq.id]); }}
+                                                                    className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-indigo-900/40 text-indigo-400' : 'hover:bg-indigo-100 text-indigo-600'}`}
+                                                                    title="Liberar este equipo individualmente"
+                                                                >
+                                                                    <CheckCircle size={24} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    )}
+
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); abrirComentarios(eq.id); }} 
                                                         className={`p-2 rounded-lg border transition-all relative ${darkMode ? 'border-amber-900/50 hover:bg-amber-500 hover:text-[#141f0b] text-amber-500' : 'border-slate-300 hover:bg-amber-600 hover:text-white hover:border-amber-600 text-slate-700'} ${eq.comentarios_count > 0 ? 'ring-2 ring-amber-500/50' : ''}`} 
@@ -564,6 +673,35 @@ const Validacion = ({ darkMode, usuario }) => {
                         <div className={`p-6 border-t flex justify-end shrink-0 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/10' : 'bg-white border-slate-100'}`}>
                             <button onClick={() => setModalDetalle(false)} className={`px-6 py-2 rounded-xl font-bold transition-colors ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
                                 Entendido
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Confirmación Moderno */}
+            {confirmModal.open && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex justify-center items-center z-[200] p-4 animate-in fade-in duration-200">
+                    <div className={`w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-[#141f0b] border-amber-900/40 text-[#F2F6F0]' : 'bg-white border-slate-200 text-slate-800'}`}>
+                        <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 mx-auto ${confirmModal.type === 'success' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-indigo-500/20 text-indigo-500'}`}>
+                            {confirmModal.type === 'success' ? <CheckCircle size={32} /> : <HelpCircle size={32} />}
+                        </div>
+                        <h2 className="text-2xl font-black text-center mb-3 tracking-tight">{confirmModal.title}</h2>
+                        <p className="text-sm text-center opacity-60 mb-8 leading-relaxed font-medium">
+                            {confirmModal.message}
+                        </p>
+                        <div className="flex gap-4">
+                            <button 
+                                onClick={() => setConfirmModal({ open: false })}
+                                className={`flex-1 py-4 font-bold rounded-2xl transition-all ${darkMode ? 'bg-[#253916] text-[#F2F6F0]/60 hover:text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                onClick={confirmModal.onConfirm}
+                                className={`flex-[2] py-4 font-black rounded-2xl transition-all shadow-xl active:scale-95 ${confirmModal.type === 'success' ? 'bg-emerald-600' : 'bg-indigo-600'} text-white hover:brightness-110`}
+                            >
+                                Confirmar Acción
                             </button>
                         </div>
                     </div>

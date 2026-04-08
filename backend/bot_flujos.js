@@ -219,19 +219,25 @@ function ordenPerteneceARazonSocial(nombreEmpresaSesion, inst) {
     return false;
 }
 
-/** Nombres visibles del menú (mismas reglas que construirTextoOpcionesMenu). */
-async function obtenerEtiquetasMenuVisibles(datos) {
+/** Filtra y devuelve los nodos que deben mostrarse según el estado del cliente. */
+async function getNodosVisibles(datos) {
     const nodosAll = await getTodosNodos();
     const d = datos || {};
     const esCliente = !!d.nombre_empresa;
-    const labels = [];
-    nodosAll.forEach((n, i) => {
-        const num = i + 1;
-        if ((num === 3 || num === 4) && !esCliente) return;
-        if (num === 1 && esCliente) return;
-        labels.push(n.nombre);
+    
+    // Nodos 3 y 4 requieren ser cliente. Nodo 1 es para identificarse (no necesario si ya es cliente).
+    return nodosAll.filter((n, i) => {
+        const posPositiva = i + 1;
+        if ((posPositiva === 3 || posPositiva === 4) && !esCliente) return false;
+        if (posPositiva === 1 && esCliente) return false;
+        return true;
     });
-    return labels;
+}
+
+/** Nombres visibles del menú. */
+async function obtenerEtiquetasMenuVisibles(datos) {
+    const visibles = await getNodosVisibles(datos);
+    return visibles.map(n => n.nombre);
 }
 
 function distanciaLevenshtein(a, b) {
@@ -273,38 +279,30 @@ function scoreTextoVsEtiquetaMenu(textoUsuario, etiquetaNodo) {
     return 0;
 }
 
-/** Devuelve índice de menú 1-based si el texto del usuario coincide con un ítem visible. */
+/** Devuelve el nodo si el texto del usuario coincide con un ítem visible. */
 async function resolverOpcionMenuPorTexto(textoCrudo, datos) {
-    const nodosAll = await getTodosNodos();
-    const d = datos || {};
-    const esCliente = !!d.nombre_empresa;
-    let mejorNum = null;
+    const visibles = await getNodosVisibles(datos);
+    let mejorNodo = null;
     let mejorScore = 0;
-    nodosAll.forEach((n, i) => {
-        const num = i + 1;
-        if ((num === 3 || num === 4) && !esCliente) return;
-        if (num === 1 && esCliente) return;
+
+    visibles.forEach(n => {
         const sc = scoreTextoVsEtiquetaMenu(textoCrudo, n.nombre || '');
         if (sc > mejorScore) {
             mejorScore = sc;
-            mejorNum = num;
+            mejorNodo = n;
         }
     });
-    if (mejorScore >= 0.82) return mejorNum;
+
+    if (mejorScore >= 0.82) return mejorNodo;
     return null;
 }
 
-/** Líneas *1️⃣* … del menú (sin 3–4 si no hay sesión; sin 1 si ya identificado). */
+/** Líneas *1️⃣* … del menú numeradas secuencialmente del 1 al N. */
 async function construirTextoOpcionesMenu(datos) {
-    const nodosAll = await getTodosNodos();
-    const d = datos || {};
-    const esCliente = !!d.nombre_empresa;
+    const visibles = await getNodosVisibles(datos);
     let texto = '';
-    nodosAll.forEach((n, i) => {
-        const num = i + 1;
-        if ((num === 3 || num === 4) && !esCliente) return;
-        if (num === 1 && esCliente) return;
-        texto += `\n*${num}️⃣* ${n.nombre}`;
+    visibles.forEach((n, i) => {
+        texto += `\n*${i + 1}️⃣* ${n.nombre}`;
     });
     return texto;
 }
@@ -419,49 +417,26 @@ async function procesarMensaje(wa, texto, detectarIntencion, respuestaIA) {
 // ─── MENÚ RAÍZ ───────────────────────────────────────────────────────────────
 
 async function manejarMenuRaiz(wa, texto, textoLower, sesion, detectarIntencion, respuestaIA, cfg) {
-    const nodos = await getTodosNodos();
+    const visibles = await getNodosVisibles(sesion.datos);
 
-    // 1. Selección numérica
+    // 1. Selección numérica secuencial
     const num = parseInt(textoLower);
-    if (!isNaN(num) && num >= 1 && num <= nodos.length) {
-        const d = sesion.datos || {};
-        if ((num === 3 || num === 4) && !d.nombre_empresa) {
-            return { 
-                text: `🔒 *Acceso restringido*\n\nLa opción *${num}️⃣* es exclusiva para clientes registrados.\n\nPor favor, elige la opción *1️⃣ Soy Cliente* para identificarte primero.` 
-            };
-        }
-        if (num === 1 && d.nombre_empresa) {
-            const lineas = await construirTextoOpcionesMenu(d);
-            return {
-                text: `✅ Ya estás identificado como *${d.nombre_empresa}*. No hace falta elegir *Soy Cliente* de nuevo.\n\nElige una opción:${lineas}\n\n_Escribe *0* para el menú._`
-            };
-        }
-
-        const destino = nodos[num - 1];
+    if (!isNaN(num) && num >= 1 && num <= visibles.length) {
+        const destino = visibles[num - 1];
         const d0 = estadoTrasEscalado(sesion.datos || {});
+        // Si el usuario ya es cliente pero somehow elige una opción que requiere identificación (seguridad extra)
+        // Pero getNodosVisibles ya se encarga de esto.
+        
         await guardarSesion(wa, destino.id, d0);
         return await responderNodo(wa, destino.id, await getSesion(wa));
     }
 
-    // 1b. Misma lógica que el número pero escribiendo el nombre de la opción (con tolerancia a typos)
-    const numPorTexto = await resolverOpcionMenuPorTexto(texto, sesion.datos || {});
-    if (numPorTexto != null) {
-        const d = sesion.datos || {};
-        if ((numPorTexto === 3 || numPorTexto === 4) && !d.nombre_empresa) {
-            return {
-                text: `🔒 *Acceso restringido*\n\nLa opción *${numPorTexto}️⃣* es exclusiva para clientes registrados.\n\nPor favor, elige la opción *1️⃣ Soy Cliente* para identificarte primero.`
-            };
-        }
-        if (numPorTexto === 1 && d.nombre_empresa) {
-            const lineas = await construirTextoOpcionesMenu(d);
-            return {
-                text: `✅ Ya estás identificado como *${d.nombre_empresa}*. No hace falta elegir *Soy Cliente* de nuevo.\n\nElige una opción:${lineas}\n\n_Escribe *0* para el menú._`
-            };
-        }
-        const destinoTxt = nodos[numPorTexto - 1];
+    // 1b. Resolución por texto descriptivo
+    const nodoPorTexto = await resolverOpcionMenuPorTexto(texto, sesion.datos || {});
+    if (nodoPorTexto) {
         const d0 = estadoTrasEscalado(sesion.datos || {});
-        await guardarSesion(wa, destinoTxt.id, d0);
-        return await responderNodo(wa, destinoTxt.id, await getSesion(wa));
+        await guardarSesion(wa, nodoPorTexto.id, d0);
+        return await responderNodo(wa, nodoPorTexto.id, await getSesion(wa));
     }
 
     // 1c. Biblioteca FAQ antes que intenciones (evita que "costo/costo" abra cotización en lugar de la FAQ de precios)

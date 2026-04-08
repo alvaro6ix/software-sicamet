@@ -17,6 +17,7 @@ import GestionUsuarios from './components/GestionUsuarios';
 import Login from './components/Login';
 import MetrologiaDashboard from './components/MetrologiaDashboard';
 import Validacion from './components/Validacion';
+import Entregas from './components/Entregas';
 import BusquedaGlobal from './components/BusquedaGlobal';
 import NotificacionesBell from './components/NotificacionesBell';
 import io from 'socket.io-client';
@@ -54,7 +55,7 @@ axios.interceptors.response.use(
 
 import { 
   LayoutDashboard, FileText, List, Moon, Sun, Menu, X, Bell,
-  Users, BookOpen, Tag, Package, MessageSquare, Search,
+  Users, BookOpen, Tag, Package, MessageSquare, Search, Truck,
   Bot, ScanLine, Target, LogOut, ShieldCheck, UserCircle, Save, FileCheck
 } from 'lucide-react';
 
@@ -65,10 +66,11 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['admin', 'recepcionista'] },
     { name: 'Registro Ágil', path: '/registro', icon: FileText, roles: ['admin', 'recepcionista'] },
+    { name: 'Entregas', path: '/entregas', icon: Truck, roles: ['admin', 'recepcionista'] },
     { name: 'Lista Gral. Equipos', path: '/equipos', icon: List, roles: ['admin', 'recepcionista'] },
-    { name: 'Pipeline Kanban', path: '/kanban', icon: Package, roles: ['admin', 'recepcionista', 'operador'] },
-    { name: 'Centro Metrología', path: '/metrologia', icon: Package, roles: ['admin', 'operador'] },
-    { name: 'Aseguramiento', path: '/validacion', icon: FileCheck, roles: ['admin'] },
+    { name: 'Pipeline Kanban', path: '/kanban', icon: Package, roles: ['admin', 'recepcionista', 'operador', 'metrologo'] },
+    { name: 'Centro Metrología', path: '/metrologia', icon: Package, roles: ['admin', 'operador', 'metrologo'] },
+    { name: 'Aseguramiento', path: '/validacion', icon: FileCheck, roles: ['admin', 'aseguramiento', 'validacion'] },
     { name: 'Clientes', path: '/clientes', icon: Users, roles: ['admin', 'recepcionista'] },
     { name: 'Catálogo Inst.', path: '/catalogo-instrumentos', icon: BookOpen, roles: ['admin', 'recepcionista'] },
     { name: 'Catálogo Marcas', path: '/marcas', icon: Tag, roles: ['admin'] },
@@ -137,15 +139,39 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
             >
               <item.icon size={18} />
               <span className="flex-1">{item.name}</span>
+              
+              {/* BADGES UNIFICADOS */}
               {item.name === 'Flujos WhatsApp' && counts.cots > 0 && (
-                <span className="bg-rose-600 text-white text-[11px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-lg shadow-rose-500/40 animate-pulse border-2 border-white/20">
+                <span className="bg-rose-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg animate-pulse border border-white/20">
                   {counts.cots}
                 </span>
               )}
-              {item.name === 'Conversaciones' && counts.escalados > 0 && (
-                <span className="bg-rose-600 text-white text-[11px] font-black w-5 h-5 flex items-center justify-center rounded-full shadow-lg shadow-rose-500/40 animate-pulse border-2 border-white/20">
+              {item.name === 'Conversaciones WA' && counts.escalados > 0 && (
+                <span className="bg-rose-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg animate-pulse border border-white/20">
                   {counts.escalados}
                 </span>
+              )}
+              {item.name === 'Entregas' && counts.listosEntrega > 0 && (
+                <span className="bg-[#C9EA63] text-[#141f0b] text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg border border-[#141f0b]/10">
+                  {counts.listosEntrega}
+                </span>
+              )}
+              {item.name === 'Aseguramiento' && counts.pendientesValidacion > 0 && (
+                <span className="bg-amber-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg border border-white/20">
+                  {counts.pendientesValidacion}
+                </span>
+              )}
+              {item.name === 'Centro Metrología' && (
+                (() => {
+                  const metroCount = usuario.rol === 'admin' 
+                    ? Object.values(counts.metrologiaAreaCounts || {}).reduce((a, b) => a + b, 0)
+                    : (counts.metrologiaAreaCounts?.[usuario.area] || 0);
+                  return metroCount > 0 ? (
+                    <span className="bg-sky-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg border border-white/20">
+                      {metroCount}
+                    </span>
+                  ) : null;
+                })()
               )}
             </Link>
           );
@@ -244,7 +270,13 @@ const Layout = () => {
 
   const handleLogin = (usr) => setUsuario(usr);
   
-  const [pendingCounts, setPendingCounts] = useState({ cots: 0, escalados: 0 });
+  const [pendingCounts, setPendingCounts] = useState({ 
+    cots: 0, 
+    escalados: 0, 
+    listosEntrega: 0, 
+    pendientesValidacion: 0, 
+    metrologiaAreaCounts: {} 
+  });
 
   useEffect(() => {
     if (usuario) {
@@ -280,7 +312,10 @@ const Layout = () => {
       const res = await axios.get('/api/bot/stats');
       setPendingCounts({
         cots: res.data.pendientesCotizacion || 0,
-        escalados: res.data.escaladosPendientes || 0
+        escalados: res.data.escaladosPendientes || 0,
+        listosEntrega: res.data.listosEntrega || 0,
+        pendientesValidacion: res.data.pendientesValidacion || 0,
+        metrologiaAreaCounts: res.data.metrologiaAreaCounts || {}
       });
     } catch (e) { console.error("Error global stats", e); }
   };
@@ -365,6 +400,7 @@ const Layout = () => {
               <Route path="/kanban" element={<TableroKanban darkMode={darkMode} />} />
               <Route path="/metrologia" element={<MetrologiaDashboard darkMode={darkMode} usuario={usuario} />} />
               <Route path="/validacion" element={<Validacion darkMode={darkMode} usuario={usuario} />} />
+              <Route path="/entregas" element={<Entregas darkMode={darkMode} usuario={usuario} />} />
               <Route path="/clientes" element={<Clientes darkMode={darkMode} />} />
               <Route path="/catalogo-instrumentos" element={<CatalogoInstrumentos darkMode={darkMode} />} />
               <Route path="/marcas" element={<Marcas darkMode={darkMode} />} />

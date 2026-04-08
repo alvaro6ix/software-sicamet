@@ -172,6 +172,24 @@ const uploadComentarios = multer({
     limits: { fileSize: 10 * 1024 * 1024 } // 10MB max
 });
 
+// Configuración para Certificados (Aseguramiento)
+const certsDir = path.join(__dirname, 'uploads', 'certificados');
+if (!fs.existsSync(certsDir)) fs.mkdirSync(certsDir, { recursive: true });
+const uploadCert = multer({
+    storage: multer.diskStorage({
+        destination: (req, file, cb) => cb(null, certsDir),
+        filename: (req, file, cb) => {
+            const ext = path.extname(file.originalname);
+            cb(null, `certificado_${req.params.id}_${Date.now()}${ext}`);
+        }
+    }),
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/pdf') cb(null, true);
+        else cb(new Error('Solo se permiten archivos PDF'), false);
+    },
+    limits: { fileSize: 20 * 1024 * 1024 } // 20MB max
+});
+
 app.use(cors());
 app.use(express.json());
 // Servir archivos subidos públicamente
@@ -451,6 +469,31 @@ app.get('/api/areas/:area/metrologos', verificarToken(), async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// SUBIR CERTIFICADO (PDF) POR ASEGURAMIENTO
+app.post('/api/instrumentos/:id/certificado', verificarToken(['admin', 'aseguramiento', 'validacion', 'validacin']), uploadCert.single('archivo'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo o no es PDF' });
+        
+        // Validar que el equipo esté en Certificación antes de proceder
+        const [rows] = await db.query('SELECT estatus_actual FROM instrumentos_estatus WHERE id = ?', [req.params.id]);
+        if (rows.length === 0 || rows[0].estatus_actual !== 'Certificación') {
+            // Si no está en el estatus correcto, borrar el archivo subido para no basura
+            if (req.file.path) fs.unlinkSync(req.file.path);
+            return res.status(400).json({ error: 'Solo se pueden subir certificados a equipos en estatus Certificación.' });
+        }
+
+        const filePath = `/uploads/certificados/${req.file.filename}`;
+        await db.query('UPDATE instrumentos_estatus SET certificado_url = ? WHERE id = ?', [filePath, req.params.id]);
+        
+        // Registrar en la bitácora automáticamente
+        // const usuarioId = req.usuario.id;
+        // await db.query('INSERT INTO instrumentos_comentarios (instrumento_id, usuario_id, mensaje) VALUES (?, ?, ?)', 
+        //    [req.params.id, usuarioId, 'Certificado PDF cargado por Aseguramiento.']);
+
+        res.json({ success: true, url: filePath });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.put('/api/instrumentos/:id/estatus', verificarToken(), async (req, res) => {
     try {
         const { estatus, comentario } = req.body;
@@ -492,9 +535,9 @@ app.put('/api/instrumentos/:id/estatus', verificarToken(), async (req, res) => {
 
 // NUEVO: BULK UPDATE ESTATUS
 app.post('/api/instrumentos/bulk-status', verificarToken(), async (req, res) => {
-    // Verificar permisos - solo aseguramiento y admin y metrología (hacia validación)
+    // Verificar permisos - admin, aseguramiento, validación, metrología y RECEPCIONISTA (para entregas)
     const { rol } = req.usuario;
-    if (!['admin', 'aseguramiento', 'validacion', 'metrologo', 'operador'].includes(rol)) {
+    if (!['admin', 'aseguramiento', 'validacion', 'metrologo', 'operador', 'recepcionista'].includes(rol)) {
         return res.status(403).json({ error: 'No tienes permisos para esta acción.' });
     }
     try {
@@ -1251,23 +1294,30 @@ app.post('/api/bot/ejecutar-recordatorios', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Estadísticas del bot PRO para Dashboard
+// Estadísticas operativas y del bot para Dashboard/Badges
 app.get('/api/bot/stats', async (req, res) => {
     try {
         const [[cots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE DATE(created_at) = CURDATE()");
         const [[pendientes]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'");
         const [[escalados]] = await db.query("SELECT COUNT(*) as total FROM escalados WHERE estatus = 'pendiente'");
-        const [[equipos]] = await db.query("SELECT COUNT(*) as total FROM equipos_cliente WHERE activo = 1");
-        const [[cacheHits]] = await db.query("SELECT SUM(hits) as total FROM cache_ia WHERE expires_at > NOW()");
-        const [[proximosVencer]] = await db.query("SELECT COUNT(*) as total FROM equipos_cliente WHERE activo = 1 AND proxima_calibracion BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)");
         
+        // --- MÉTRICAS OPERATIVAS (Para Badges) ---
+        const [[listos]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Listo'");
+        const [[validacion]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Validación'");
+        const [metrologiaAreas] = await db.query("SELECT area_laboratorio, COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Laboratorio' AND area_laboratorio IS NOT NULL GROUP BY area_laboratorio");
+        
+        // Convertir metrología a objeto { 'NombreArea': conteo }
+        const metroMap = {};
+        metrologiaAreas.forEach(a => { metroMap[a.area_laboratorio] = a.total; });
+
         res.json({
             cotizacionesHoy: cots.total || 0,
             pendientesCotizacion: pendientes.total || 0,
             escaladosPendientes: escalados.total || 0,
-            equiposRegistrados: equipos.total || 0,
-            cacheHitsTotal: cacheHits.total || 0,
-            proximosVencer30d: proximosVencer.total || 0
+            // Nuevas métricas operativas
+            listosEntrega: listos.total || 0,
+            pendientesValidacion: validacion.total || 0,
+            metrologiaAreaCounts: metroMap
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
