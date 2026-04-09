@@ -353,13 +353,13 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-6 border-[#C9EA63]/20">
         <div>
           <h2 className={`text-3xl font-bold flex items-center gap-3 ${textPrimary}`}>
-            <Bot className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} size={32} />
+            <Bot className={darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'} size={32} />
             Bot PRO SICAMET
           </h2>
           <p className={`mt-1 text-sm ${textMuted}`}>Motor inteligente de conversación · IA · Cotizaciones · Recordatorios</p>
         </div>
-        <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold ${statusBot.connected ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-          <span className={`w-2 h-2 rounded-full ${statusBot.connected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+        <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold ${statusBot.connected ? (darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-100 text-[#008a5e]') : 'bg-rose-100 text-rose-700'}`}>
+          <span className={`w-2 h-2 rounded-full ${statusBot.connected ? (darkMode ? 'bg-[#C9EA63] animate-pulse' : 'bg-[#008a5e] animate-pulse') : 'bg-rose-500'}`} />
           {statusBot.connected ? 'Bot Activo' : 'Bot Inactivo'}
         </div>
       </div>
@@ -371,7 +371,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
           className={`p-6 rounded-3xl border transition-all duration-500 overflow-hidden relative group cursor-pointer hover:shadow-lg ${
             stats.pendientesCotizacion > 0 
               ? (darkMode ? 'bg-rose-500/10 border-rose-500/40 hover:bg-rose-500/20' : 'bg-rose-50 border-rose-200 hover:bg-rose-100' )
-              : (darkMode ? 'bg-white/5 border-white/10 hover:bg-white/10' : 'bg-white border-gray-100 shadow-sm hover:border-emerald-200')
+              : (darkMode ? 'bg-white/5 border-white/10 hover:bg-white/10' : 'bg-white border-gray-100 shadow-sm hover:border-[#008a5e]/30')
           }`}
         >
           {stats.pendientesCotizacion > 0 && (
@@ -408,7 +408,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
           <div 
             key={i} 
             onClick={() => kpi.tab && setPestana(kpi.tab)}
-            className={`rounded-xl border p-4 transition-all ${kpi.tab ? 'cursor-pointer hover:shadow-md hover:border-emerald-300' : ''} ${box} ${kpi.alert ? (darkMode ? 'border-amber-500/50' : 'border-amber-300 bg-amber-50 shadow-sm') : ''}`}
+            className={`rounded-xl border p-4 transition-all ${kpi.tab ? 'cursor-pointer hover:shadow-md hover:border-[#008a5e]/40' : ''} ${box} ${kpi.alert ? (darkMode ? 'border-amber-500/50' : 'border-amber-300 bg-amber-50 shadow-sm') : ''}`}
           >
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${darkMode ? 'bg-white/5 text-white/50' : 'bg-slate-100 text-slate-500'}`}>
                {kpi.icon}
@@ -424,7 +424,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
         {TABS.map(tab => (
           <button key={tab.id} onClick={() => setPestana(tab.id)}
             className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap ${pestana === tab.id
-              ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-lg shadow-[#C9EA63]/20' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20')
+              ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-lg shadow-[#C9EA63]/20' : 'bg-[#008a5e] text-white shadow-lg shadow-[#008a5e]/20')
               : (darkMode ? 'bg-[#141f0b] text-[#F2F6F0]/50 hover:bg-[#C9EA63]/10 border border-white/5' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}`}>
             {tab.icon && <tab.icon size={16} />}
             {tab.label}
@@ -436,7 +436,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
       {pestana === 'simulador' && (
         <div className={`rounded-2xl border ${box} overflow-hidden`}>
           {/* Barra del teléfono */}
-          <div className={`px-5 py-3 flex items-center justify-between ${darkMode ? 'bg-[#1a2e10]' : 'bg-emerald-600'}`}>
+          <div className={`px-5 py-3 flex items-center justify-between ${darkMode ? 'bg-[#1a2e10]' : 'bg-[#008a5e]'}`}>
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-sm">S</div>
               <div>
@@ -457,7 +457,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                   {/* Burbuja de mensaje */}
                   <div className={`px-4 py-3 rounded-2xl text-sm whitespace-pre-wrap leading-relaxed ${
                     msg.tipo === 'user'
-                      ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white') + ' rounded-br-sm shadow-sm'
+                      ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-[#008a5e] text-white') + ' rounded-br-sm shadow-sm'
                       : (darkMode ? 'bg-[#253916] text-[#F2F6F0]' : 'bg-white text-slate-800 border border-gray-100 shadow-sm') + ' rounded-bl-sm'
                   }`}>
                     {(msg.text || '')
@@ -475,7 +475,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                               ? 'bg-[#1a2e10] border-[#C9EA63]/20 text-[#F2F6F0] hover:bg-[#253916] hover:border-[#C9EA63]/40'
                               : 'bg-slate-50 border-gray-200 text-slate-700 hover:bg-white hover:border-emerald-300 hover:shadow-sm'}`}>
                           <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0
-                            ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-100 text-emerald-600'}`}>
+                            ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-100 text-[#008a5e]'}`}>
                             {op.id}
                           </span>
                           {op.label}
@@ -492,7 +492,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                       ) : (
                         <div className={`p-3 text-xs flex items-center gap-2 ${darkMode ? 'bg-white/5' : 'bg-slate-100'}`}>
                           <Package size={14} className={textMuted} /> 
-                          <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer" className={`font-bold hover:underline ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'}`}>
+                          <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer" className={`font-bold hover:underline ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>
                             Archivo adjunto: {msg.mediaUrl.split('/').pop()}
                           </a>
                         </div>
@@ -521,7 +521,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
             <input value={inputMsg} onChange={e => setInputMsg(e.target.value)}
               placeholder="Escribe un mensaje o presiona un botón arriba..."
               className={`flex-1 px-4 py-2 rounded-xl border text-sm outline-none ${inputCls}`} />
-            <button type="submit" className={`p-2.5 rounded-xl transition-all ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
+            <button type="submit" className={`p-2.5 rounded-xl transition-all ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}>
               <Send size={16} />
             </button>
           </form>
@@ -571,7 +571,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                       <div className="flex gap-1">
                         <button 
                           onClick={() => setSelectedCotizacion(c)}
-                          className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63] hover:bg-[#C9EA63]/20' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                          className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63] hover:bg-[#C9EA63]/20' : 'bg-emerald-50 text-[#008a5e] hover:bg-emerald-100'}`}
                           title="Ver detalles técnicos"
                         >
                           <ChevronRight size={18} />
@@ -629,7 +629,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                       <div className="flex gap-1 items-center">
                         {e.estatus === 'pendiente' && (
                           <button onClick={() => resolverEscalado(e.id)}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white'} hover:opacity-80 flex items-center gap-1`}>
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-[#008a5e] text-white'} hover:opacity-80 flex items-center gap-1`}>
                             <CheckCircle size={12} /> Resolver
                           </button>
                         )}
@@ -740,14 +740,14 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
                   <h3 className={`text-xl font-bold flex items-center gap-2 ${textPrimary}`}>
-                    <Bot className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} size={24} /> 
+                    <Bot className={darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'} size={24} /> 
                     Constructor de Flujos Dinámicos
                   </h3>
                   <p className={`text-sm mt-1 ${textMuted}`}>Define los pasos de la conversación y la inteligencia del bot.</p>
                 </div>
                 <button 
                   onClick={() => setEditandoNodo({ isNew: true, nombre: 'Nuevo Paso', mensaje: '', tipo: 'mensaje', orden: botNodos.length + 1, opciones: [] })}
-                  className={`w-full sm:w-auto px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0cc5a]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                  className={`w-full sm:w-auto px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0cc5a]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
                 >
                   <Plus size={18} /> Añadir Paso
                 </button>
@@ -786,7 +786,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
                     />
                     <div className="flex justify-end gap-2 mt-2">
                       <button onClick={() => setEditandoBienvenida(false)} className={`px-4 py-1.5 rounded-lg text-sm font-bold ${textMuted}`}>Cancelar</button>
-                      <button onClick={guardarNodoRaiz} className={`px-4 py-1.5 rounded-lg text-sm font-bold ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white'}`}>Guardar</button>
+                      <button onClick={guardarNodoRaiz} className={`px-4 py-1.5 rounded-lg text-sm font-bold ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-[#008a5e] text-white'}`}>Guardar</button>
                     </div>
                   </div>
                 ) : (

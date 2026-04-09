@@ -649,6 +649,7 @@ async function mapearAccionANodo(accion, nodos) {
 async function ejecutarAccionEspecial(wa, texto, nodo, sesion) {
     if (nodo.accion === 'identificar_cliente') return await identificarClienteLogic(wa, texto, sesion);
     if (nodo.accion === 'consultar_estatus') return await consultarEstatusLogic(wa, texto, sesion);
+    if (nodo.accion === 'consultar_certificado') return await consultarCertificadoLogic(wa, texto, sesion);
     if (nodo.accion === 'cotizacion') return await flujosCotizacionLogic(wa, texto, sesion);
     if (nodo.accion === 'registrar_equipo') return await flujosRegistroEquipoLogic(wa, texto, sesion);
     if (nodo.accion === 'escalar') return await escalarAHumanoLogic(wa, texto);
@@ -1100,6 +1101,57 @@ async function consultarEstatusLogic(wa, texto, sesion) {
         if (i < keys.length - 1) out += '\n\n──────────────\n\n';
     });
     return { text: out };
+}
+
+async function consultarCertificadoLogic(wa, texto, sesion) {
+    if (!sesion) sesion = await getSesion(wa);
+    const busqueda = texto.trim().toUpperCase();
+    const nombreEmpresaSesion = (sesion.datos?.nombre_empresa || '').toUpperCase();
+
+    if (!nombreEmpresaSesion) {
+        return { text: '⚠️ *Identificación requerida*\n\nPara consultar certificados, primero debes identificarte en la opción *1️⃣ Soy Cliente* del menú principal.' };
+    }
+
+    if (busqueda.length < 3) {
+        return await manejarFalloIntento(wa, sesion, {
+            reintento: 'Escribe el número de informe que deseas consultar (mínimo 3 caracteres).',
+            escala: 'No logramos procesar tu consulta. Te conectamos con un asesor.',
+            claveIntentos: I_ESTATUS
+        });
+    }
+
+    const [rows] = await db.query(
+        'SELECT * FROM instrumentos_estatus WHERE UPPER(numero_informe) = ? OR (UPPER(numero_informe) LIKE ? AND LENGTH(?) > 5)',
+        [busqueda, `%${busqueda}%`, busqueda]
+    );
+
+    const propias = (rows || []).filter(r => ordenPerteneceARazonSocial(nombreEmpresaSesion, r));
+
+    if (propias.length === 0) {
+        return await manejarFalloIntento(wa, sesion, {
+            reintento: '❌ No encontramos ningún certificado asociado a ese número de informe para tu empresa.',
+            escala: 'Te pondremos en contacto con un asesor para ayudarte a buscar tu documento.',
+            claveIntentos: I_ESTATUS
+        });
+    }
+
+    const eq = propias[0];
+    if (!eq.certificado_url) {
+        return { text: `📍 *Informe ${eq.numero_informe}*\n\nEl equipo ya fue procesado pero el certificado digital aún no ha sido cargado en el sistema por el área de Aseguramiento.\n\n_Vuelve a consultar en unas horas._` };
+    }
+
+    // Limpiar intentos
+    const dOk = datosSinContadoresIntento(sesion.datos || {});
+    await guardarSesion(wa, sesion.nodo_actual_id, dOk);
+
+    const fullUrl = `https://crm.sicamet.com${eq.certificado_url}`; // Ajustar según despliegue real
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(fullUrl)}`;
+
+    return {
+        text: `📄 *¡Certificado Localizado!*\n\n*Equipo:* ${eq.nombre_instrumento}\n*Informe:* ${eq.numero_informe}\n\nEscanea el código QR de abajo o usa este enlace directo para descargar tu PDF:\n\n🔗 ${fullUrl}`,
+        media: qrUrl,
+        media_tipo: 'image'
+    };
 }
 
 function formatearRespuestaEstatus(eq) {

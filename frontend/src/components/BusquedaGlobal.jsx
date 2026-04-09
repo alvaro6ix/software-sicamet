@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 
 const ESTATUS_COLORS = {
   'Recepción':   { bg: 'bg-slate-100 text-slate-600', bgDark: 'bg-slate-700/50 text-slate-300' },
-  'Laboratorio': { bg: 'bg-emerald-100 text-emerald-700', bgDark: 'bg-emerald-900/40 text-emerald-300' },
+  'Laboratorio': { bg: 'bg-emerald-100 text-[#008a5e]', bgDark: 'bg-emerald-900/40 text-[#C9EA63]' },
   'Aseguramiento':{ bg: 'bg-blue-100 text-blue-700', bgDark: 'bg-blue-900/40 text-blue-300' },
   'Certificación':{ bg: 'bg-purple-100 text-purple-700', bgDark: 'bg-purple-900/40 text-purple-300' },
   'Listo':       { bg: 'bg-teal-100 text-teal-700', bgDark: 'bg-teal-900/40 text-teal-300' },
@@ -30,7 +30,7 @@ const ClienteDetalleModal = ({ clienteInfo, darkMode, onClose }) => {
   if (!datos && cargando) {
       return (
           <div className="fixed inset-0 z-[400] flex justify-center items-center bg-black/60 backdrop-blur-sm">
-            <span className="w-8 h-8 rounded-full border-4 border-emerald-500/30 border-t-emerald-500 animate-spin" />
+            <span className={`w-8 h-8 rounded-full border-4 border-opacity-30 animate-spin ${darkMode ? 'border-[#C9EA63] border-t-[#C9EA63]' : 'border-[#008a5e] border-t-[#008a5e]'}`} />
           </div>
       );
   }
@@ -65,8 +65,8 @@ const ClienteDetalleModal = ({ clienteInfo, darkMode, onClose }) => {
                     <h3 className="text-3xl font-black">{equiposStats.total}</h3>
                 </div>
                 <div className={`p-4 rounded-2xl border ${cardBg}`}>
-                    <p className="text-xs font-bold uppercase tracking-widest opacity-50 mb-1 text-emerald-500">En Proceso Lab</p>
-                    <h3 className="text-3xl font-black text-emerald-500">{equiposStats.en_laboratorio}</h3>
+                    <p className={`text-xs font-bold uppercase tracking-widest opacity-50 mb-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>En Proceso Lab</p>
+                    <h3 className={`text-3xl font-black ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>{equiposStats.en_laboratorio}</h3>
                 </div>
                 <div className={`p-4 rounded-2xl border ${cardBg}`}>
                     <p className="text-xs font-bold uppercase tracking-widest opacity-50 mb-1 text-teal-500">Listos / Entregados</p>
@@ -77,7 +77,7 @@ const ClienteDetalleModal = ({ clienteInfo, darkMode, onClose }) => {
             {/* Historial Timeline */}
             <div>
                 <h3 className="text-lg font-black mb-4 flex items-center gap-2">
-                    <Clock className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} />
+                    <Clock className={darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'} />
                     Historial de Instrumentos
                 </h3>
                 {historial.length === 0 ? (
@@ -174,7 +174,7 @@ const BusquedaGlobal = ({ darkMode }) => {
 
   const inputBg = darkMode
     ? 'bg-[#1b2b10] border-[#C9EA63]/20 text-[#F2F6F0] placeholder:text-[#F2F6F0]/30 focus-within:border-[#C9EA63]/50'
-    : 'bg-white border-slate-200 text-slate-800 placeholder:text-slate-400 focus-within:border-emerald-400 shadow-sm';
+    : 'bg-white border-slate-200 text-slate-800 placeholder:text-slate-400 focus-within:border-[#008a5e] shadow-sm';
 
   const dropBg = darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200';
   const sectionBg = darkMode ? 'bg-[#1b2b10] text-[#C9EA63]/60' : 'bg-slate-50 text-slate-400';
@@ -200,7 +200,7 @@ const BusquedaGlobal = ({ darkMode }) => {
                 onMouseDown={() => irA('/equipos')}
                 className={`w-full text-left px-4 py-3 flex items-center gap-3 text-sm transition-colors border-b last:border-0 ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-100'} ${rowHover}`}
                 >
-                <Activity size={16} className={darkMode ? 'text-[#C9EA63] flex-shrink-0' : 'text-emerald-600 flex-shrink-0'} />
+                <Activity size={16} className={darkMode ? 'text-[#C9EA63] flex-shrink-0' : 'text-[#008a5e] flex-shrink-0'} />
                 <div className="flex-1 min-w-0">
                     <p className="font-bold truncate text-sm">{eq.nombre_instrumento}</p>
                     <p className="text-[11px] opacity-60 truncate mt-0.5">{eq.orden_cotizacion} · {eq.empresa}</p>
@@ -227,7 +227,7 @@ const BusquedaGlobal = ({ darkMode }) => {
                 className={`w-full text-left px-4 py-3 flex items-center justify-between gap-3 text-sm transition-colors border-b last:border-0 ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-100'} ${rowHover}`}
             >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <Users size={16} className={darkMode ? 'text-[#C9EA63] flex-shrink-0' : 'text-emerald-600 flex-shrink-0'} />
+                    <Users size={16} className={darkMode ? 'text-[#C9EA63] flex-shrink-0' : 'text-[#008a5e] flex-shrink-0'} />
                     <div className="flex-1 min-w-0">
                     <p className="font-bold truncate text-sm">{cl.nombre}</p>
                     <p className="text-[11px] opacity-60 truncate mt-0.5">{cl.contacto || 'Sin contacto'}</p>
@@ -303,7 +303,7 @@ const BusquedaGlobal = ({ darkMode }) => {
 
       {/* Mobile Search Button (Activator) */}
       <button 
-        className="lg:hidden p-2 rounded-xl text-emerald-600 dark:text-[#C9EA63]"
+        className="lg:hidden p-2 rounded-xl text-[#008a5e] dark:text-[#C9EA63]"
         onClick={() => { setMovilAbierto(true); setTimeout(() => inputRef.current?.focus(), 100); }}
       >
           <Search size={22} />

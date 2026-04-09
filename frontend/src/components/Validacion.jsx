@@ -13,6 +13,96 @@ const getOsaColor = (osStr, isDark) => {
     return isDark ? `hsl(${hue}, 40%, 20%)` : `hsl(${hue}, 70%, 95%)`;
 };
 
+const InstrumentoRow = ({ eq, darkMode, tabActual, abrirDetalles, abrirComentarios, procesarAprobacion, abrirRechazo, finalizarCertificacion, subirCertificado }) => {
+    return (
+        <div 
+            onClick={() => abrirDetalles(eq)}
+            className={`group/row p-3 rounded-xl border flex flex-col sm:flex-row items-center justify-between transition-all cursor-pointer ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10 hover:border-[#C9EA63]/40' : 'bg-white border-slate-200 hover:border-emerald-500 shadow-sm'}`}
+        >
+            <div className="flex items-center gap-3 w-full sm:w-auto overflow-hidden">
+                <div className={`p-2 rounded-lg shrink-0 ${darkMode ? 'bg-[#141f0b] text-[#C9EA63]' : 'bg-slate-50 text-slate-500'}`}>
+                    <Clock size={18} />
+                </div>
+                <div className="flex flex-col min-w-0">
+                    <span className={`font-bold text-sm truncate ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{eq.nombre_instrumento}</span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span className="text-[10px] opacity-60 font-mono">ID: {eq.identificacion || eq.no_serie || 'S/N'}</span>
+                        <span className={`text-[9px] px-1.5 py-0 rounded font-bold uppercase ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-50 text-[#008a5e]'}`}>
+                            {eq.area_laboratorio || 'N/A'}
+                        </span>
+                        {/* Chips de metrólogos */}
+                        <div className="flex flex-wrap gap-1">
+                            {eq.metrologos_asignados?.map((m, mIdx) => (
+                                <span key={mIdx} className={`text-[8px] px-1.5 py-0 rounded-full font-bold border ${m.estatus === 'terminado' ? (darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63] border-[#C9EA63]/30' : 'bg-emerald-100 text-[#008a5e] border-emerald-200') : (darkMode ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' : 'bg-amber-50 text-amber-600 border-amber-100')}`}>
+                                    {m.nombre.split(' ')[0]} {m.estatus === 'terminado' ? '(L)' : '(...)'}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-3 mt-3 sm:mt-0">
+                {(tabActual === 'Certificacion' || tabActual === 'Faltantes') && (
+                    <div className="flex items-center gap-2 mr-2 pr-3 border-r dark:border-amber-900/40 border-slate-200">
+                        {eq.certificado_url ? (
+                            <a 
+                                href={eq.certificado_url} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                onClick={(e) => e.stopPropagation()}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${darkMode ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-600 hover:text-white'}`}
+                            >
+                                <FileText size={14} /> PDF LISTO
+                            </a>
+                        ) : (
+                            <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black cursor-pointer transition-all ${darkMode ? 'bg-amber-950/30 text-amber-500 border border-amber-500/30 hover:border-amber-500' : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'}`}>
+                                <Paperclip size={14} /> SUBIR PDF
+                                <input 
+                                    type="file" 
+                                    accept=".pdf" 
+                                    className="hidden" 
+                                    onChange={(e) => { e.stopPropagation(); subirCertificado(eq.id, e.target.files[0]); }} 
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                            </label>
+                        )}
+                        
+                        {eq.certificado_url && (
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); finalizarCertificacion([eq.id]); }}
+                                className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-indigo-900/40 text-indigo-400' : 'hover:bg-indigo-100 text-indigo-600'}`}
+                                title="Liberar este equipo individualmente"
+                            >
+                                <CheckCircle size={24} />
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                <button 
+                    onClick={(e) => { e.stopPropagation(); abrirComentarios(eq.id); }} 
+                    className={`p-2 rounded-lg border transition-all relative ${darkMode ? 'border-amber-900/50 hover:bg-amber-500 hover:text-[#141f0b] text-amber-500' : 'border-slate-300 hover:bg-amber-600 hover:text-white hover:border-amber-600 text-slate-700'} ${eq.comentarios_count > 0 ? 'ring-2 ring-amber-500/50' : ''}`} 
+                    title="Ver observaciones y trazabilidad"
+                >
+                    <MessageSquare size={16} />
+                </button>
+                {tabActual === 'Pendientes' && (
+                    <div className="flex gap-1.5 ml-2 border-l pl-3 dark:border-amber-900/40 border-slate-200">
+                        <button onClick={(e) => { e.stopPropagation(); procesarAprobacion([eq.id]); }} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-emerald-900/40 text-emerald-500' : 'hover:bg-emerald-100 text-emerald-600'}`} title="Aprobar (A Certificación)">
+                            <CheckCircle size={24} />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); abrirRechazo([eq.id]); }} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-rose-900/40 text-rose-500' : 'hover:bg-rose-100 text-rose-600'}`} title="Rechazar (A Laboratorio)">
+                            <XCircle size={24} />
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
 const Validacion = ({ darkMode, usuario }) => {
     const [equiposGlobales, setEquiposGlobales] = useState([]);
     const [cargando, setCargando] = useState(true);
@@ -75,20 +165,36 @@ const Validacion = ({ darkMode, usuario }) => {
     // Filter by tab
     let equiposFiltroTab = [];
     if (tabActual === 'Pendientes') {
-        equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Validación');
+        equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Aseguramiento');
     } else if (tabActual === 'Certificacion') {
         equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Certificación');
     } else if (tabActual === 'Listos') {
         equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Listo');
     } else if (tabActual === 'Entregados') {
         equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Entregado');
+    } else if (tabActual === 'Faltantes') {
+        equiposFiltroTab = equiposConSLA.filter(e => ['Certificación', 'Listo', 'Entregado'].includes(e.estatus_actual) && !e.certificado_url);
     }
 
-    // Agrupar
-    const gruposOC = {};
+    // Agrupar solo si la OC tiene >= 5 equipos (Umbral solicitado por el usuario)
+    const grouped = [];
+    const ocCounter = {};
     equiposFiltroTab.forEach(e => {
-        if (!gruposOC[e.orden_cotizacion]) gruposOC[e.orden_cotizacion] = [];
-        gruposOC[e.orden_cotizacion].push(e);
+        const oc = e.orden_cotizacion || 'S/N';
+        ocCounter[oc] = (ocCounter[oc] || 0) + 1;
+    });
+
+    const groupsProcessed = new Set();
+    equiposFiltroTab.forEach(e => {
+        const oc = e.orden_cotizacion || 'S/N';
+        if (ocCounter[oc] >= 5) {
+            if (!groupsProcessed.has(oc)) {
+                grouped.push({ isGroup: true, oc, items: equiposFiltroTab.filter(item => (item.orden_cotizacion || 'S/N') === oc) });
+                groupsProcessed.add(oc);
+            }
+        } else {
+            grouped.push({ isGroup: false, ...e });
+        }
     });
 
     const procesarAprobacion = (ids) => {
@@ -104,7 +210,7 @@ const Validacion = ({ darkMode, usuario }) => {
                         estatus: 'Certificación',
                         comentario: 'Aprobado en Aseguramiento'
                     });
-                    toast.success('Pasa a Certificación correctamente.');
+                    toast.success('El equipo ha pasado a Certificación correctamente.');
                     setConfirmModal({ open: false });
                     fetchData();
                 } catch (err) {
@@ -128,18 +234,17 @@ const Validacion = ({ darkMode, usuario }) => {
     };
 
     const finalizarCertificacion = (ids) => {
-        // Validación de integridad: Todos deben tener PDF
-        const incompletos = equiposGlobales.filter(e => ids.includes(e.id) && !e.certificado_url);
-        if (incompletos.length > 0) {
-            toast.error(`No se pueden liberar ${incompletos.length} equipos porque no tienen el certificado PDF cargado.`);
-            return;
-        }
+        // Marcamos listos - Si faltan PDFs, solo advertimos para que el bot de WA no los encuentre
+        const incompletosCount = equiposGlobales.filter(e => ids.includes(e.id) && !e.certificado_url).length;
+        const msgComp = incompletosCount > 0 
+            ? `⚠️ Nota: ${incompletosCount} equipo(s) no tienen certificado PDF. Podrán ser entregados físicamente, pero no consultados por el Bot de WhatsApp.` 
+            : '';
 
         setConfirmModal({
             open: true,
             title: '¿Liberar para Entrega?',
-            message: `¿Estás seguro de que deseas marcar ${ids.length} equipos como LISTOS? Recepción recibirá una notificación instantánea para entregarlos al cliente.`,
-            type: 'info',
+            message: `¿Estás seguro de que deseas marcar ${ids.length} equipos como LISTOS? ${msgComp} Recepción recibirá una notificación instantánea.`,
+            type: incompletosCount > 0 ? 'warning' : 'info',
             onConfirm: async () => {
                 try {
                     await axios.post('/api/instrumentos/bulk-status', {
@@ -171,7 +276,7 @@ const Validacion = ({ darkMode, usuario }) => {
                 estatus: 'Laboratorio',
                 comentario: `RECHAZO: ${motivoRechazo}`
             });
-            toast.error('Enviado de vuelta a Laboratorio.');
+            toast.info('Los equipos han sido enviados de vuelta a Laboratorio.');
             setRechazoModal({ activo: false, ids: [] });
             fetchData();
             window.dispatchEvent(new CustomEvent('actualizacion_operativa'));
@@ -191,21 +296,31 @@ const Validacion = ({ darkMode, usuario }) => {
 
     const enviarComentario = async (e) => {
         e.preventDefault();
+        if (!comentariosActivos || (!nuevoComentario.trim() && !archivoChat)) return;
+        
+        const equipoIdActual = comentariosActivos; // Capturar para cierre estable
         try {
             const fd = new FormData();
             fd.append('mensaje', nuevoComentario);
             if (archivoChat) fd.append('archivo', archivoChat);
 
-            await axios.post(`/api/instrumentos/${comentariosActivos}/comentarios`, fd);
+            await axios.post(`/api/instrumentos/${equipoIdActual}/comentarios`, fd);
             setNuevoComentario('');
             setArchivoChat(null);
-            const res = await axios.get(`/api/instrumentos/${comentariosActivos}/comentarios`);
+            
+            // Refrescar lista
+            const res = await axios.get(`/api/instrumentos/${equipoIdActual}/comentarios`);
             setListaComentarios(res.data);
-        } catch(err) {}
+            
+            // Notificar a otros si es necesario (socket ya lo hace en backend si está configurado)
+        } catch(err) {
+            console.error("Error al enviar comentario:", err);
+            toast.error("Error al enviar: " + (err.response?.data?.error || "Revisa tu conexión"));
+        }
     };
 
     // KPIs generales
-    const validacionList = equiposConSLA.filter(e => e.estatus_actual === 'Validación');
+    const validacionList = equiposConSLA.filter(e => e.estatus_actual === 'Aseguramiento');
     const certList = equiposConSLA.filter(e => e.estatus_actual === 'Certificación');
     const listosList = equiposConSLA.filter(e => e.estatus_actual === 'Listo');
     const entregadosList = equiposConSLA.filter(e => e.estatus_actual === 'Entregado');
@@ -215,13 +330,14 @@ const Validacion = ({ darkMode, usuario }) => {
     const countCert = certList.length;
     const countCertSinDoc = certList.filter(e => !e.certificado_url).length;
     const countEntregados = entregadosList.length;
+    const countFaltantes = equiposConSLA.filter(e => ['Certificación', 'Listo', 'Entregado'].includes(e.estatus_actual) && !e.certificado_url).length;
 
     return (
         <div className="w-full relative pb-24 animate-in fade-in">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-6 mb-6 border-opacity-20 border-[#C9EA63]">
                 <div>
                     <h2 className={`text-2xl md:text-3xl font-bold flex items-center gap-3 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
-                        <FileCheck className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} size={32} />
+                        <FileCheck className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-500'} size={32} />
                         Área de Aseguramiento
                     </h2>
                     <p className={`mt-1 md:mt-2 text-xs md:text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
@@ -232,7 +348,7 @@ const Validacion = ({ darkMode, usuario }) => {
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div className={`p-4 rounded-xl border flex flex-col ${darkMode ? 'bg-amber-950/20 border-amber-900/50 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-                    <div className="text-[10px] uppercase font-bold opacity-80 mb-2 flex items-center gap-1"><Package size={14}/> Pendientes de Validar</div>
+                    <div className="text-[10px] uppercase font-bold opacity-80 mb-2 flex items-center gap-1"><Package size={14}/> Pendientes Aseguramiento </div>
                     <div className="text-3xl font-black">{countTotal}</div>
                 </div>
                 <div className={`p-4 rounded-xl border flex flex-col ${darkMode ? 'bg-rose-950/20 border-rose-900/50 text-rose-400' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
@@ -255,7 +371,7 @@ const Validacion = ({ darkMode, usuario }) => {
                     onClick={() => setTabActual('Pendientes')}
                     className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Pendientes' ? (darkMode ? 'border-amber-500 text-amber-400' : 'border-amber-600 text-amber-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
                 >
-                    Pendientes de Validar
+                    Pendientes de Aseguramiento
                 </button>
                 <button 
                     onClick={() => setTabActual('Certificacion')}
@@ -275,147 +391,90 @@ const Validacion = ({ darkMode, usuario }) => {
                 >
                     Entregados
                 </button>
+                <button 
+                    onClick={() => setTabActual('Faltantes')}
+                    className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Faltantes' ? (darkMode ? 'border-rose-500 text-rose-400' : 'border-rose-600 text-rose-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
+                >
+                    Faltantes de PDF {countFaltantes > 0 && <span className="ml-2 bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{countFaltantes}</span>}
+                </button>
             </div>
 
             <div className={`border rounded-2xl overflow-hidden ${darkMode ? 'border-amber-900/30 bg-[#141f0b]' : 'border-slate-200 bg-white'}`}>
-                {Object.keys(gruposOC).length === 0 ? (
+                {grouped.length === 0 ? (
                     <div className="p-12 text-center opacity-50 flex flex-col items-center justify-center">
                         {tabActual === 'Pendientes' ? (
                             <>
                                 <CheckCircle size={48} className="text-emerald-500 mb-4 opacity-30" />
-                                <span className="font-bold">Bandeja Vacía! No hay nada pendiente de validar.</span>
+                                <span className="font-bold text-lg mb-2">¡Bandeja Vacía!</span>
+                                <span className="text-sm opacity-60">No hay equipos pendientes de validación en este momento.</span>
                             </>
                         ) : (
                             <>
                                 <Package size={48} className="text-slate-500 mb-4 opacity-30" />
-                                <span className="font-bold">Aún no hay equipos aprobados en el historial.</span>
+                                <span className="font-bold text-lg mb-2">Sin equipos</span>
+                                <span className="text-sm opacity-60">Aún no hay registros en esta sección.</span>
                             </>
                         )}
                     </div>
                 ) : (
                     <div className="divide-y divide-slate-100 dark:divide-amber-900/20">
-                        {Object.entries(gruposOC).map(([oc, items]) => (
-                            <div key={oc} className="group flex flex-col md:flex-row relative">
-                                {/* Cabecera de la Orden (Izquierda en desktop, Arriba en móvil) */}
-                                <div 
-                                    className={`p-4 w-full md:w-64 flex flex-col justify-center border-b md:border-b-0 md:border-r transition-colors ${darkMode ? 'bg-amber-950/10 border-amber-900/20' : 'bg-slate-50 border-slate-100'}`}
-                                    style={{ borderLeft: `4px solid ${getOsaColor(oc, darkMode)}` }}
-                                >
-                                    <h4 className={`font-black uppercase tracking-wider text-lg ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{oc}</h4>
-                                    <p className="text-xs opacity-60 font-bold mb-3">{items[0]?.empresa}</p>
-                                    
-                                    {tabActual === 'Pendientes' && (
-                                        <div className="flex gap-2 w-full mt-auto">
-                                            <button onClick={() => procesarAprobacion(items.map(e => e.id))} className={`flex-1 flex justify-center items-center py-2 rounded border border-emerald-500 text-emerald-600 bg-emerald-50 text-xs font-bold hover:bg-emerald-600 hover:text-white transition-colors dark:bg-emerald-950/30 dark:border-emerald-600 dark:text-emerald-400 dark:hover:bg-emerald-600 dark:hover:text-white`}>
-                                                <CheckCircle size={14} className="mr-1" /> Pasar Todo
-                                            </button>
-                                            <button onClick={() => abrirRechazo(items.map(e => e.id))} className={`flex-1 flex justify-center items-center py-2 rounded border border-rose-500 text-rose-600 bg-rose-50 text-xs font-bold hover:bg-rose-600 hover:text-white transition-colors dark:bg-rose-950/30 dark:border-rose-600 dark:text-rose-400 dark:hover:bg-rose-600 dark:hover:text-white`}>
-                                                <XCircle size={14} className="mr-1" /> Rechazar Todo
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {tabActual === 'Certificacion' && (
-                                        <div className="flex flex-col gap-2 w-full mt-auto">
-                                            <button 
-                                                onClick={() => finalizarCertificacion(items.map(e => e.id))} 
-                                                disabled={items.some(e => !e.certificado_url)}
-                                                className={`w-full flex justify-center items-center py-2 rounded border font-black text-[10px] transition-all ${items.some(e => !e.certificado_url) ? 'opacity-40 cursor-not-allowed border-slate-300' : 'border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600'}`}
-                                            >
-                                                <CheckCircle size={14} className="mr-1" /> Liberar Lote a Entrega
-                                            </button>
-                                            {items.some(e => !e.certificado_url) && <p className="text-[9px] text-center opacity-70 italic">Faltan PDFs en este lote</p>}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Items de la orden */}
-                                <div className={`flex-1 p-2 md:p-4 space-y-2 pb-4 ${darkMode ? 'bg-[#141f0b]/50' : 'bg-slate-50'}`}>
-                                    {items.map(eq => {
-                                        let badgeColor = '';
-                                        if (eq.prioridad === 'Rojo') badgeColor = 'bg-rose-500 text-white';
-                                        if (eq.prioridad === 'Amarillo') badgeColor = 'bg-amber-500 text-white';
-
-                                        return (
-                                            <div 
-                                                key={eq.id} 
-                                                onClick={() => abrirDetalles(eq)}
-                                                className={`flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-md ${darkMode ? 'bg-[#1b2b10] border-amber-900/30 hover:border-amber-500/50 hover:bg-[#1b2b10]/80' : 'bg-white border-slate-200 hover:border-amber-300 hover:bg-slate-50'}`}
-                                            >
-                                                <div className={`flex flex-col min-w-0 pr-4 transition-colors`}>
-                                                    <span className={`font-bold text-sm truncate flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`} title={eq.nombre_instrumento}>
-                                                        {eq.nombre_instrumento}
-                                                    </span>
-                                                    <div className="flex items-center gap-2 mt-1">
-                                                        <span className="text-[10px] opacity-60 font-mono border px-1 rounded">ID: {eq.identificacion || eq.no_serie || 'S/N'}</span>
-                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-black ${badgeColor || (darkMode ? 'bg-[#2a401c] text-emerald-500' : 'bg-slate-200 text-slate-700')}`}>
-                                                            SLA: {eq.slaRestante} días
-                                                        </span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-3 mt-3 sm:mt-0">
-                                                    {tabActual === 'Certificacion' && (
-                                                        <div className="flex items-center gap-2 mr-2 pr-3 border-r dark:border-amber-900/40 border-slate-200">
-                                                            {eq.certificado_url ? (
-                                                                <a 
-                                                                    href={eq.certificado_url} 
-                                                                    target="_blank" 
-                                                                    rel="noreferrer" 
-                                                                    onClick={(e) => e.stopPropagation()}
-                                                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${darkMode ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-600 hover:text-white'}`}
-                                                                >
-                                                                    <FileText size={14} /> PDF LISTO
-                                                                </a>
-                                                            ) : (
-                                                                <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black cursor-pointer transition-all ${darkMode ? 'bg-amber-950/30 text-amber-500 border border-amber-500/30 hover:border-amber-500' : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'}`}>
-                                                                    <Paperclip size={14} /> SUBIR PDF
-                                                                    <input 
-                                                                        type="file" 
-                                                                        accept=".pdf" 
-                                                                        className="hidden" 
-                                                                        onChange={(e) => { e.stopPropagation(); subirCertificado(eq.id, e.target.files[0]); }} 
-                                                                        onClick={(e) => e.stopPropagation()}
-                                                                    />
-                                                                </label>
-                                                            )}
-                                                            
-                                                            {eq.certificado_url && (
-                                                                <button 
-                                                                    onClick={(e) => { e.stopPropagation(); finalizarCertificacion([eq.id]); }}
-                                                                    className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-indigo-900/40 text-indigo-400' : 'hover:bg-indigo-100 text-indigo-600'}`}
-                                                                    title="Liberar este equipo individualmente"
-                                                                >
-                                                                    <CheckCircle size={24} />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    )}
-
-                                                    <button 
-                                                        onClick={(e) => { e.stopPropagation(); abrirComentarios(eq.id); }} 
-                                                        className={`p-2 rounded-lg border transition-all relative ${darkMode ? 'border-amber-900/50 hover:bg-amber-500 hover:text-[#141f0b] text-amber-500' : 'border-slate-300 hover:bg-amber-600 hover:text-white hover:border-amber-600 text-slate-700'} ${eq.comentarios_count > 0 ? 'ring-2 ring-amber-500/50' : ''}`} 
-                                                        title="Ver observaciones y trazabilidad"
-                                                    >
-                                                        <MessageSquare size={16} />
-                                                    </button>
-                                                    {tabActual === 'Pendientes' && (
-                                                        <div className="flex gap-1.5 ml-2 border-l pl-3 dark:border-amber-900/40 border-slate-200">
-                                                            <button onClick={(e) => { e.stopPropagation(); procesarAprobacion([eq.id]); }} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-emerald-900/40 text-emerald-500' : 'hover:bg-emerald-100 text-emerald-600'}`} title="Aprobar (A Certificación)">
-                                                                <CheckCircle size={24} />
-                                                            </button>
-                                                            <button onClick={(e) => { e.stopPropagation(); abrirRechazo([eq.id]); }} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-rose-900/40 text-rose-500' : 'hover:bg-rose-100 text-rose-600'}`} title="Rechazar (A Laboratorio)">
-                                                                <XCircle size={24} />
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </div>
+                        {grouped.map((node, gidx) => {
+                            if (node.isGroup) {
+                                const { oc, items } = node;
+                                return (
+                                    <div key={`group-${oc}-${gidx}`} className="group flex flex-col md:flex-row relative">
+                                        {/* Cabecera de la Orden */}
+                                        <div 
+                                            className={`p-4 w-full md:w-64 flex flex-col justify-center border-b md:border-b-0 md:border-r transition-colors ${darkMode ? 'bg-amber-950/10 border-amber-900/20' : 'bg-slate-50 border-slate-100'}`}
+                                            style={{ borderLeft: `6px solid ${getOsaColor(oc, darkMode)}` }}
+                                        >
+                                            <div className="flex items-center justify-between mb-1">
+                                                <h4 className={`font-black uppercase tracking-wider text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{oc}</h4>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${darkMode ? 'bg-[#C9EA63] text-black shadow-lg shadow-[#C9EA63]/10' : 'bg-[#008a5e] text-white shadow-lg shadow-[#008a5e]/20'}`}>
+                                                    {items.length} EQUIPOS
+                                                </span>
                                             </div>
-                                        )
-                                    })}
-                                </div>
-                            </div>
-                        ))}
+                                            <p className="text-[10px] opacity-60 font-bold mb-3 truncate">{items[0]?.empresa}</p>
+                                            
+                                            {tabActual === 'Pendientes' && (
+                                                <div className="flex gap-2 w-full mt-auto">
+                                                    <button onClick={(e) => { e.stopPropagation(); procesarAprobacion(items.map(i => i.id)); }} className={`flex-1 flex justify-center items-center py-2 rounded-lg font-black text-[10px] transition-all ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b] shadow-lg shadow-[#C9EA63]/10' : 'bg-[#008a5e] hover:bg-[#007b55] text-white shadow-lg shadow-[#008a5e]/20'}`}>
+                                                        APROBAR
+                                                    </button>
+                                                    <button onClick={(e) => { e.stopPropagation(); abrirRechazo(items.map(i => i.id)); }} className={`flex-1 flex justify-center items-center py-2 rounded-lg font-black text-[10px] transition-all bg-rose-600 text-white hover:bg-rose-700 shadow-lg shadow-rose-600/20`}>
+                                                        RECHAZAR
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            {tabActual === 'Certificacion' && (
+                                                <div className="mt-auto">
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); finalizarCertificacion(items.map(i => i.id)); }} 
+                                                        className={`w-full flex justify-center items-center py-2 rounded-lg font-black text-[10px] transition-all ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b] shadow-lg shadow-[#C9EA63]/10' : 'bg-[#008a5e] hover:bg-[#007b55] text-white shadow-lg shadow-[#008a5e]/20'}`}
+                                                    >
+                                                        LIBERAR LOTE
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className={`flex-1 p-2 md:p-4 space-y-2 pb-4 ${darkMode ? 'bg-[#141f0b]/50' : 'bg-slate-50'}`}>
+                                            {items.map(eq => (
+                                                <InstrumentoRow key={eq.id} eq={eq} darkMode={darkMode} tabActual={tabActual} abrirDetalles={abrirDetalles} abrirComentarios={abrirComentarios} procesarAprobacion={procesarAprobacion} abrirRechazo={abrirRechazo} finalizarCertificacion={finalizarCertificacion} subirCertificado={subirCertificado} />
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            } else {
+                                const eq = node;
+                                return (
+                                    <div key={eq.id} className={`p-4 border-b last:border-b-0 ${darkMode ? 'hover:bg-amber-900/5' : 'hover:bg-slate-50'}`}>
+                                        <InstrumentoRow eq={eq} darkMode={darkMode} tabActual={tabActual} abrirDetalles={abrirDetalles} abrirComentarios={abrirComentarios} procesarAprobacion={procesarAprobacion} abrirRechazo={abrirRechazo} finalizarCertificacion={finalizarCertificacion} subirCertificado={subirCertificado} />
+                                    </div>
+                                );
+                            }
+                        })}
                     </div>
                 )}
             </div>
@@ -634,6 +693,25 @@ const Validacion = ({ darkMode, usuario }) => {
                                                 <span className="font-bold w-24">Ubicación:</span>
                                                 <span className="opacity-80">{equipoDetalle.ubicacion || 'N/A'}</span>
                                             </div>
+                                            <div className="flex items-center gap-3 text-sm">
+                                                <FileCheck size={16} className="opacity-40 text-emerald-500" />
+                                                <span className="font-bold w-24">Área Lab:</span>
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black tracking-wider uppercase ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-50 text-emerald-700'}`}>
+                                                    {equipoDetalle.area_laboratorio || 'No definida'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <section>
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Metrólogos Asignados</h4>
+                                        <div className="flex flex-wrap gap-2">
+                                            {equipoDetalle.metrologos_asignados?.length ? equipoDetalle.metrologos_asignados.map((m, idx) => (
+                                                <div key={idx} className={`px-3 py-2 rounded-xl border flex items-center gap-2 transition-all ${m.estatus === 'terminado' ? (darkMode ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700') : (darkMode ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' : 'bg-amber-50 border-amber-200 text-amber-700')}`}>
+                                                    <span className="text-xs font-bold">{m.nombre}</span>
+                                                    {m.estatus === 'terminado' ? <CheckCircle size={14} /> : <Clock size={14} className="animate-pulse" />}
+                                                </div>
+                                            )) : <span className="text-xs opacity-40 italic">Sin personal asignado</span>}
                                         </div>
                                     </section>
 
@@ -671,7 +749,7 @@ const Validacion = ({ darkMode, usuario }) => {
                         
                         {/* Footer del Modal */}
                         <div className={`p-6 border-t flex justify-end shrink-0 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/10' : 'bg-white border-slate-100'}`}>
-                            <button onClick={() => setModalDetalle(false)} className={`px-6 py-2 rounded-xl font-bold transition-colors ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
+                            <button onClick={() => setModalDetalle(false)} className={`px-10 py-3 rounded-2xl font-black uppercase tracking-widest text-xs transition-all ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b] shadow-lg shadow-[#C9EA63]/10' : 'bg-[#008a5e] hover:bg-[#007b55] text-white shadow-lg shadow-[#008a5e]/20'}`}>
                                 Entendido
                             </button>
                         </div>
@@ -699,7 +777,7 @@ const Validacion = ({ darkMode, usuario }) => {
                             </button>
                             <button 
                                 onClick={confirmModal.onConfirm}
-                                className={`flex-[2] py-4 font-black rounded-2xl transition-all shadow-xl active:scale-95 ${confirmModal.type === 'success' ? 'bg-emerald-600' : 'bg-indigo-600'} text-white hover:brightness-110`}
+                                className={`flex-[2] py-4 font-black rounded-2xl transition-all shadow-xl active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : (confirmModal.type === 'success' ? 'bg-[#008a5e] hover:bg-[#007b55]' : 'bg-indigo-600 hover:bg-indigo-700')} text-white hover:brightness-110`}
                             >
                                 Confirmar Acción
                             </button>

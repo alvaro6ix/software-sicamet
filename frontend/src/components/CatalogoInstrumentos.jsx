@@ -24,7 +24,7 @@ const CatalogoInstrumentos = ({ darkMode }) => {
   const handleDeleteMasivo = async () => {
     try {
       await axios.delete('/api/catalogo/instrumentos/all');
-      alert(`✅ Todos los registros fueron eliminados exitosamente.`);
+      alert(`Todos los registros fueron eliminados exitosamente.`);
       setModalConfirmarVaciar(false);
       fetchInstrumentos();
     } catch(err) {
@@ -53,7 +53,7 @@ const CatalogoInstrumentos = ({ darkMode }) => {
 
     try {
       const res = await axios.post('/api/importar-catalogo', body);
-      alert(`✅ ${res.data.message}`);
+      alert(`${res.data.message}`);
       fetchInstrumentos();
     } catch (err) { alert("Error al subir el catálogo excel."); }
     finally { setCargandoExcel(false); event.target.value = null; }

@@ -24,7 +24,7 @@ const Marcas = ({ darkMode }) => {
   const handleDeleteMasivo = async () => {
     try {
       await axios.delete('/api/catalogo/marcas/all');
-      alert(`✅ Todos los registros fueron eliminados exitosamente.`);
+      alert(`Todos los registros fueron eliminados exitosamente.`);
       setModalConfirmarVaciar(false);
       fetchMarcas();
     } catch(err) {
@@ -53,7 +53,7 @@ const Marcas = ({ darkMode }) => {
 
     try {
       const res = await axios.post('/api/importar-catalogo', body);
-      alert(`✅ ${res.data.message}`);
+      alert(`${res.data.message}`);
       fetchMarcas();
     } catch (err) { alert("Error al subir marcas xlsx."); }
     finally { setCargandoExcel(false); event.target.value = null; }

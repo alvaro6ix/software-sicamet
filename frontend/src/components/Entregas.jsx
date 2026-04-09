@@ -12,7 +12,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, titulo, mensaje, darkMode, s
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center items-center p-4 animate-in fade-in duration-200">
       <div className={`w-full max-w-md rounded-3xl shadow-2xl p-6 md:p-8 border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20 text-[#F2F6F0]' : 'bg-white border-slate-200 text-slate-800'}`}>
-        <div className="flex items-center justify-center w-14 h-14 rounded-full bg-[#C9EA63]/10 text-[#C9EA63] mb-6 mx-auto">
+        <div className="flex items-center justify-center w-14 h-14 rounded-full bg-[#008a5e]/10 text-[#008a5e] mb-6 mx-auto">
           <Truck size={32} />
         </div>
         <h2 className="text-2xl font-black text-center mb-2">{titulo}</h2>
@@ -25,9 +25,9 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, titulo, mensaje, darkMode, s
           >
             Cancelar
           </button>
-          <button 
+           <button 
             onClick={onConfirm} 
-            className={`flex-[2] py-3 font-black rounded-2xl transition-all shadow-lg shadow-[#C9EA63]/10 active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0cc56]' : 'bg-[#65D067] text-white hover:bg-[#54b356]'}`}
+            className={`flex-[2] py-3 font-black rounded-2xl transition-all shadow-lg shadow-[#008a5e]/10 active:scale-95 bg-[#008a5e] text-white hover:bg-[#007b55]`}
           >
             Confirmar Entrega
           </button>
@@ -131,9 +131,7 @@ const Entregas = ({ darkMode, usuario }) => {
         {selectedIds.length > 0 && (
           <button
             onClick={() => handleOpenConfirm(selectedIds)}
-            className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-black shadow-xl transition-all scale-105 active:scale-95 ${
-              darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0cc56]' : 'bg-[#65D067] text-white hover:bg-[#54b356]'
-            }`}
+            className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-black shadow-xl transition-all scale-105 active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-[#C9EA63]/10 hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white shadow-[#008a5e]/20 hover:bg-[#007b55]'}`}
           >
             <CheckCircle2 size={20} />
             Entregar {selectedIds.length} seleccionados
@@ -177,11 +175,11 @@ const Entregas = ({ darkMode, usuario }) => {
                   darkMode ? 'bg-[#C9EA63]/5 border-[#C9EA63]/10 group-hover:bg-[#C9EA63]/10' : 'bg-gray-50/50 border-gray-100 group-hover:bg-gray-50'
                 }`}>
                   <div className="flex items-center gap-4">
-                    <button 
+                     <button 
                       onClick={() => toggleSelectAll(items.map(i => i.id))}
                       className={`w-7 h-7 rounded-xl border-2 flex items-center justify-center transition-all ${
                         allSelected 
-                          ? (darkMode ? 'bg-[#C9EA63] border-[#C9EA63] text-[#141f0b]' : 'bg-[#65D067] border-[#65D067] text-white')
+                          ? (darkMode ? 'bg-[#C9EA63] border-[#C9EA63] text-black' : 'bg-[#008a5e] border-[#008a5e] text-white')
                           : (darkMode ? 'border-[#C9EA63]/20 hover:border-[#C9EA63]/50' : 'border-gray-300 hover:border-gray-400')
                       }`}
                     >
@@ -215,11 +213,11 @@ const Entregas = ({ darkMode, usuario }) => {
                       }`}
                     >
                       <div className="flex items-start gap-5 flex-1">
-                        <button 
+                         <button 
                           onClick={() => toggleSelect(ins.id)}
                           className={`mt-1 w-6 h-6 rounded-lg flex-shrink-0 border-2 flex items-center justify-center transition-all ${
                             selectedIds.includes(ins.id)
-                              ? (darkMode ? 'bg-[#C9EA63] border-[#C9EA63] text-[#141f0b]' : 'bg-[#65D067] border-[#65D067] text-white')
+                              ? (darkMode ? 'bg-[#C9EA63] border-[#C9EA63] text-black' : 'bg-[#008a5e] border-[#008a5e] text-white')
                               : (darkMode ? 'border-[#C9EA63]/10 hover:border-[#C9EA63]/40' : 'border-gray-200 hover:border-gray-300')
                           }`}
                         >
@@ -235,39 +233,43 @@ const Entregas = ({ darkMode, usuario }) => {
                             <span className="text-xs font-bold opacity-50 flex items-center gap-1.5">
                               <User size={12} className="text-[#C9EA63]" /> {ins.persona || 'Sin asignar'}
                             </span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-black uppercase ${darkMode ? 'bg-amber-500/10 text-amber-500' : 'bg-amber-100 text-amber-800'}`}>Área: {ins.area_laboratorio || 'N/A'}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                             {ins.metrologos_asignados?.map((m, idx) => (
+                               <span key={idx} className={`text-[9px] px-2 py-0.5 rounded font-bold border ${darkMode ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                 {m.nombre.split(' ')[0]}
+                               </span>
+                             ))}
                           </div>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-4">
                         {ins.certificado_url ? (
-                          <a 
+                           <a 
                             href={`http://localhost:3001${ins.certificado_url}`} 
                             target="_blank" 
                             rel="noreferrer"
-                            className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all shadow-sm ${
-                              darkMode ? 'bg-[#253916] text-[#C9EA63] border border-[#C9EA63]/20 hover:bg-[#C9EA63] hover:text-[#141f0b]' : 'bg-white text-gray-700 border border-gray-200 hover:bg-[#65D067] hover:text-white hover:border-[#65D067]'
-                            }`}
+                            className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all shadow-sm ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b] shadow-[#C9EA63]/10' : 'bg-[#008a5e] text-white hover:bg-[#007b55] shadow-[#008a5e]/20'}`}
                           >
                             <FileText size={16} />
                             Ver PDF
                             <ExternalLink size={12} />
                           </a>
                         ) : (
-                          <div className="flex items-center gap-2 px-5 py-2.5 rounded-2xl text-[11px] font-bold opacity-30 border border-dashed border-gray-400">
+                          <div className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-[11px] font-bold opacity-30 border border-dashed ${darkMode ? 'border-[#C9EA63]/30 text-[#C9EA63]' : 'border-gray-400 text-gray-400'}`}>
                              SIN CERTIFICADO
                           </div>
                         )}
                         
-                        <button
-                          onClick={() => handleOpenConfirm([ins.id])}
-                          className={`p-3 rounded-2xl transition-all ${
-                            darkMode ? 'hover:bg-[#C9EA63] hover:text-[#141f0b] text-[#C9EA63] bg-[#C9EA63]/10' : 'hover:bg-[#65D067] hover:text-white text-[#65D067] bg-[#65D067]/10'
-                          }`}
-                          title="Entregar ahora"
-                        >
-                          <CheckCircle2 size={24} />
-                        </button>
+                         <button
+                           onClick={() => handleOpenConfirm([ins.id])}
+                           className={`p-3 rounded-2xl transition-all ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63] hover:bg-[#C9EA63] hover:text-[#141f0b]' : 'bg-[#008a5e]/10 text-[#008a5e] hover:bg-[#008a5e] hover:text-white'}`}
+                           title="Entregar ahora"
+                         >
+                           <CheckCircle2 size={24} />
+                         </button>
                       </div>
                     </div>
                   ))}

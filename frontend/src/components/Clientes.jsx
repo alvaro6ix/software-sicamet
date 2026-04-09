@@ -46,7 +46,7 @@ const Clientes = ({ darkMode }) => {
 
     try {
       const res = await axios.post('/api/importar-catalogo', body);
-      alert(`✅ ${res.data.message}`);
+      alert(`${res.data.message}`);
       fetchClientes();
     } catch (err) {
       alert("Error al subir el catálogo. Verifica que el archivo sea Excel (.xlsx) y tenga una columna 'nombre'.");
@@ -80,7 +80,7 @@ const Clientes = ({ darkMode }) => {
   const handleDeleteMasivo = async () => {
     try {
       await axios.delete('/api/catalogo/clientes/all');
-      alert(`✅ Todos los registros fueron eliminados exitosamente.`);
+      alert(`Todos los registros fueron eliminados exitosamente.`);
       setModalConfirmarVaciar(false);
       fetchClientes();
     } catch (err) {
@@ -135,7 +135,7 @@ const Clientes = ({ darkMode }) => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 border-b pb-6 border-opacity-20 border-[#C9EA63]">
         <div>
           <h2 className={`text-2xl md:text-3xl font-bold flex items-center gap-3 ${textTitle}`}>
-            <Users className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} size={32} />
+            <Users className={darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'} size={32} />
             Directorio de Clientes
           </h2>
           <p className={`mt-1 md:mt-2 text-xs md:text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
@@ -144,17 +144,17 @@ const Clientes = ({ darkMode }) => {
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-3 w-full md:w-auto justify-end">
-          <button onClick={() => setModalAbierto(true)} className={`px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 ${darkMode ? 'bg-[#141f0b] text-[#C9EA63] border border-[#C9EA63]/30 hover:bg-[#314a1c]' : 'bg-white border border-gray-200 text-slate-700 hover:bg-slate-50 shadow-sm'}`}>
+          <button onClick={() => setModalAbierto(true)} className={`px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 ${darkMode ? 'bg-[#141f0b] text-[#C9EA63] border border-[#C9EA63]/30 hover:bg-[#314a1c]' : 'bg-white border border-gray-200 text-[#008a5e] hover:bg-emerald-50 shadow-sm'}`}>
             <Plus size={16} /> Nuevo Manual
           </button>
           
           <div className="flex flex-col items-stretch sm:items-end gap-2">
             <div className="flex flex-wrap gap-2">
               <input type="file" accept=".xlsx, .xls" ref={excelInputRef} onChange={handleSubirExcel} className="hidden" />
-              <button onClick={() => excelInputRef.current.click()} disabled={cargandoExcel} className={`flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 shadow-md ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'} ${cargandoExcel ? 'opacity-50' : ''}`}>
+              <button onClick={() => excelInputRef.current.click()} disabled={cargandoExcel} className={`flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 shadow-md ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'} ${cargandoExcel ? 'opacity-50' : ''}`}>
                 {cargandoExcel ? <Loader2 className="animate-spin" size={16} /> : <FileUp size={16} />} Cargar
               </button>
-              <button onClick={handleExportarExcel} className={`flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 shadow-md ${darkMode ? 'bg-[#141f0b] text-[#C9EA63] border border-[#C9EA63]/50 hover:bg-[#314a1c]' : 'bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100'}`}>
+              <button onClick={handleExportarExcel} className={`flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 shadow-md ${darkMode ? 'bg-[#141f0b] text-[#C9EA63] border border-[#C9EA63]/50 hover:bg-[#314a1c]' : 'bg-emerald-50 text-[#008a5e] border border-emerald-100 hover:bg-emerald-100'}`}>
                 <FileDown size={16} /> Exportar
               </button>
               <button onClick={() => setModalConfirmarVaciar(true)} className={`flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-xl font-bold text-sm whitespace-nowrap transition-all focus:outline-none flex items-center justify-center gap-2 shadow-md ${darkMode ? 'bg-rose-900 text-rose-300 hover:bg-rose-800' : 'bg-rose-100 text-rose-600 hover:bg-rose-200'}`}>
@@ -184,7 +184,7 @@ const Clientes = ({ darkMode }) => {
 
         <div className={`border rounded-xl overflow-x-auto shadow-sm ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'}`}>
           <table className="w-full text-sm text-left">
-            <thead className={`text-xs uppercase border-b ${darkMode ? 'bg-[#141f0b] text-[#C9EA63]' : 'bg-slate-100 text-slate-600'}`}>
+            <thead className={`text-xs uppercase border-b ${darkMode ? 'bg-[#141f0b] text-[#C9EA63]' : 'bg-emerald-50 text-[#008a5e]'}`}>
               <tr>
                 <th className="px-4 py-4">ID</th>
                 <th className="px-4 py-4">Nombre de la Empresa</th>
@@ -202,8 +202,8 @@ const Clientes = ({ darkMode }) => {
                   <td className="px-4 py-3 opacity-80 truncate max-w-xs">{cli.email}</td>
                   <td className={`px-4 py-3 text-center sticky right-0 z-10 transition-colors ${darkMode ? 'bg-[#253916] group-hover:bg-[#314a1c]' : 'bg-white group-hover:bg-emerald-50'} shadow-[inset_1px_0_0_rgba(0,0,0,0.1)]`}>
                     <div className="flex justify-center gap-2">
-                      <button onClick={() => setViendoItem(cli)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-emerald-900/40 text-emerald-400' : 'hover:bg-emerald-50 text-emerald-500'}`}><Eye size={16} /></button>
-                      <button onClick={() => abrirModalEditar(cli)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#141f0b] text-[#C9EA63]' : 'hover:bg-emerald-100 text-emerald-600'}`}><Edit2 size={16} /></button>
+                      <button onClick={() => setViendoItem(cli)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-emerald-900/40 text-[#C9EA63]' : 'hover:bg-emerald-50 text-[#008a5e]'}`}><Eye size={16} /></button>
+                      <button onClick={() => abrirModalEditar(cli)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#141f0b] text-[#C9EA63]' : 'hover:bg-emerald-100 text-[#008a5e]'}`}><Edit2 size={16} /></button>
                       <button onClick={() => abrirModalEliminar(cli.id)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-red-900/40 text-red-400' : 'hover:bg-red-50 text-red-500'}`}><Trash2 size={16} /></button>
                     </div>
                   </td>
@@ -260,7 +260,7 @@ const Clientes = ({ darkMode }) => {
                   <label className={`block text-sm font-semibold mb-1 ${darkMode ? 'text-[#F2F6F0]/80' : 'text-gray-600'}`}>Email</label>
                   <input type="email" value={nuevoItem.email} onChange={(e) => setNuevoItem({ ...nuevoItem, email: e.target.value })} className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'border-gray-300 text-slate-800'}`} />
                 </div>
-                <button type="submit" className={`w-full mt-4 font-bold py-4 px-4 rounded-2xl flex justify-center items-center gap-2 transition-colors shadow-lg ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b]' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
+                <button type="submit" className={`w-full mt-4 font-bold py-4 px-4 rounded-2xl flex justify-center items-center gap-2 transition-colors shadow-lg ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b]' : 'bg-[#008a5e] hover:bg-[#007b55] text-white'}`}>
                   <Save size={20} /> Guardar
                 </button>
               </form>

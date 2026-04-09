@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, X, AlertTriangle, MessageSquare, RotateCcw, ChevronRight, RefreshCw } from 'lucide-react';
+import { Bell, X, AlertTriangle, MessageSquare, RotateCcw, ChevronRight, RefreshCw, Zap } from 'lucide-react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
@@ -20,10 +20,8 @@ const NotificacionesBell = ({ darkMode }) => {
   const [notifs, setNotifs] = useState([]);
   const [abierto, setAbierto] = useState(false);
   const [cargando, setCargando] = useState(false);
-  const [leidas, setLeidas] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(LEIDAS_KEY) || '[]')); }
-    catch { return new Set(); }
-  });
+  const [leidas, setLeidas] = useState(new Set());
+  const [vistos, setVistos] = useState(new Set());
   const panelRef = useRef(null);
   const navigate = useNavigate();
 
@@ -69,14 +67,20 @@ const NotificacionesBell = ({ darkMode }) => {
   const marcarLeida = (id) => {
     const nls = new Set([...leidas, id]);
     setLeidas(nls);
-    localStorage.setItem(LEIDAS_KEY, JSON.stringify([...nls]));
   };
 
-  const marcarTodas = (e) => {
-    e?.stopPropagation();
-    const nls = new Set([...leidas, ...notifs.map(n => n.id)]);
-    setLeidas(nls);
-    localStorage.setItem(LEIDAS_KEY, JSON.stringify([...nls]));
+  const marcarEntendido = async (e, id) => {
+    e.stopPropagation();
+    try {
+        await axios.post(`/api/notificaciones/${id}/visto`, { id_usuario: 1 }); // ID estático o de auth
+        setVistos(new Set([...vistos, id]));
+        fetchNotifs();
+    } catch(err) { console.error("Error al marcar visto"); }
+  };
+
+  const marcarTodas = () => {
+    const todosIds = notifs.map(n => n.id);
+    setLeidas(new Set([...leidas, ...todosIds]));
   };
 
   // Metadata visual por tipo + urgencia
@@ -95,6 +99,11 @@ const NotificacionesBell = ({ darkMode }) => {
     if (n.tipo === 'rechazo') return {
       icon: <RotateCcw size={16} className="text-orange-400 flex-shrink-0" />, badge: 'bg-orange-400', rowExtra: '',
     };
+    if (n.tipo === 'global') return {
+      icon: <Zap size={16} className="text-yellow-400 flex-shrink-0" />, 
+      badge: 'bg-yellow-400', 
+      rowExtra: (darkMode ? 'bg-yellow-950/20 border-l-4 border-yellow-500' : 'bg-yellow-50 border-l-4 border-yellow-400')
+    };
     return { icon: <Bell size={16} className="opacity-50 flex-shrink-0" />, badge: 'bg-slate-400', rowExtra: '' };
   };
 
@@ -107,7 +116,7 @@ const NotificacionesBell = ({ darkMode }) => {
     <div className="py-12 px-6 text-center">
       <Bell size={36} className="mx-auto mb-3 opacity-10" />
       <p className="text-sm font-semibold opacity-40">Sin alertas activas</p>
-      <p className="text-xs opacity-25 mt-1">¡Todo va bien por ahora 🎉</p>
+      <p className="text-xs opacity-25 mt-1">No hay notificaciones pendientes en este momento.</p>
     </div>
   ) : (
     <>
@@ -131,8 +140,19 @@ const NotificacionesBell = ({ darkMode }) => {
               <p className="text-[10px] mt-1 opacity-35">{tiempoRelativo(n.ts)}</p>
             </div>
             <div className="flex flex-col items-end gap-1.5 flex-shrink-0 self-center">
-              {!leida && <span className={`w-2 h-2 rounded-full ${meta.badge}`} />}
-              <ChevronRight size={12} className="opacity-0 group-hover:opacity-40 transition-opacity" />
+              {n.tipo === 'global' && !n.visto_por_mi ? (
+                  <button 
+                    onClick={(e) => marcarEntendido(e, n.id)} 
+                    className={`px-3 py-1 rounded-full text-[10px] font-black transition-all ${darkMode ? 'bg-[#C9EA63] text-black hover:bg-white' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                  >
+                    ENTERADO
+                  </button>
+              ) : (
+                  <>
+                    {!leida && <span className={`w-2 h-2 rounded-full ${meta.badge}`} />}
+                    <ChevronRight size={12} className="opacity-0 group-hover:opacity-40 transition-opacity" />
+                  </>
+              )}
             </div>
           </div>
         );

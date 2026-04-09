@@ -18,6 +18,7 @@ import Login from './components/Login';
 import MetrologiaDashboard from './components/MetrologiaDashboard';
 import Validacion from './components/Validacion';
 import Entregas from './components/Entregas';
+import GestionGrupo from './components/GestionGrupo';
 import BusquedaGlobal from './components/BusquedaGlobal';
 import NotificacionesBell from './components/NotificacionesBell';
 import io from 'socket.io-client';
@@ -29,7 +30,7 @@ window.alert = (msg) => {
   if (!msg) return;
   const lowerMsg = msg.toLowerCase();
   if (lowerMsg.includes('error')) toast.error(msg, { theme: 'colored' });
-  else if (msg.includes('✅') || lowerMsg.includes('éxito') || lowerMsg.includes('correctamente') || lowerMsg.includes('exitosamente')) toast.success(msg.replace('✅ ', ''), { theme: 'colored' });
+  else if (lowerMsg.includes('éxito') || lowerMsg.includes('correctamente') || lowerMsg.includes('exitosamente')) toast.success(msg, { theme: 'colored' });
   else toast.info(msg, { theme: 'colored' });
 };
 
@@ -99,7 +100,7 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
     <div className="flex flex-col h-full overflow-y-auto custom-scrollbar relative">
       <div className={`p-6 sticky top-0 z-10 flex justify-between items-start ${darkMode ? 'bg-[#141f0b]' : 'bg-[#F2F6F0]'}`}>
         <div>
-          <h2 className={`text-2xl font-black tracking-tighter ${darkMode ? 'text-[#C9EA63]' : 'text-[#65D067]'}`}>
+          <h2 className={`text-2xl font-black tracking-tighter ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>
             SICAMET <span className={darkMode ? 'text-[#F2F6F0]' : 'text-[#253916]'}>CRM</span>
           </h2>
           <div className={`flex items-center gap-1.5 mt-1 ${darkMode ? 'text-[#C9EA63]/60' : 'text-[#253916]/50'} text-xs`}>
@@ -133,8 +134,8 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
               onClick={() => setMobileOpen(false)}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 text-sm ${
                 isActive 
-                  ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-md font-bold' : 'bg-[#65D067] text-white shadow-md font-bold')
-                  : (darkMode ? 'text-[#F2F6F0]/70 hover:bg-[#253916] hover:text-[#C9EA63]' : 'text-[#253916]/70 hover:bg-[#C9EA63]/30 hover:text-[#253916]')
+                  ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-md font-bold' : 'bg-[#008a5e] text-white shadow-md font-bold')
+                  : (darkMode ? 'text-[#F2F6F0]/70 hover:bg-[#253916] hover:text-[#C9EA63]' : 'text-[#253916]/70 hover:bg-[#008a5e]/10 hover:text-[#008a5e]')
               }`}
             >
               <item.icon size={18} />
@@ -183,7 +184,7 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
         
         {/* Usuario logueado */}
         <div className={`flex items-center gap-3 px-3 py-2 rounded-xl ${darkMode ? 'bg-[#253916]/50' : 'bg-white/60'}`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-[#65D067] text-white'}`}>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-[#008a5e] text-white'}`}>
             {usuario?.nombre?.charAt(0) || 'U'}
           </div>
           <div className="min-w-0">
@@ -328,8 +329,8 @@ const Layout = () => {
 
   if (verificando) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#141f0b]">
-        <div className="w-8 h-8 border-2 border-[#C9EA63]/30 border-t-[#C9EA63] rounded-full animate-spin" />
+      <div className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}`}>
+        <div className={`w-8 h-8 border-2 border-opacity-30 rounded-full animate-spin ${darkMode ? 'border-[#C9EA63] border-t-[#C9EA63]' : 'border-[#008a5e] border-t-[#008a5e]'}`} />
       </div>
     );
   }
@@ -345,7 +346,7 @@ const Layout = () => {
         {sidebarOculta && (
           <button 
             onClick={() => setSidebarOculta(false)}
-            className={`fixed top-4 left-4 z-[60] p-2 rounded-xl shadow-lg transition-all border animate-in slide-in-from-left duration-300 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]/30' : 'bg-[#65D067] text-white border-white/20'}`}
+            className={`fixed top-4 left-4 z-[60] p-2 rounded-xl shadow-lg transition-all border animate-in slide-in-from-left duration-300 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]/30' : 'bg-[#008a5e] text-white border-white/20'}`}
             title="Mostrar menú"
           >
             <Menu size={24} />
@@ -367,7 +368,7 @@ const Layout = () => {
         <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarOculta ? 'w-full' : ''}`}>
           {/* Header mobile */}
           <header className={`lg:hidden flex items-center justify-between p-4 shadow-sm z-30 ${darkMode ? 'bg-[#141f0b] border-b border-[#C9EA63]/10' : 'bg-[#F2F6F0] border-b border-[#253916]/5'}`}>
-            <h2 className={`text-xl font-bold tracking-tight ${darkMode ? 'text-[#C9EA63]' : 'text-[#65D067]'}`}>SICAMET</h2>
+            <h2 className={`text-xl font-bold tracking-tight ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>SICAMET</h2>
             <div className="flex items-center gap-1">
               <BusquedaGlobal darkMode={darkMode} />
               <NotificacionesBell darkMode={darkMode} />
@@ -398,6 +399,7 @@ const Layout = () => {
               <Route path="/registro" element={<Registro darkMode={darkMode} />} />
               <Route path="/equipos" element={<ListaEquipos darkMode={darkMode} />} />
               <Route path="/kanban" element={<TableroKanban darkMode={darkMode} />} />
+              <Route path="/equipos/grupo/:oc" element={<GestionGrupo darkMode={darkMode} />} />
               <Route path="/metrologia" element={<MetrologiaDashboard darkMode={darkMode} usuario={usuario} />} />
               <Route path="/validacion" element={<Validacion darkMode={darkMode} usuario={usuario} />} />
               <Route path="/entregas" element={<Entregas darkMode={darkMode} usuario={usuario} />} />

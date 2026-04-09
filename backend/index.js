@@ -55,7 +55,60 @@ function limpiarID(wa) {
     return numerico;
 }
 
+async function ensureMetrologiaSchema() {
+    try {
+        // Asegurar columna numero_informe
+        const [cols] = await db.query('SHOW COLUMNS FROM instrumentos_estatus LIKE "numero_informe"');
+        if (cols.length === 0) {
+            await db.query('ALTER TABLE instrumentos_estatus ADD COLUMN numero_informe VARCHAR(100) DEFAULT NULL');
+            console.log("✅ Columna numero_informe añadida");
+        }
+
+        // Asegurar tabla instrumento_metrologos
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS instrumento_metrologos (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                instrumento_id INT NOT NULL,
+                usuario_id INT NOT NULL,
+                estatus ENUM('asignado', 'terminado', 'correccion') DEFAULT 'asignado',
+                fecha_asignacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+                fecha_fin DATETIME DEFAULT NULL,
+                INDEX (instrumento_id),
+                INDEX (usuario_id)
+            )
+        `);
+        console.log("✅ Tabla instrumento_metrologos verificada");
+
+        // Asegurar tabla notificaciones_globales y leídas
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS notificaciones_globales (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                titulo VARCHAR(255),
+                detalle TEXT,
+                tipo VARCHAR(50),
+                ruta VARCHAR(255),
+                urgencia ENUM('baja', 'media', 'alta') DEFAULT 'media',
+                metadata JSON,
+                creado_por_id INT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS notificaciones_leidas (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                notificacion_global_id INT,
+                usuario_id INT,
+                visto_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY (notificacion_global_id, usuario_id)
+            )
+        `);
+
+    } catch (e) { console.error("❌ Error en ensureMetrologiaSchema:", e.message); }
+}
+
 async function ensureWhatsappChatsColumns() {
+    await ensureMetrologiaSchema(); // Integrar aquí
+    // ... rest of the existing function
     const alters = [
         'ALTER TABLE whatsapp_chats ADD COLUMN telefono_display VARCHAR(45) NULL',
         'ALTER TABLE whatsapp_chats ADD COLUMN wa_jid VARCHAR(180) NULL'
@@ -74,7 +127,34 @@ async function ensureWhatsappChatsColumns() {
         "ALTER TABLE usuarios ADD COLUMN area VARCHAR(100) NULL AFTER rol",
         "ALTER TABLE instrumentos_estatus ADD COLUMN area_laboratorio VARCHAR(100) NULL AFTER sla",
         "ALTER TABLE instrumentos_estatus ADD COLUMN metrologo_asignado_id INT NULL AFTER area_laboratorio",
-        `CREATE TABLE IF NOT EXISTS laboratorio_areas (id INT AUTO_INCREMENT PRIMARY KEY, nombre VARCHAR(100) NOT NULL UNIQUE, descripcion TEXT NULL, activa TINYINT DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`
+        "ALTER TABLE instrumentos_estatus ADD COLUMN numero_informe VARCHAR(100) NULL AFTER no_serie",
+        `CREATE TABLE IF NOT EXISTS laboratorio_areas (id INT AUTO_INCREMENT PRIMARY KEY, nombre VARCHAR(100) NOT NULL UNIQUE, descripcion TEXT NULL, activa TINYINT DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`,
+        `CREATE TABLE IF NOT EXISTS instrumento_metrologos (
+            id INT AUTO_INCREMENT PRIMARY KEY, 
+            instrumento_id INT NOT NULL, 
+            usuario_id INT NOT NULL, 
+            estatus ENUM('asignado', 'terminado', 'correccion') DEFAULT 'asignado', 
+            fecha_fin DATETIME NULL, 
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS notificaciones_globales (
+            id INT AUTO_INCREMENT PRIMARY KEY, 
+            titulo VARCHAR(255) NOT NULL, 
+            detalle TEXT NULL, 
+            tipo VARCHAR(50) NULL, 
+            ruta VARCHAR(255) NULL, 
+            urgencia VARCHAR(20) DEFAULT 'media', 
+            creador_id INT NULL, 
+            metadata JSON NULL, 
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS notificaciones_leidas (
+            id INT AUTO_INCREMENT PRIMARY KEY, 
+            notificacion_id INT NOT NULL, 
+            usuario_id INT NOT NULL, 
+            leido_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
+            UNIQUE KEY user_notif (notificacion_id, usuario_id)
+        )`
     ];
     for (const sql of nuevasMigraciones) {
         try { await db.query(sql); } catch (e) { /* columna ya existe o tabla ya existe */ }
@@ -360,7 +440,7 @@ app.delete('/api/whatsapp/chats/:numero', verificarToken(), async (req, res) => 
 
 // --- OPERACIONES DE INSTRUMENTOS (CRUD MULTIRREGISTRO) ---
 app.post('/api/instrumentos-multiple', verificarToken(), async (req, res) => {
-    const { instrumentos } = req.body; 
+    const { instrumentos, metrologos_ids } = req.body; 
     if (!instrumentos || instrumentos.length === 0) return res.status(400).json({error: "No hay datos"});
 
     try {
@@ -368,13 +448,32 @@ app.post('/api/instrumentos-multiple', verificarToken(), async (req, res) => {
             (orden_cotizacion, empresa, persona, tipo_servicio, nombre_instrumento, marca, modelo, no_serie, identificacion, ubicacion, requerimientos_especiales, puntos_calibrar, sla, estatus_actual, area_laboratorio, metrologo_asignado_id) 
             VALUES ?`; 
         
+        const primerMetrologo = Array.isArray(metrologos_ids) && metrologos_ids.length > 0 ? metrologos_ids[0] : null;
+
         const valores = instrumentos.map(ins => [
             ins.orden_cotizacion, ins.empresa, ins.persona, ins.tipo_servicio, ins.nombre_instrumento, 
             ins.marca, ins.modelo, ins.no_serie, ins.identificacion, ins.ubicacion, ins.requerimientos_especiales, ins.puntos_calibrar, ins.sla, 'Laboratorio',
-            ins.area_laboratorio || null, ins.metrologo_asignado_id || null
+            ins.area_laboratorio || null, primerMetrologo // Mantenemos el primero en la columna legacy por compatibilidad
         ]);
 
-        await db.query(query, [valores]);
+        const [r] = await db.query(query, [valores]);
+        const firstId = r.insertId;
+        const count = r.affectedRows;
+
+        // Asignación múltiple en la nueva tabla
+        if (Array.isArray(metrologos_ids) && metrologos_ids.length > 0) {
+            const imValues = [];
+            for (let i = 0; i < count; i++) {
+                const instId = firstId + i;
+                metrologos_ids.forEach(mid => {
+                    imValues.push([instId, mid, 'asignado']);
+                });
+            }
+            if (imValues.length > 0) {
+                await db.query('INSERT INTO instrumento_metrologos (instrumento_id, usuario_id, estatus) VALUES ?', [imValues]);
+            }
+        }
+
         console.log(`✅ Registradas ${instrumentos.length} partidas de la orden ${instrumentos[0].orden_cotizacion} → área: ${instrumentos[0].area_laboratorio}`);
         
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'registro_multiple' });
@@ -386,43 +485,64 @@ app.post('/api/instrumentos-multiple', verificarToken(), async (req, res) => {
 app.get('/api/instrumentos', verificarToken(), async (req, res) => {
     try {
         const { rol, area, id: userId } = req.usuario;
-        let query = 'SELECT ie.*, u.nombre as metrologo_nombre FROM instrumentos_estatus ie LEFT JOIN usuarios u ON ie.metrologo_asignado_id = u.id';
+        const { folio } = req.query;
+        
+        let query = `
+            SELECT ie.*, 
+                   (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', u.id, 'nombre', u.nombre, 'estatus', im.estatus))
+                    FROM instrumento_metrologos im
+                    JOIN usuarios u ON u.id = im.usuario_id
+                    WHERE im.instrumento_id = ie.id) as metrologos_asignados
+            FROM instrumentos_estatus ie
+            WHERE 1=1
+        `;
         let params = [];
 
+        if (folio) {
+            query += " AND ie.orden_cotizacion = ?";
+            params.push(folio);
+        }
+
         if (rol === 'admin') {
-            // Admin ve todo
             query += ' ORDER BY ie.fecha_ingreso DESC';
         } else if (rol === 'aseguramiento' || rol === 'validacion') {
-            // Aseguramiento / Validación ve equipos en su etapa
-            query += " WHERE ie.estatus_actual IN ('Validación','Aseguramiento','Certificación','Listo','Entregado') ORDER BY ie.fecha_ingreso DESC";
+            query += " AND ie.estatus_actual IN ('Aseguramiento','Certificación','Listo','Entregado') ORDER BY ie.fecha_ingreso DESC";
         } else if (rol === 'metrologo' || rol === 'operador') {
-            // Metrólogo: si tiene área asignada, ve todos los de su área; de lo contrario solo los asignados a él
             if (area) {
-                // Revisar si es supervisor (permisos de supervisión = ve todo el área)
                 const [userRow] = await db.query('SELECT permisos FROM usuarios WHERE id = ?', [userId]);
                 let permisos = [];
                 try { permisos = JSON.parse(userRow[0]?.permisos || '[]'); } catch(_) {}
+                
                 if (permisos.includes('supervisor_area')) {
-                    // Supervisor: ve todo lo de su área
-                    query += " WHERE ie.area_laboratorio = ? ORDER BY ie.fecha_ingreso DESC";
-                    params = [area];
+                    query += " AND ie.area_laboratorio = ? ORDER BY ie.fecha_ingreso DESC";
+                    params.push(area);
                 } else {
-                    // Metrólogo normal: ve solo los asignados a él en su área
-                    query += " WHERE (ie.metrologo_asignado_id = ? OR ie.area_laboratorio = ?) ORDER BY ie.fecha_ingreso DESC";
-                    params = [userId, area];
+                    // Ver si está asignado en la nueva tabla O en la columna legacy O es de su área
+                    query += ` 
+                        AND ie.area_laboratorio = ? 
+                        AND (
+                            ie.metrologo_asignado_id = ? 
+                            OR EXISTS (SELECT 1 FROM instrumento_metrologos im WHERE im.instrumento_id = ie.id AND im.usuario_id = ?)
+                        )
+                        ORDER BY ie.fecha_ingreso DESC
+                    `;
+                    params.push(area, userId, userId);
                 }
             } else {
-                // Sin área definida: solo sus asignados
-                query += " WHERE ie.metrologo_asignado_id = ? ORDER BY ie.fecha_ingreso DESC";
-                params = [userId];
+                query += " AND (ie.metrologo_asignado_id = ? OR EXISTS (SELECT 1 FROM instrumento_metrologos im WHERE im.instrumento_id = ie.id AND im.usuario_id = ?)) ORDER BY ie.fecha_ingreso DESC";
+                params.push(userId, userId);
             }
         } else {
-            // Recepcionista y otros: ven todos (para crear registros y dar seguimiento)
             query += ' ORDER BY ie.fecha_ingreso DESC';
         }
 
         const [equipos] = await db.query(query, params);
-        res.json(equipos);
+        // Parsear JSON de metrologos_asignados si viene como string
+        const finalEquipos = equipos.map(e => ({
+            ...e,
+            metrologos_asignados: typeof e.metrologos_asignados === 'string' ? JSON.parse(e.metrologos_asignados) : (e.metrologos_asignados || [])
+        }));
+        res.json(finalEquipos);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -458,7 +578,22 @@ app.delete('/api/areas/:id', verificarToken(['admin']), async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Metrólogos de un área específica
+// Metrólogos de un área específica o todos los metrólogos si no hay área
+app.get('/api/usuarios/metrologos', verificarToken(), async (req, res) => {
+    try {
+        const { area } = req.query;
+        let query = "SELECT id, nombre, email, rol, area FROM usuarios WHERE activo = 1 AND rol IN ('metrologo','operador','admin')";
+        let params = [];
+        if (area) {
+            query += " AND area = ?";
+            params.push(area);
+        }
+        query += " ORDER BY nombre ASC";
+        const [rows] = await db.query(query, params);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/areas/:area/metrologos', verificarToken(), async (req, res) => {
     try {
         const [rows] = await db.query(
@@ -466,6 +601,116 @@ app.get('/api/areas/:area/metrologos', verificarToken(), async (req, res) => {
             [req.params.area]
         );
         res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── ASIGNACIÓN MÚLTIPLE Y FLUJO TÉCNICO ───
+app.post('/api/instrumentos/:id/asignar_metrologos', verificarToken(['admin', 'recepcionista']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { metrologos_ids } = req.body; // Array de IDs
+        if (!Array.isArray(metrologos_ids)) return res.status(400).json({ error: 'Se requiere un array de IDs' });
+
+        // Limpiar asignaciones anteriores
+        await db.query('DELETE FROM instrumento_metrologos WHERE instrumento_id = ?', [id]);
+
+        if (metrologos_ids.length > 0) {
+            const values = metrologos_ids.map(mid => [id, mid, 'asignado']);
+            await db.query('INSERT INTO instrumento_metrologos (instrumento_id, usuario_id, estatus) VALUES ?', [values]);
+            
+            // Notificar a cada metrólogo
+            for (const mid of metrologos_ids) {
+                await crearNotificacionGlobal({
+                    titulo: 'Nuevo equipo asignado',
+                    detalle: `Se te ha asignado un nuevo instrumento para calibración.`,
+                    tipo: 'asignacion',
+                    ruta: '/metrologia',
+                    urgencia: 'media',
+                    metadata: { instrumento_id: id },
+                    usuario_destino_id: mid 
+                });
+            }
+        }
+        
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'asignacion_metrologos', id });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/instrumentos/bulk-update-header', verificarToken(['admin', 'recepcionista']), async (req, res) => {
+    try {
+        const { orden_cotizacion, empresa, persona, sla } = req.body;
+        if (!orden_cotizacion) return res.status(400).json({ error: 'Falta orden_cotizacion' });
+
+        await db.query(
+            'UPDATE instrumentos_estatus SET empresa = ?, persona = ?, sla = ? WHERE orden_cotizacion = ? OR folio_rastreo = ?',
+            [empresa, persona, sla, orden_cotizacion, orden_cotizacion]
+        );
+
+        res.json({ success: true, message: 'Orden actualizada globalmente' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/instrumentos/:id/finalizar_metrologo', verificarToken(), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.usuario.id;
+
+        await db.query(
+            'UPDATE instrumento_metrologos SET estatus = "terminado", fecha_fin = NOW() WHERE instrumento_id = ? AND usuario_id = ?',
+            [id, userId]
+        );
+
+        // Verificar si todos los asignados terminaron
+        const [pendientes] = await db.query(
+            'SELECT COUNT(*) as total FROM instrumento_metrologos WHERE instrumento_id = ? AND estatus != "terminado"',
+            [id]
+        );
+
+        if (pendientes[0].total === 0) {
+            // Mover a Aseguramiento si todo el equipo terminó
+            await db.query('UPDATE instrumentos_estatus SET estatus_actual = "Aseguramiento" WHERE id = ?', [id]);
+            await db.query(
+                'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo, comentario) VALUES (?, ?, ?, ?, ?)',
+                [id, userId, 'Laboratorio', 'Aseguramiento', 'Todos los metrólogos terminaron su parte.']
+            );
+        }
+
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'tecnico_termino', id });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/instrumentos/:id/solicitar_correccion', verificarToken(), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { usuario_destino_id, motivo } = req.body;
+        
+        await db.query(
+            'UPDATE instrumento_metrologos SET estatus = "correccion", fecha_fin = NULL WHERE instrumento_id = ? AND usuario_id = ?',
+            [id, usuario_destino_id]
+        );
+
+        // Regresar a Laboratorio si ya estaba en Aseguramiento/Validación
+        await db.query('UPDATE instrumentos_estatus SET estatus_actual = "Laboratorio" WHERE id = ?', [id]);
+
+        await db.query(
+            'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo, comentario) VALUES (?, ?, ?, ?, ?)',
+            [id, req.usuario.id, 'Retroceso', 'Laboratorio', `Corrección solicitada: ${motivo}`]
+        );
+
+        await crearNotificacionGlobal({
+            titulo: 'Corrección solicitada',
+            detalle: `Un compañero ha solicitado correcciones en el equipo: ${motivo}`,
+            tipo: 'correccion',
+            ruta: '/metrologia',
+            urgencia: 'alta',
+            metadata: { instrumento_id: id },
+            usuario_destino_id: usuario_destino_id
+        });
+
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'correccion_solicitada', id });
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -513,6 +758,32 @@ app.put('/api/instrumentos/:id/estatus', verificarToken(), async (req, res) => {
             await db.query('UPDATE instrumentos_estatus SET estatus_actual = ?, fecha_entrega = CURRENT_TIMESTAMP WHERE id = ?', [estatus, id]);
         } else {
             await db.query('UPDATE instrumentos_estatus SET estatus_actual = ? WHERE id = ?', [estatus, id]);
+        }
+
+        // Si se regresa a laboratorio, reactivar asignacion y notificar a TODO el equipo metrologico
+        if (estatus === 'Laboratorio') {
+            await db.query(`UPDATE instrumento_metrologos SET estatus = 'correccion', fecha_fin = NULL WHERE instrumento_id = ?`, [id]);
+            
+            // Garantizar que si hay un metrologo legado, tenga su registro en la tabla de asignación múltiple
+            const [eqInfo] = await db.query('SELECT metrologo_asignado_id, orden_cotizacion, nombre_instrumento FROM instrumentos_estatus WHERE id = ?', [id]);
+            if (eqInfo.length > 0 && eqInfo[0].metrologo_asignado_id) {
+                const [exists] = await db.query('SELECT id FROM instrumento_metrologos WHERE instrumento_id = ? AND usuario_id = ?', [id, eqInfo[0].metrologo_asignado_id]);
+                if (exists.length === 0) {
+                    await db.query('INSERT INTO instrumento_metrologos (instrumento_id, usuario_id, estatus) VALUES (?, ?, ?)', [id, eqInfo[0].metrologo_asignado_id, 'correccion']);
+                }
+            }
+
+            if (eqInfo.length > 0) {
+                await crearNotificacionGlobal({
+                    titulo: `Retornado a Laboratorio: ${eqInfo[0].orden_cotizacion}`,
+                    detalle: `El equipo ${eqInfo[0].nombre_instrumento} ha sido regresado a Laboratorio para revisión.`,
+                    tipo: 'alerta',
+                    ruta: '/metrologia',
+                    urgencia: 'alta',
+                    creador_id: req.usuario?.id || null,
+                    metadata: { instrumento_id: id }
+                });
+            }
         }
         
         await db.query(
@@ -565,6 +836,20 @@ app.post('/api/instrumentos/bulk-status', verificarToken(), async (req, res) => 
                     [id, req.usuario?.id || null, comentario, 'cambio_estatus_masivo']
                 );
             }
+
+            // --- REINICIO DE METRÓLOGOS SI REGRESA A LABORATORIO ---
+            if (estatus === 'Laboratorio') {
+                await db.query('UPDATE instrumento_metrologos SET estatus = "correccion", fecha_fin = NULL WHERE instrumento_id = ?', [id]);
+                
+                // Fallback legado
+                const [fallback] = await db.query('SELECT metrologo_asignado_id FROM instrumentos_estatus WHERE id = ?', [id]);
+                if (fallback.length > 0 && fallback[0].metrologo_asignado_id) {
+                    const [exists] = await db.query('SELECT id FROM instrumento_metrologos WHERE instrumento_id = ? AND usuario_id = ?', [id, fallback[0].metrologo_asignado_id]);
+                    if (exists.length === 0) {
+                        await db.query('INSERT INTO instrumento_metrologos (instrumento_id, usuario_id, estatus) VALUES (?, ?, ?)', [id, fallback[0].metrologo_asignado_id, 'correccion']);
+                    }
+                }
+            }
         }
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'estatus_masivo' });
         res.json({ success: true });
@@ -597,28 +882,53 @@ app.post('/api/instrumentos/:id/comentarios', verificarToken(), uploadComentario
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/instrumentos/:id', async (req, res) => {
+app.put('/api/instrumentos/:id', verificarToken(), async (req, res) => {
+    const connection = await db.getConnection();
     try {
+        await connection.beginTransaction();
+        const { id } = req.params;
         const { 
             orden_cotizacion, nombre_instrumento, marca, modelo, no_serie, empresa, 
-            identificacion, ubicacion, requerimientos_especiales, puntos_calibrar 
+            identificacion, ubicacion, requerimientos_especiales, puntos_calibrar,
+            tipo_servicio, area_laboratorio, persona, sla, metrologos_asignados 
         } = req.body;
-        await db.query(
+
+        await connection.query(
             `UPDATE instrumentos_estatus SET 
                 orden_cotizacion=?, nombre_instrumento=?, marca=?, modelo=?, no_serie=?, empresa=?,
-                identificacion=?, ubicacion=?, requerimientos_especiales=?, puntos_calibrar=?
+                identificacion=?, ubicacion=?, requerimientos_especiales=?, puntos_calibrar=?,
+                tipo_servicio=?, area_laboratorio=?, persona=?, sla=?
              WHERE id=?`, 
             [
                 orden_cotizacion, nombre_instrumento, marca, modelo, no_serie, empresa, 
                 identificacion, ubicacion, requerimientos_especiales, puntos_calibrar,
-                req.params.id
+                tipo_servicio, area_laboratorio, persona, sla,
+                id
             ]
         );
+
+        // Sincronizar metrólogos para este instrumento
+        if (Array.isArray(metrologos_asignados)) {
+            await connection.query('DELETE FROM instrumento_metrologos WHERE instrumento_id = ?', [id]);
+            if (metrologos_asignados.length > 0) {
+                const metValues = metrologos_asignados.map(mid => [id, mid, 'asignado']);
+                await connection.query('INSERT INTO instrumento_metrologos (instrumento_id, usuario_id, estatus) VALUES ?', [metValues]);
+                
+                // Mantenemos el primero en la columna legacy por compatibilidad
+                await connection.query('UPDATE instrumentos_estatus SET metrologo_asignado_id = ? WHERE id = ?', [metrologos_asignados[0], id]);
+            }
+        }
         
-        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'edicion_instrumento', id: req.params.id });
-        
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+        await connection.commit();
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'edicion_instrumento', id: id });
+        res.json({ success: true, message: 'Instrumento actualizado correctamente' });
+    } catch (err) { 
+        await connection.rollback();
+        console.error("Error actualizando instrumento:", err);
+        res.status(500).json({ error: err.message }); 
+    } finally {
+        connection.release();
+    }
 });
 
 // Endpoint interno (sin token) eliminado - usar el verificado de arriba
@@ -1193,6 +1503,95 @@ app.put('/api/whatsapp/chats/:numero/config', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── MODIFICACIÓN DE ÓRDENES (RECEPCIÓN / ADMIN) ───────────────────────────────────
+app.post('/api/instrumentos/orden/:folio/modificar', verificarToken(['admin', 'recepcion', 'recepcionista']), async (req, res) => {
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+        const { folio } = req.params;
+        const { instrumentos, eliminados_ids, motivo } = req.body;
+
+        // 1. Eliminar instrumentos marcados
+        if (Array.isArray(eliminados_ids) && eliminados_ids.length > 0) {
+            await connection.query('DELETE FROM instrumento_metrologos WHERE instrumento_id IN (?)', [eliminados_ids]);
+            await connection.query('DELETE FROM instrumentos_estatus WHERE id IN (?) AND orden_cotizacion = ?', [eliminados_ids, folio]);
+        }
+
+        // 2. Procesar instrumentos (Actualizaciones y Nuevos)
+        if (Array.isArray(instrumentos)) {
+            for (const ins of instrumentos) {
+                const isUpdate = !!ins.id;
+                
+                if (isUpdate) {
+                    // Actualizar registro principal
+                    await connection.query(
+                        `UPDATE instrumentos_estatus SET 
+                            nombre_instrumento = ?, marca = ?, modelo = ?, no_serie = ?, 
+                            identificacion = ?, ubicacion = ?, requerimientos_especiales = ?, 
+                            puntos_calibrar = ?, numero_informe = ?, tipo_servicio = ?, 
+                            area_laboratorio = ?, empresa = ?, persona = ?, sla = ?
+                        WHERE id = ? AND orden_cotizacion = ?`,
+                        [
+                            ins.nombre_instrumento, ins.marca, ins.modelo, ins.no_serie, 
+                            ins.identificacion, ins.ubicacion, ins.requerimientos_especiales, 
+                            ins.puntos_calibrar, ins.numero_informe, ins.tipo_servicio, 
+                            ins.area_laboratorio, ins.empresa, ins.persona, ins.sla,
+                            ins.id, folio
+                        ]
+                    );
+
+                    // Sincronizar metrólogos (Múltiples)
+                    await connection.query('DELETE FROM instrumento_metrologos WHERE instrumento_id = ?', [ins.id]);
+                } else {
+                    // Insertar nuevo registro
+                    const [resIns] = await connection.query(
+                        `INSERT INTO instrumentos_estatus 
+                            (orden_cotizacion, empresa, persona, tipo_servicio, nombre_instrumento, marca, modelo, no_serie, identificacion, ubicacion, requerimientos_especiales, puntos_calibrar, sla, estatus_actual, area_laboratorio) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            folio, ins.empresa, ins.persona, ins.tipo_servicio, ins.nombre_instrumento, 
+                            ins.marca, ins.modelo, ins.no_serie, ins.identificacion, ins.ubicacion, 
+                            ins.requerimientos_especiales, ins.puntos_calibrar, ins.sla || 10, 'Recepción', ins.area_laboratorio
+                        ]
+                    );
+                    ins.id = resIns.insertId;
+                }
+
+                // Insertar nuevas asignaciones de metrólogos
+                if (Array.isArray(ins.metrologos_asignados) && ins.metrologos_asignados.length > 0) {
+                    const metValues = ins.metrologos_asignados.map(mid => [ins.id, mid, 'asignado']);
+                    await connection.query('INSERT INTO instrumento_metrologos (instrumento_id, usuario_id, estatus) VALUES ?', [metValues]);
+                    
+                    // Asegurar consistencia con columna legacy metrologo_asignado_id (opcional, para reportes viejos)
+                    await connection.query('UPDATE instrumentos_estatus SET metrologo_asignado_id = ? WHERE id = ?', [ins.metrologos_asignados[0], ins.id]);
+                }
+            }
+        }
+
+        // 3. Notificación Global de Auditoría
+        await connection.query(
+            `INSERT INTO notificaciones_globales (titulo, detalle, tipo, urgencia, creador_id) 
+            VALUES (?, ?, ?, ?, ?)`,
+            [
+                `Modificación en Orden: ${folio}`,
+                `Se actualizaron/modificaron los equipos de la orden ${folio}. Motivo: ${motivo || 'Actualización técnica de instrumentos'}.`,
+                'MODIFICACION_ORDEN',
+                'media',
+                req.usuario.id
+            ]
+        );
+
+        await connection.commit();
+        res.json({ success: true, message: 'Orden sincronizada correctamente.' });
+    } catch (err) {
+        await connection.rollback();
+        console.error("Error en bulk modify:", err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        connection.release();
+    }
+});
+
 // ─── ENDPOINTS BOT PRO ────────────────────────────────────────────────────────
 
 // Equipos del cliente
@@ -1303,7 +1702,7 @@ app.get('/api/bot/stats', async (req, res) => {
         
         // --- MÉTRICAS OPERATIVAS (Para Badges) ---
         const [[listos]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Listo'");
-        const [[validacion]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Validación'");
+        const [[validacion]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Aseguramiento'");
         const [metrologiaAreas] = await db.query("SELECT area_laboratorio, COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Laboratorio' AND area_laboratorio IS NOT NULL GROUP BY area_laboratorio");
         
         // Convertir metrología a objeto { 'NombreArea': conteo }
@@ -1402,14 +1801,67 @@ app.get('/api/busqueda-global', verificarToken(), async (req, res) => {
     }
 });
 
+// Helper para notificaciones globales y específicas
+async function crearNotificacionGlobal({ titulo, detalle, tipo, ruta, urgencia, creador_id, metadata, usuario_destino_id }) {
+    try {
+        const [r] = await db.query(
+            'INSERT INTO notificaciones_globales (titulo, detalle, tipo, ruta, urgencia, creador_id, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [titulo, detalle, tipo, ruta, urgencia || 'media', creador_id || null, metadata ? JSON.stringify(metadata) : null]
+        );
+        const nid = r.insertId;
+
+        // Si es para un usuario específico, lo marcamos como leído para los demás (opcional) 
+        // o simplemente lo usamos en el GET filtrado.
+        
+        if (global.io) {
+            global.io.emit('nueva_notificacion', { id: nid, titulo, tipo, urgencia });
+        }
+        return nid;
+    } catch (e) {
+        console.error('Error al crear notificación global:', e.message);
+    }
+}
+
 // ─── NOTIFICACIONES INTERNAS ──────────────────────────────────────────────────
 app.get('/api/notificaciones', verificarToken(), async (req, res) => {
     try {
-        const notifs = [];
+        const userId = req.usuario.id;
         const rol = req.usuario?.rol || 'recepcionista';
         const esAdmin = rol === 'admin';
+        const notifs = [];
 
-        // 1. Equipos con SLA crítico (usa días naturales: DATEDIFF desde fecha_ingreso)
+        // 1. Notificaciones Globales sin leer por este usuario
+        const [globales] = await db.query(`
+            SELECT ng.* 
+            FROM notificaciones_globales ng
+            LEFT JOIN notificaciones_leidas nl ON nl.notificacion_id = ng.id AND nl.usuario_id = ?
+            WHERE nl.id IS NULL
+            ORDER BY ng.created_at DESC LIMIT 20
+        `, [userId]);
+
+        globales.forEach(ng => {
+            // Filtrar si es para un usuario específico (guardado en metadata o similar)
+            let meta = {};
+            try { meta = JSON.parse(ng.metadata || '{}'); } catch(_) {}
+            
+            // Si tiene usuario_destino_id en la tabla (no lo agregué pero lo manejamos en el helper logicamente)
+            // Por ahora simplificamos: si metadata tiene targetUserId y no es el actual, saltar.
+            if (meta.usuario_destino_id && meta.usuario_destino_id != userId) return;
+
+            notifs.push({
+                tipo: ng.tipo || 'sistema',
+                id: `global_${ng.id}`,
+                global_id: ng.id, // Para marcar como visto
+                titulo: ng.titulo,
+                detalle: ng.detalle,
+                ruta: ng.ruta,
+                urgencia: ng.urgencia,
+                ts: ng.created_at,
+                requiere_visto: true
+            });
+        });
+
+        // 2. Equipos con SLA crítico
         if (esAdmin || ['operador', 'metrolog', 'laboratorio', 'metrologo', 'aseguramiento'].some(r => rol.includes(r))) {
             const [vencidos] = await db.query(
                 `SELECT id, nombre_instrumento, orden_cotizacion, empresa, sla, fecha_ingreso, estatus_actual,
@@ -1433,7 +1885,7 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
             });
         }
 
-        // 2. Cotizaciones bot pendientes sin atender
+        // 3. Cotizaciones bot pendientes sin atender
         if (esAdmin || rol === 'recepcionista' || rol === 'ventas') {
             const [[cots]] = await db.query(`SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'`);
             if (cots.total > 0) {
@@ -1481,6 +1933,70 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
 });
 
 // ─── CRON: Recordatorios diarios (cada día a las 9:00 AM) ────────────────────
+app.post('/api/notificaciones/:id/marcar_visto', verificarToken(), async (req, res) => {
+    try {
+        const nid = req.params.id;
+        const userId = req.usuario.id;
+        await db.query(
+            'INSERT INTO notificaciones_leidas (notificacion_id, usuario_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE leido_at = NOW()',
+            [nid, userId]
+        );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── MODIFICACIÓN MASIVA DE ÓRDENES (TRAZABILIDAD) ───
+app.post('/api/instrumentos/orden/:folio/modificar', verificarToken(['admin', 'recepcionista']), async (req, res) => {
+    try {
+        const { folio } = req.params;
+        const { instrumentos, eliminados_ids } = req.body; 
+        const userId = req.usuario.id;
+
+        // 1. Manejar instrumentos eliminados
+        if (Array.isArray(eliminados_ids) && eliminados_ids.length > 0) {
+            await db.query('DELETE FROM instrumentos_estatus WHERE id IN (?) AND orden_cotizacion = ?', [eliminados_ids, folio]);
+            await db.query('INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo, comentario) SELECT id, ?, "Eliminado", "N/A", "Equipo removido de la orden por Recepción" FROM instrumentos_estatus WHERE id IN (?)', [userId, eliminados_ids]).catch(() => {});
+        }
+
+        // 2. Manejar instrumentos nuevos o editados
+        for (const ins of instrumentos) {
+            if (ins.id) {
+                // UPDATE existente
+                await db.query(
+                    `UPDATE instrumentos_estatus SET 
+                        nombre_instrumento = ?, marca = ?, modelo = ?, no_serie = ?, identificacion = ?, 
+                        tipo_servicio = ?, puntos_calibrar = ?, area_laboratorio = ?, numero_informe = ?
+                    WHERE id = ? AND orden_cotizacion = ?`,
+                    [ins.nombre_instrumento, ins.marca, ins.modelo, ins.no_serie, ins.identificacion, 
+                     ins.tipo_servicio, ins.puntos_calibrar, ins.area_laboratorio, ins.numero_informe, ins.id, folio]
+                );
+            } else {
+                // INSERT nuevo
+                await db.query(
+                    `INSERT INTO instrumentos_estatus 
+                        (orden_cotizacion, empresa, persona, tipo_servicio, nombre_instrumento, marca, modelo, no_serie, identificacion, sla, estatus_actual, area_laboratorio)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "Laboratorio", ?)`,
+                    [folio, ins.empresa, ins.persona, ins.tipo_servicio, ins.nombre_instrumento, ins.marca, ins.modelo, ins.no_serie, ins.identificacion, ins.sla || 5, ins.area_laboratorio]
+                );
+            }
+        }
+
+        // 3. Notificación Global de Modificación
+        await crearNotificacionGlobal({
+            titulo: `Orden modificada: ${folio}`,
+            detalle: `La recepción ha realizado cambios en esta orden. Por favor verificar equipos asignados.`,
+            tipo: 'modificacion_orden',
+            ruta: '/equipos',
+            urgencia: 'alta',
+            creador_id: userId,
+            metadata: { folio }
+        });
+
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'orden_modificada', folio });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 function programarRecordatoriosDiarios() {
     const ahora = new Date();
     const maniana = new Date(ahora);

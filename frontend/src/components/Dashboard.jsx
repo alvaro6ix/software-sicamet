@@ -122,30 +122,30 @@ const Dashboard = ({ darkMode }) => {
         </div>
 
         {/* Detenidos Laboratorio */}
-        <div onClick={() => window.location.href='/kanban'} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg border-emerald-500 ${boxBg}`}>
+        <div onClick={() => window.location.href='/kanban'} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg ${darkMode ? 'border-[#C9EA63]' : 'border-[#008a5e]'} ${boxBg}`}>
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black tracking-widest uppercase text-emerald-500">🔵 Detenidos en Lab</p>
+                <p className={`text-[10px] font-black tracking-widest uppercase ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>🔵 Detenidos en Lab</p>
                 <div className="flex items-end gap-2 mt-1">
                     <h2 className={`text-3xl font-black ${textValue}`}>{stats.kpis.detenidos_laboratorio || 0}</h2>
-                    <span className="text-xs font-medium text-emerald-500 mb-1">equipos &gt; 2 días</span>
+                    <span className={`text-xs font-medium mb-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>equipos &gt; 2 días</span>
                 </div>
               </div>
-              <Clock size={24} className="text-emerald-500/50" />
+              <Clock size={24} className={`${darkMode ? 'text-[#C9EA63]/50' : 'text-[#008a5e]/50'}`} />
             </div>
         </div>
 
         {/* Listos para entregar */}
-        <div onClick={() => window.location.href='/kanban'} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg border-emerald-500 ${boxBg}`}>
+        <div onClick={() => window.location.href='/kanban'} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg ${darkMode ? 'border-[#C9EA63]' : 'border-[#008a5e]'} ${boxBg}`}>
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black tracking-widest uppercase text-emerald-500">🟢 Listos Sin Notificar</p>
+                <p className={`text-[10px] font-black tracking-widest uppercase ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>🟢 Listos Sin Notificar</p>
                 <div className="flex items-end gap-2 mt-1">
                     <h2 className={`text-3xl font-black ${textValue}`}>{stats.kpis.listos_sin_notificar || 0}</h2>
-                    <span className="text-xs font-medium text-emerald-500 mb-1">equipos listos</span>
+                    <span className={`text-xs font-medium mb-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>equipos listos</span>
                 </div>
               </div>
-              <CheckCircle size={24} className="text-emerald-500/50" />
+              <CheckCircle size={24} className={`${darkMode ? 'text-[#C9EA63]/50' : 'text-[#008a5e]/50'}`} />
             </div>
         </div>
       </div>
@@ -202,7 +202,7 @@ const Dashboard = ({ darkMode }) => {
                     <h3 className={`text-lg font-black ${textValue}`}>Pipeline Operativo</h3>
                     <p className={`text-xs ${textBody}`}>Volumen de equipos por fase</p>
                 </div>
-                <button onClick={() => window.location.href='/kanban'} className={`text-xs font-bold px-3 py-1 flex items-center gap-1 transition-colors rounded-full ${darkMode ? 'bg-[#1b2b10] text-[#F2F6F0] hover:bg-[#C9EA63] hover:text-[#141f0b]' : 'bg-slate-100 text-slate-700 hover:bg-emerald-500 hover:text-white'}`}>
+                <button onClick={() => window.location.href='/kanban'} className={`text-xs font-bold px-3 py-1 flex items-center gap-1 transition-colors rounded-full ${darkMode ? 'bg-[#1b2b10] text-[#F2F6F0] hover:bg-[#C9EA63] hover:text-[#141f0b]' : 'bg-slate-100 text-slate-700 hover:bg-[#008a5e] hover:text-white'}`}>
                     Ver Tablero Kanban <ArrowRight size={12}/>
                 </button>
             </div>
@@ -211,8 +211,8 @@ const Dashboard = ({ darkMode }) => {
                 {[
                     {label: 'Recepción', count: stats.kpis.pipeline?.recepcion || 0, max: 50, color: 'bg-indigo-500'},
                     {label: 'Laboratorio', count: stats.kpis.pipeline?.laboratorio || 0, max: 50, color: 'bg-amber-500'},
-                    {label: 'Certificación / Papelería', count: stats.kpis.pipeline?.certificacion || 0, max: 50, color: 'bg-emerald-500'},
-                    {label: 'Listo / En Almacén', count: stats.kpis.pipeline?.listo || 0, max: 50, color: 'bg-emerald-500'}
+                    {label: 'Certificación / Papelería', count: stats.kpis.pipeline?.certificacion || 0, max: 50, color: darkMode ? 'bg-[#C9EA63]' : 'bg-[#008a5e]'},
+                    {label: 'Listo / En Almacén', count: stats.kpis.pipeline?.listo || 0, max: 50, color: darkMode ? 'bg-[#C9EA63]' : 'bg-[#008a5e]'}
                 ].map((fase) => (
                     <div key={fase.label}>
                         <div className="flex justify-between text-xs font-bold mb-1">
@@ -274,8 +274,8 @@ const Dashboard = ({ darkMode }) => {
                     <AreaChart data={stats.chartData} margin={{ top: 5, right: 0, bottom: 0, left: -20 }}>
                         <defs>
                             <linearGradient id="colorIngresos" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                                <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                <stop offset="5%" stopColor={darkMode ? "#C9EA63" : "#008a5e"} stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor={darkMode ? "#C9EA63" : "#008a5e"} stopOpacity={0}/>
                             </linearGradient>
                             <linearGradient id="colorEntregas" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
@@ -289,7 +289,7 @@ const Dashboard = ({ darkMode }) => {
                             contentStyle={{ backgroundColor: darkMode ? '#141f0b' : '#fff', borderRadius: '12px', border: 'none' }}
                             itemStyle={{ color: darkMode ? '#F2F6F0' : '#333', fontSize: '12px' }}
                         />
-                        <Area type="monotone" dataKey="ingresos" stroke="#10b981" fillOpacity={1} fill="url(#colorIngresos)" />
+                        <Area type="monotone" dataKey="ingresos" stroke={darkMode ? "#C9EA63" : "#008a5e"} fillOpacity={1} fill="url(#colorIngresos)" />
                         <Area type="monotone" dataKey="entregados" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorEntregas)" />
                     </AreaChart>
                 </ResponsiveContainer>
