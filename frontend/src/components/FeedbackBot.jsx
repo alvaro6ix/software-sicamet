@@ -1,0 +1,95 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { MessageSquare, CheckCircle, X } from 'lucide-react';
+
+const FeedbackBot = ({ darkMode }) => {
+    const [feedbacks, setFeedbacks] = useState([]);
+    const [cargando, setCargando] = useState(true);
+
+    const fetchData = async () => {
+        try {
+            setCargando(true);
+            const res = await axios.get('/api/bot/feedback');
+            setFeedbacks(res.data);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setCargando(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const marcarLeido = async (id) => {
+        try {
+            await axios.put(`/api/bot/feedback/${id}/leido`);
+            setFeedbacks(prev => prev.map(f => f.id === id ? { ...f, leido_admin: 1 } : f));
+        } catch (err) { console.error(err); }
+    };
+
+    const noLeidos = feedbacks.filter(f => !f.leido_admin).length;
+
+    return (
+        <div className="w-full animate-in fade-in">
+            {/* Header */}
+            <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-6 mb-6 ${darkMode ? 'border-[#C9EA63]/20' : 'border-[#008a5e]/20'}`}>
+                <div>
+                    <h2 className={`text-2xl md:text-3xl font-bold flex items-center gap-3 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                        <MessageSquare className={darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'} size={32} />
+                        Feedback del Bot
+                    </h2>
+                    <p className={`mt-1 md:mt-2 text-xs md:text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
+                        Sugerencias y mejoras enviadas por los clientes a través del WhatsApp Bot.
+                    </p>
+                </div>
+                {noLeidos > 0 && (
+                    <div className="px-4 py-2 rounded-xl text-sm font-black bg-rose-500 text-white flex items-center gap-2">
+                        <MessageSquare size={16}/> {noLeidos} nuevo(s)
+                    </div>
+                )}
+            </div>
+
+            {/* Listado */}
+            {cargando ? (
+                <div className={`p-12 text-center ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>
+                    <div className="inline-block w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" />
+                </div>
+            ) : feedbacks.length === 0 ? (
+                <div className={`p-12 text-center rounded-2xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10 text-[#F2F6F0]/40' : 'bg-white border-slate-200 text-slate-400'}`}>
+                    <MessageSquare size={48} className="mx-auto mb-4 opacity-30" />
+                    <p className="font-bold">No hay feedback registrado</p>
+                    <p className="text-xs mt-1 opacity-60">Las sugerencias de los clientes aparecerán aquí.</p>
+                </div>
+            ) : (
+                <div className={`border rounded-2xl overflow-hidden divide-y ${darkMode ? 'border-[#C9EA63]/20 divide-[#C9EA63]/5' : 'border-slate-200 divide-slate-100'}`}>
+                    {feedbacks.map(f => (
+                        <div key={f.id} className={`p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 transition-colors ${!f.leido_admin ? (darkMode ? 'bg-[#C9EA63]/5' : 'bg-emerald-50') : ''} ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    {!f.leido_admin && (
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                    )}
+                                    <span className={`text-[10px] font-black ${darkMode ? 'text-white/30' : 'text-slate-400'}`}>{f.cliente_wa}</span>
+                                    {f.empresa && (
+                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-[#008a5e]'}`}>{f.empresa}</span>
+                                    )}
+                                    <span className={`text-xs ${darkMode ? 'text-white/30' : 'text-slate-400'}`}>{new Date(f.fecha).toLocaleString('es-MX')}</span>
+                                </div>
+                                <p className={`mt-2 text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{f.mensaje}</p>
+                            </div>
+                            {!f.leido_admin && (
+                                <button onClick={() => marcarLeido(f.id)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${darkMode ? 'bg-[#253916] text-[#C9EA63] hover:bg-[#314a1c]' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}>
+                                    <CheckCircle size={14}/> Marcar leído
+                                </button>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default FeedbackBot;

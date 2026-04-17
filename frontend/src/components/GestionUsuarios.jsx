@@ -26,13 +26,15 @@ const GestionUsuarios = ({ darkMode }) => {
   const [rolesBase, setRolesBase] = useState(['admin', 'recepcionista', 'metrologo', 'aseguramiento']);
 
   const MODULOS_DISPONIBLES = [
-    { id: '/', nombre: 'Dashboard' },
+    { id: '/', nombre: 'Dashboard Admin' },
+    { id: '/aseguramiento-dashboard', nombre: 'Dashboard Aseguramiento' },
     { id: '/registro', nombre: 'Registro Ágil' },
     { id: '/equipos', nombre: 'Lista Gral. Equipos' },
     { id: '/entregas', nombre: 'Entregas' },
     { id: '/kanban', nombre: 'Pipeline Kanban' },
     { id: '/metrologia', nombre: 'Centro Metrología' },
-    { id: '/validacion', nombre: 'Aseguramiento' },
+    { id: '/validacion', nombre: 'Gestión Operativa (Aseg.)' },
+    { id: '/certificacion-agil', nombre: 'Certificación Ágil' },
     { id: '/clientes', nombre: 'Clientes' },
     { id: '/catalogo-instrumentos', nombre: 'Catálogos' },
     { id: '/flujos-whatsapp', nombre: 'Flujos WhatsApp' },

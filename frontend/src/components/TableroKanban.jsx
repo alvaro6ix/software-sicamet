@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Package, Clock, FileCheck, CheckCircle, Truck, AlertTriangle, X, Calendar, Hash, User, Info, Tag, BookOpen, ChevronRight, Check, Circle, ChevronDown } from 'lucide-react';
+import { Package, Clock, FileCheck, CheckCircle, Truck, AlertTriangle, X, Calendar, Hash, User, Info, Tag, BookOpen, ChevronRight, Check, Circle, ChevronDown, FileText, Layers } from 'lucide-react';
 
 const columnasEstatus = [
     { id: 'Recepción', icono: Package, color: 'text-indigo-500', bg: 'bg-indigo-500/10', border: 'border-indigo-500' },
@@ -46,7 +46,7 @@ const TableroKanban = ({ darkMode }) => {
     const userRaw = localStorage.getItem('crm_usuario');
     let userRol = 'recepcionista';
     try { userRol = JSON.parse(userRaw)?.rol || 'recepcionista'; } catch(_) {}
-    const puedeModificarEstatus = ['admin', 'aseguramiento', 'validacion'].includes(userRol);
+    const puedeModificarEstatus = ['admin', 'recepcionista', 'metrologo', 'operador'].includes(userRol);
     const esSoloLectura = !puedeModificarEstatus;
 
     const fetchEquipos = async () => {
@@ -142,7 +142,7 @@ const TableroKanban = ({ darkMode }) => {
                     </h2>
                     <p className={`mt-1 md:mt-2 text-xs md:text-sm ${textBody}`}>
                         {esSoloLectura
-                            ? '🔒 Modo lectura — Solo Aseguramiento puede cambiar estatus de equipos.'
+                            ? '🔒 Modo lectura — Solo personal autorizado puede cambiar estatus de equipos.'
                             : 'Arrastra las tarjetas para cambiar el estado operativo en tiempo real.'}
                     </p>
                 </div>
@@ -316,111 +316,201 @@ const TableroKanban = ({ darkMode }) => {
                 })}
             </div>
 
-            {/* Modal de Detalle */}
+            {/* Modal de Detalle — Expediente del Equipo */}
             {modalDetalle && equipoDetalle && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-                    <div className={`w-full max-w-2xl max-h-[95vh] rounded-3xl shadow-2xl overflow-hidden border flex flex-col transition-all transform scale-100 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
+                    <div className={`w-full max-w-5xl max-h-[95vh] overflow-hidden rounded-[2.5rem] shadow-2xl border flex flex-col transition-all transform scale-100 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
                         {/* Cabecera Modal */}
-                        <div className={`p-4 sm:p-6 flex justify-between items-center border-b shrink-0 ${darkMode ? 'bg-[#253916] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
+                        <div className={`p-6 border-b flex items-center justify-between shrink-0 ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
                             <div className="flex items-center gap-3">
-                                <div className={`p-2 sm:p-3 rounded-2xl ${darkMode ? 'bg-[#141f0b] text-[#C9EA63]' : 'bg-white text-[#008a5e] shadow-sm'}`}>
-                                    <Package size={20} className="sm:w-6 sm:h-6" />
+                                <div className={`p-3 rounded-2xl ${darkMode ? 'bg-[#C9EA63] text-black' : 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'}`}>
+                                    <FileText size={20} />
                                 </div>
-                                <div className="flex flex-col">
-                                    <h2 className={`text-lg sm:text-xl font-black leading-tight ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipoDetalle.nombre_instrumento}</h2>
-                                    <p className={`text-[10px] sm:text-xs font-bold uppercase tracking-widest ${darkMode ? 'text-[#C9EA63]/70' : 'text-[#008a5e]'}`}>{equipoDetalle.orden_cotizacion}</p>
+                                <div>
+                                    <h2 className={`text-xl font-black uppercase tracking-tight ${darkMode ? 'text-white' : 'text-slate-800'}`}>Expediente del Equipo</h2>
+                                    <p className="text-[10px] font-bold opacity-40 uppercase tracking-widest">Detalle técnico e historial de orden</p>
                                 </div>
                             </div>
-                            <button onClick={() => setModalDetalle(false)} className={`p-2 rounded-xl transition-colors ${darkMode ? 'hover:bg-[#141f0b] text-[#F2F6F0]/60' : 'hover:bg-slate-200 text-slate-400'}`}>
-                                <X size={24} />
-                            </button>
+                            <button onClick={() => setModalDetalle(false)} className="opacity-40 hover:opacity-100 transition-all hover:rotate-90"><X size={24} /></button>
                         </div>
 
                         {/* Contenido Modal Scrollable */}
-                        <div className="p-4 sm:p-8 overflow-y-auto custom-scrollbar flex-1">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+                        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                {/* COLUMNA IZQUIERDA */}
                                 <div className="space-y-6">
+                                    {/* Orden prominente */}
                                     <section>
-                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos del Equipo</h4>
-                                        <div className="space-y-3">
-                                            <div className="flex items-center gap-3 text-sm">
-                                                <Tag size={16} className="opacity-40" />
-                                                <span className="font-bold w-20">Marca:</span>
-                                                <span className="opacity-80">{equipoDetalle.marca || 'N/A'}</span>
-                                            </div>
-                                            <div className="flex items-center gap-3 text-sm">
-                                                <BookOpen size={16} className="opacity-40" />
-                                                <span className="font-bold w-20">Modelo:</span>
-                                                <span className="opacity-80">{equipoDetalle.modelo || 'N/A'}</span>
-                                            </div>
-                                            <div className="flex items-center gap-3 text-sm">
-                                                <Hash size={16} className="opacity-40" />
-                                                <span className="font-bold w-24">Serie:</span>
-                                                <span className="opacity-80 font-mono text-[11px]">{equipoDetalle.no_serie || 'N/A'}</span>
-                                            </div>
-                                            <div className="flex items-center gap-3 text-sm">
-                                                <Tag size={16} className="opacity-40" />
-                                                <span className="font-bold w-24">ID:</span>
-                                                <span className="opacity-80 font-mono text-[11px]">{equipoDetalle.identificacion || 'N/A'}</span>
-                                            </div>
-                                            <div className="flex items-center gap-3 text-sm">
-                                                <Package size={16} className="opacity-40" />
-                                                <span className="font-bold w-24">Ubicación:</span>
-                                                <span className="opacity-80">{equipoDetalle.ubicacion || 'N/A'}</span>
-                                            </div>
-                                            <div className="flex items-center gap-3 text-sm">
-                                                <FileCheck size={16} className={`opacity-40 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`} />
-                                                <span className="font-bold w-24">Área Lab:</span>
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black tracking-wider uppercase ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-50 text-[#008a5e]'}`}>
-                                                    {equipoDetalle.area_laboratorio || 'No definida'}
-                                                </span>
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Identificación Base</h4>
+                                        <div className={`p-6 rounded-[2rem] border ${darkMode ? 'bg-[#C9EA63]/5 border-[#C9EA63]/20' : 'bg-emerald-50 border-emerald-100'}`}>
+                                            <div className="space-y-1">
+                                                <label className="text-[9px] font-black uppercase opacity-40 ml-1">Referencia / Orden</label>
+                                                <p className={`text-3xl font-black tracking-tighter ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-500'}`}>
+                                                    {equipoDetalle.orden_cotizacion || equipoDetalle.folio_rastreo}
+                                                </p>
                                             </div>
                                         </div>
                                     </section>
 
+                                    {/* Datos del Instrumento */}
                                     <section>
-                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Metrólogos Asignados</h4>
-                                        <div className="flex flex-wrap gap-2">
-                                            {equipoDetalle.metrologos_asignados?.length ? equipoDetalle.metrologos_asignados.map((m, idx) => (
-                                                <div key={idx} className={`px-3 py-2 rounded-xl border flex items-center gap-2 transition-all ${m.estatus === 'terminado' ? (darkMode ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700') : (darkMode ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' : 'bg-amber-50 border-amber-200 text-amber-700')}`}>
-                                                    <span className="text-xs font-bold">{m.nombre}</span>
-                                                    {m.estatus === 'terminado' ? <CheckCircle size={14} /> : <Clock size={14} className="animate-pulse" />}
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos del Instrumento</h4>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            {equipoDetalle.clave && (
+                                                <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-[#C9EA63]/5 border-[#C9EA63]/10' : 'bg-emerald-50 border-emerald-100'}`}>
+                                                    <p className="text-[9px] font-black uppercase opacity-40 mb-1">Clave</p>
+                                                    <p className="text-sm font-black font-mono uppercase">{equipoDetalle.clave}</p>
                                                 </div>
-                                            )) : <span className="text-xs opacity-40 italic">Sin personal asignado</span>}
-                                        </div>
-                                    </section>
-
-                                    <section>
-                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Cliente & Servicio</h4>
-                                        <div className="space-y-3">
-                                        <div className="flex items-start gap-3 text-sm">
-                                                <User size={16} className="opacity-40 mt-1" />
-                                                <div className="flex flex-col">
-                                                <span className="font-bold text-sm">{equipoDetalle.empresa}</span>
-                                                <span className="text-xs opacity-60">{equipoDetalle.persona || 'Sin contacto'}</span>
+                                            )}
+                                            <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                                                <p className="text-[9px] font-black uppercase opacity-40 mb-1">Nombre / Equipo</p>
+                                                <p className="text-xs font-bold uppercase">{equipoDetalle.nombre_instrumento}</p>
+                                            </div>
+                                            {equipoDetalle.no_certificado && (
+                                                <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-[#C9EA63]/5 border-[#C9EA63]/10' : 'bg-emerald-50 border-emerald-100'}`}>
+                                                    <p className="text-[9px] font-black uppercase opacity-40 mb-1">No. Certificado</p>
+                                                    <p className="text-sm font-black font-mono uppercase">{equipoDetalle.no_certificado}</p>
                                                 </div>
+                                            )}
+                                            <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                                                <p className="text-[9px] font-black uppercase opacity-40 mb-1">Marca / Modelo</p>
+                                                <p className="text-xs font-bold uppercase">{equipoDetalle.marca || 'N/A'} {equipoDetalle.modelo ? `/ ${equipoDetalle.modelo}` : ''}</p>
                                             </div>
+                                            <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                                                <p className="text-[9px] font-black uppercase opacity-40 mb-1">No. Serie</p>
+                                                <p className="text-xs font-bold font-mono uppercase">{equipoDetalle.no_serie || 'S/N'}</p>
+                                            </div>
+                                            <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                                                <p className="text-[9px] font-black uppercase opacity-40 mb-1">ID / Ubicación</p>
+                                                <p className="text-xs font-bold uppercase">{equipoDetalle.identificacion || 'N/A'} | {equipoDetalle.ubicacion || 'ALMACÉN'}</p>
+                                            </div>
+                                            {equipoDetalle.intervalo_calibracion && equipoDetalle.intervalo_calibracion !== 'No especificado' && (
+                                                <div className={`col-span-2 p-4 rounded-2xl border ${darkMode ? 'bg-blue-950/20 border-blue-500/20' : 'bg-blue-50 border-blue-200'}`}>
+                                                    <p className="text-[9px] font-black uppercase opacity-40 mb-1">Intervalo de Calibración</p>
+                                                    <p className="text-xs font-bold">{equipoDetalle.intervalo_calibracion}</p>
+                                                </div>
+                                            )}
                                         </div>
                                     </section>
 
+                                    {/* Asignación y Metrología */}
                                     <section>
-                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Requerimientos & Puntos</h4>
-                                        <div className="space-y-4">
-                                            <div className={`p-3 rounded-xl border text-xs ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/10 text-[#F2F6F0]' : 'bg-slate-50 border-slate-100'}`}>
-                                                <span className="font-black opacity-40 block mb-1">Requerimientos:</span>
-                                                {equipoDetalle.requerimientos_especiales || 'No indicados'}
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Asignación y Metrología</h4>
+                                        <div className={`p-5 rounded-3xl border flex flex-col gap-4 ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                                            <div className="flex justify-between items-center text-xs">
+                                                <span className="opacity-50 font-bold uppercase">Laboratorio:</span>
+                                                <span className={`px-2 py-0.5 rounded font-black border ${darkMode ? 'bg-[#C9EA63]/10 border-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-50 border-emerald-100 text-emerald-700'}`}>{equipoDetalle.area_laboratorio || 'PENDIENTE'}</span>
                                             </div>
-                                            <div className={`p-3 rounded-xl border text-xs ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/10 text-[#F2F6F0]' : 'bg-slate-50 border-slate-100'}`}>
-                                                <span className="font-black opacity-40 block mb-1">Puntos a Calibrar:</span>
-                                                {equipoDetalle.puntos_calibrar || 'No indicados'}
+                                            <div className="space-y-2">
+                                                <p className="text-[9px] font-black uppercase opacity-30">Metrólogos Responsables</p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {equipoDetalle.metrologos_asignados?.length ? equipoDetalle.metrologos_asignados.map(m => (
+                                                        <div key={m.id} className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 transition-all ${m.estatus === 'terminado' ? (darkMode ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700') : (darkMode ? 'bg-[#C9EA63]/5 border-[#C9EA63]/10 text-white' : 'bg-white border-slate-200 text-slate-700')}`}>
+                                                            <span className="text-[10px] font-black tracking-tight">{m.nombre.toUpperCase()}</span>
+                                                            {m.estatus === 'terminado' ? <CheckCircle size={14} className="text-emerald-500" /> : <div className="w-1.5 h-1.5 rounded-full bg-[#C9EA63] animate-pulse" />}
+                                                        </div>
+                                                    )) : <span className="text-xs opacity-40 italic">Sin asignar personal técnico</span>}
+                                                </div>
                                             </div>
                                         </div>
                                     </section>
                                 </div>
 
+                                {/* COLUMNA DERECHA */}
                                 <div className="space-y-6">
-                                    <div className={`p-5 sm:p-6 rounded-3xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
-                                        <h4 className="text-[10px] font-black uppercase tracking-widest mb-4 opacity-50">Tiempos y Estatus</h4>
+                                    {/* Información del Cliente */}
+                                    <section>
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Información del Cliente</h4>
+                                        <div className={`p-6 rounded-3xl border space-y-4 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+                                            <div className="space-y-1">
+                                                <p className="text-[9px] font-black uppercase opacity-40">Empresa / Socio Comercial</p>
+                                                <p className={`text-sm font-black tracking-tight ${darkMode ? 'text-white' : 'text-slate-800'}`}>{equipoDetalle.empresa || equipoDetalle.persona}</p>
+                                            </div>
+                                            {equipoDetalle.nombre_certificados && (
+                                                <div className="space-y-1">
+                                                    <p className="text-[9px] font-black uppercase opacity-40">Certificados a nombre de</p>
+                                                    <p className={`text-sm font-bold tracking-tight ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>{equipoDetalle.nombre_certificados}</p>
+                                                </div>
+                                            )}
+                                            {equipoDetalle.direccion && (
+                                                <div className="space-y-1">
+                                                    <p className="text-[9px] font-black uppercase opacity-40">Dirección</p>
+                                                    <p className={`text-xs font-bold ${darkMode ? 'text-white/70' : 'text-slate-600'}`}>{equipoDetalle.direccion}</p>
+                                                </div>
+                                            )}
+                                            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-dashed border-white/5">
+                                                <div className="space-y-1">
+                                                    <p className="text-[9px] font-black uppercase opacity-40">Contacto</p>
+                                                    <p className="text-xs font-bold">{equipoDetalle.persona || 'No registrado'}</p>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <p className="text-[9px] font-black uppercase opacity-40">SLA Acordado</p>
+                                                    <p className={`text-xs font-black uppercase tracking-wider ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-500'}`}>{equipoDetalle.sla || 10} Días Naturales</p>
+                                                </div>
+                                            </div>
+                                            {equipoDetalle.contacto_email && (
+                                                <div className="space-y-1">
+                                                    <p className="text-[9px] font-black uppercase opacity-40">Email</p>
+                                                    <p className={`text-xs font-bold ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>{equipoDetalle.contacto_email}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </section>
+
+                                    {/* Datos de la Orden */}
+                                    {(equipoDetalle.cotizacion_referencia || equipoDetalle.fecha_recepcion || equipoDetalle.servicio_solicitado) && (
+                                        <section>
+                                            <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos de la Orden</h4>
+                                            <div className={`p-5 rounded-3xl border grid grid-cols-3 gap-3 ${darkMode ? 'bg-[#1b2b10]/60 border-[#C9EA63]/15' : 'bg-indigo-50 border-indigo-200'}`}>
+                                                {equipoDetalle.cotizacion_referencia && (
+                                                    <div className="space-y-1">
+                                                        <p className="text-[9px] font-black uppercase opacity-40">Cotización Ref.</p>
+                                                        <p className={`text-sm font-black font-mono ${darkMode ? 'text-[#C9EA63]' : 'text-indigo-700'}`}>{equipoDetalle.cotizacion_referencia}</p>
+                                                    </div>
+                                                )}
+                                                {equipoDetalle.fecha_recepcion && (
+                                                    <div className="space-y-1">
+                                                        <p className="text-[9px] font-black uppercase opacity-40">Fecha Recepción</p>
+                                                        <p className={`text-sm font-black ${darkMode ? 'text-white' : 'text-slate-800'}`}>{equipoDetalle.fecha_recepcion}</p>
+                                                    </div>
+                                                )}
+                                                {equipoDetalle.servicio_solicitado && (
+                                                    <div className="space-y-1">
+                                                        <p className="text-[9px] font-black uppercase opacity-40">Servicio</p>
+                                                        <p className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{equipoDetalle.servicio_solicitado}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </section>
+                                    )}
+
+                                    {/* Técnico & Requisitos */}
+                                    <section>
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Técnico & Requisitos</h4>
+                                        <div className="grid grid-cols-1 gap-4">
+                                            <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <Layers size={14} className="opacity-30" />
+                                                    <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Puntos a Calibrar</p>
+                                                </div>
+                                                <p className={`text-[14px] leading-relaxed opacity-90 font-bold ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>
+                                                    {equipoDetalle.puntos_calibrar || 'Operación estándar según manual de metrología.'}
+                                                </p>
+                                            </div>
+                                            <div className={`p-5 rounded-3xl border ${darkMode ? 'bg-rose-500/5 border-rose-500/10' : 'bg-amber-50 border-amber-100'}`}>
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <AlertTriangle size={14} className="opacity-30" />
+                                                    <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Requisitos Especiales</p>
+                                                </div>
+                                                <p className={`text-[14px] leading-relaxed opacity-90 font-bold italic ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>
+                                                    {equipoDetalle.requerimientos_especiales || 'Sin consideraciones técnicas adicionales.'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    {/* Tiempos y Estatus */}
+                                    <div className={`p-6 rounded-3xl border ${darkMode ? 'bg-[#C9EA63]/5 border-[#C9EA63]/20 shadow-lg shadow-[#C9EA63]/5' : 'bg-emerald-50 border-emerald-100'}`}>
                                         <div className="space-y-4">
                                             <div className="flex justify-between items-center">
                                                 <div className="flex items-center gap-2 text-sm">
@@ -428,7 +518,7 @@ const TableroKanban = ({ darkMode }) => {
                                                     <span>Registro:</span>
                                                 </div>
                                                 <span className="font-bold text-sm">
-                                                    {new Date(equipoDetalle.fecha_ingreso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+                                                    {new Date(equipoDetalle.fecha_ingreso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
                                                 </span>
                                             </div>
                                             <div className="flex justify-between items-center">
@@ -442,9 +532,17 @@ const TableroKanban = ({ darkMode }) => {
                                                 {puedeModificarEstatus ? (
                                                     <>
                                                         <div className="text-[10px] uppercase font-black tracking-widest mb-2 opacity-50 text-center">Cambiar Estado Operativo</div>
-                                                        <select 
+                                                        <select
                                                             value={equipoDetalle.estatus_actual}
-                                                            onChange={(e) => onDrop({ preventDefault: () => {}, dataTransfer: { getData: () => equipoDetalle.id.toString() } }, e.target.value)}
+                                                            onChange={(e) => {
+                                                                const nuevoEstatus = e.target.value;
+                                                                setEquipoDetalle({ ...equipoDetalle, estatus_actual: nuevoEstatus });
+                                                                setEquipos(prev => prev.map(eq => eq.id === equipoDetalle.id ? { ...eq, estatus_actual: nuevoEstatus } : eq));
+                                                                axios.put(`/api/instrumentos/${equipoDetalle.id}/estatus`, { estatus: nuevoEstatus }).catch(err => {
+                                                                    console.error("Error al cambiar estatus", err);
+                                                                    fetchEquipos();
+                                                                });
+                                                            }}
                                                             className={`w-full text-center font-black py-2.5 rounded-xl text-xs appearance-none cursor-pointer transition-all border outline-none shadow-sm ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/30 text-[#C9EA63] hover:border-[#C9EA63]' : 'bg-white border-emerald-200 text-[#008a5e] hover:border-[#008a5e]'}`}
                                                         >
                                                             <option value="Recepción">Recepción</option>
@@ -457,9 +555,17 @@ const TableroKanban = ({ darkMode }) => {
                                                     </>
                                                 ) : (
                                                     <div className={`flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]/40' : 'bg-slate-100 text-slate-400'}`}>
-                                                        <Info size={14} /> Solo Aseguramiento puede cambiar el estatus
+                                                        <Info size={14} /> Solo personal autorizado puede cambiar el estatus
                                                     </div>
                                                 )}
+                                            </div>
+                                            <div className="flex justify-between items-center pt-2 border-t border-inherit">
+                                                <div className="flex items-center gap-2 text-sm">
+                                                    <span className="opacity-50">Estatus:</span>
+                                                </div>
+                                                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63] border border-[#C9EA63]/20' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
+                                                    {equipoDetalle.estatus_actual}
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
@@ -468,12 +574,12 @@ const TableroKanban = ({ darkMode }) => {
                         </div>
 
                         {/* Pie Modal */}
-                        <div className={`p-4 sm:p-6 border-t flex justify-end shrink-0 ${darkMode ? 'bg-[#253916] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
-                            <button 
+                        <div className={`p-4 border-t flex justify-end shrink-0 ${darkMode ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
+                            <button
                                 onClick={() => setModalDetalle(false)}
-                                className={`w-full sm:w-auto px-8 py-3 rounded-2xl font-black text-sm transition-all shadow-lg ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
+                                className={`px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg ${darkMode ? 'bg-[#C9EA63] hover:bg-[#b0d14b] text-[#141f0b] shadow-[#C9EA63]/10' : 'bg-[#008a5e] hover:bg-[#007b55] text-white shadow-[#008a5e]/20'}`}
                             >
-                                Entendido
+                                Cerrar Expediente
                             </button>
                         </div>
                     </div>

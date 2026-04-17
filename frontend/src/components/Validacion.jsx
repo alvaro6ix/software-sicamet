@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { FileCheck, XCircle, CheckCircle, Package, Clock, MessageSquare, AlertTriangle, HelpCircle, AlertCircle, X, Paperclip, Tag, BookOpen, Hash, User, Calendar, FileText, Image as ImageIcon, Eye } from 'lucide-react';
+import { FileCheck, XCircle, CheckCircle, Package, Clock, MessageSquare, AlertTriangle, HelpCircle, AlertCircle, X, Paperclip, Tag, BookOpen, Hash, User, Calendar, FileText, File as FileIcon, Image as ImageIcon, Eye } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 const getOsaColor = (osStr, isDark) => {
@@ -34,7 +34,7 @@ const InstrumentoRow = ({ eq, darkMode, tabActual, abrirDetalles, abrirComentari
                         <div className="flex flex-wrap gap-1">
                             {eq.metrologos_asignados?.map((m, mIdx) => (
                                 <span key={mIdx} className={`text-[8px] px-1.5 py-0 rounded-full font-bold border ${m.estatus === 'terminado' ? (darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63] border-[#C9EA63]/30' : 'bg-emerald-100 text-[#008a5e] border-emerald-200') : (darkMode ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' : 'bg-amber-50 text-amber-600 border-amber-100')}`}>
-                                    {m.nombre.split(' ')[0]} {m.estatus === 'terminado' ? '(L)' : '(...)'}
+                                    {(m.nombre || 'Sin Nombre').split(' ')[0]} {m.estatus === 'terminado' ? '(L)' : '(...)'}
                                 </span>
                             ))}
                         </div>
@@ -187,7 +187,7 @@ const Validacion = ({ darkMode, usuario }) => {
     const groupsProcessed = new Set();
     equiposFiltroTab.forEach(e => {
         const oc = e.orden_cotizacion || 'S/N';
-        if (ocCounter[oc] >= 5) {
+        if (ocCounter[oc] >= 2) {
             if (!groupsProcessed.has(oc)) {
                 grouped.push({ isGroup: true, oc, items: equiposFiltroTab.filter(item => (item.orden_cotizacion || 'S/N') === oc) });
                 groupsProcessed.add(oc);
@@ -668,6 +668,20 @@ const Validacion = ({ darkMode, usuario }) => {
                                     <section>
                                         <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos del Equipo</h4>
                                         <div className="space-y-3">
+                                            {equipoDetalle.clave && (
+                                                <div className="flex items-center gap-3 text-sm">
+                                                    <Tag size={16} className="opacity-40" />
+                                                    <span className="font-bold w-16">Clave:</span>
+                                                    <span className="opacity-80 font-mono font-bold">{equipoDetalle.clave}</span>
+                                                </div>
+                                            )}
+                                            {equipoDetalle.no_certificado && (
+                                                <div className="flex items-center gap-3 text-sm">
+                                                    <FileText size={16} className="opacity-40 text-emerald-500" />
+                                                    <span className="font-bold w-24">Certificado:</span>
+                                                    <span className="opacity-80 font-mono font-bold">{equipoDetalle.no_certificado}</span>
+                                                </div>
+                                            )}
                                             <div className="flex items-center gap-3 text-sm">
                                                 <Tag size={16} className="opacity-40" />
                                                 <span className="font-bold w-20">Marca:</span>
@@ -683,6 +697,12 @@ const Validacion = ({ darkMode, usuario }) => {
                                                 <span className="font-bold w-24">Serie:</span>
                                                 <span className="opacity-80 font-mono text-[11px]">{equipoDetalle.no_serie || 'N/A'}</span>
                                             </div>
+                                            {equipoDetalle.intervalo_calibracion && equipoDetalle.intervalo_calibracion !== 'No especificado' && (
+                                                <div className={`p-3 rounded-xl border text-xs ${darkMode ? 'bg-blue-950/20 border-blue-500/20' : 'bg-blue-50 border-blue-200'}`}>
+                                                    <span className="font-black opacity-40 block mb-1">Intervalo:</span>
+                                                    {equipoDetalle.intervalo_calibracion}
+                                                </div>
+                                            )}
                                             <div className="flex items-center gap-3 text-sm">
                                                 <Tag size={16} className="opacity-40" />
                                                 <span className="font-bold w-24">ID:</span>
@@ -704,26 +724,15 @@ const Validacion = ({ darkMode, usuario }) => {
                                     </section>
 
                                     <section>
-                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Metrólogos Asignados</h4>
-                                        <div className="flex flex-wrap gap-2">
-                                            {equipoDetalle.metrologos_asignados?.length ? equipoDetalle.metrologos_asignados.map((m, idx) => (
-                                                <div key={idx} className={`px-3 py-2 rounded-xl border flex items-center gap-2 transition-all ${m.estatus === 'terminado' ? (darkMode ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700') : (darkMode ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' : 'bg-amber-50 border-amber-200 text-amber-700')}`}>
-                                                    <span className="text-xs font-bold">{m.nombre}</span>
-                                                    {m.estatus === 'terminado' ? <CheckCircle size={14} /> : <Clock size={14} className="animate-pulse" />}
-                                                </div>
-                                            )) : <span className="text-xs opacity-40 italic">Sin personal asignado</span>}
-                                        </div>
-                                    </section>
-
-                                    <section>
-                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Cliente & Servicio</h4>
-                                        <div className="space-y-3">
-                                        <div className="flex items-start gap-3 text-sm">
-                                                <User size={16} className="opacity-40 mt-1" />
-                                                <div className="flex flex-col">
-                                                <span className="font-bold text-sm">{equipoDetalle.empresa}</span>
-                                                <span className="text-xs opacity-60">{equipoDetalle.persona || 'Sin contacto'}</span>
-                                                </div>
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Requerimientos & Puntos</h4>
+                                        <div className="space-y-4">
+                                            <div className={`p-4 rounded-xl border text-sm ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
+                                                <span className="font-black opacity-40 block mb-1">Requerimientos:</span>
+                                                {equipoDetalle.requerimientos_especiales || 'No indicados'}
+                                            </div>
+                                            <div className={`p-4 rounded-xl border text-sm ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
+                                                <span className="font-black opacity-40 block mb-1">Puntos a Calibrar:</span>
+                                                {equipoDetalle.puntos_calibrar || 'No indicados'}
                                             </div>
                                         </div>
                                     </section>
@@ -731,18 +740,59 @@ const Validacion = ({ darkMode, usuario }) => {
 
                                 <div className="space-y-6">
                                     <section>
-                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Requerimientos & Puntos</h4>
-                                        <div className="space-y-4">
-                                            <div className={`p-4 rounded-xl border text-sm ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10 text-[#F2F6F0]' : 'bg-slate-50 border-slate-100'}`}>
-                                                <span className="font-black opacity-40 block mb-1">Requerimientos:</span>
-                                                {equipoDetalle.requerimientos_especiales || 'No indicados'}
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Información del Cliente</h4>
+                                        <div className={`p-5 rounded-xl border space-y-3 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
+                                            <div>
+                                                <p className="text-[9px] font-black uppercase opacity-40">Empresa</p>
+                                                <p className="text-sm font-bold">{equipoDetalle.empresa || 'N/A'}</p>
                                             </div>
-                                            <div className={`p-4 rounded-xl border text-sm ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10 text-[#F2F6F0]' : 'bg-slate-50 border-slate-100'}`}>
-                                                <span className="font-black opacity-40 block mb-1">Puntos a Calibrar:</span>
-                                                {equipoDetalle.puntos_calibrar || 'No indicados'}
+                                            {equipoDetalle.nombre_certificados && (
+                                                <div><p className="text-[9px] font-black uppercase opacity-40">Certificados a nombre de</p><p className="text-sm font-bold">{equipoDetalle.nombre_certificados}</p></div>
+                                            )}
+                                            {equipoDetalle.direccion && (
+                                                <div><p className="text-[9px] font-black uppercase opacity-40">Dirección</p><p className="text-xs">{equipoDetalle.direccion}</p></div>
+                                            )}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div><p className="text-[9px] font-black uppercase opacity-40">Contacto</p><p className="text-xs font-bold">{equipoDetalle.persona || 'N/A'}</p></div>
+                                                <div><p className="text-[9px] font-black uppercase opacity-40">SLA</p><p className="text-xs font-black">{equipoDetalle.sla} días</p></div>
                                             </div>
+                                            {equipoDetalle.contacto_email && (
+                                                <div><p className="text-[9px] font-black uppercase opacity-40">Email</p><p className="text-xs font-bold text-blue-500">{equipoDetalle.contacto_email}</p></div>
+                                            )}
                                         </div>
                                     </section>
+
+                                    {(equipoDetalle.cotizacion_referencia || equipoDetalle.fecha_recepcion || equipoDetalle.servicio_solicitado) && (
+                                        <section>
+                                            <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos de la Orden</h4>
+                                            <div className={`p-4 rounded-xl border grid grid-cols-2 gap-3 ${darkMode ? 'bg-indigo-950/20 border-indigo-500/20' : 'bg-indigo-50 border-indigo-200'}`}>
+                                                {equipoDetalle.cotizacion_referencia && (<div><p className="text-[9px] font-black uppercase opacity-40">Cotización Ref.</p><p className="text-sm font-black font-mono">{equipoDetalle.cotizacion_referencia}</p></div>)}
+                                                {equipoDetalle.fecha_recepcion && (<div><p className="text-[9px] font-black uppercase opacity-40">Fecha Recepción</p><p className="text-sm font-bold">{equipoDetalle.fecha_recepcion}</p></div>)}
+                                                {equipoDetalle.servicio_solicitado && (<div><p className="text-[9px] font-black uppercase opacity-40">Servicio</p><p className="text-sm font-bold">{equipoDetalle.servicio_solicitado}</p></div>)}
+                                            </div>
+                                        </section>
+                                    )}
+
+                                    <section>
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Metrólogos Asignados</h4>
+                                        <div className="flex flex-wrap gap-2">
+                                            {equipoDetalle.metrologos_asignados?.length ? equipoDetalle.metrologos_asignados.map((m, idx) => (
+                                                <div key={idx} className={`px-3 py-2 rounded-xl border flex items-center gap-2 ${m.estatus === 'terminado' ? (darkMode ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700') : (darkMode ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' : 'bg-amber-50 border-amber-200 text-amber-700')}`}>
+                                                    <span className="text-xs font-bold">{m.nombre}</span>
+                                                    {m.estatus === 'terminado' ? <CheckCircle size={14} /> : <Clock size={14} className="animate-pulse" />}
+                                                </div>
+                                            )) : <span className="text-xs opacity-40 italic">Sin personal asignado</span>}
+                                        </div>
+                                    </section>
+
+                                    <div className={`p-5 rounded-xl border ${darkMode ? 'bg-[#C9EA63]/5 border-[#C9EA63]/20' : 'bg-emerald-50 border-emerald-100'}`}>
+                                        <h4 className="text-[10px] font-black uppercase tracking-widest mb-3 opacity-50">Tiempos y Estatus</h4>
+                                        <div className="space-y-3">
+                                            <div className="flex justify-between items-center text-sm"><span className="opacity-60">Registro:</span><span className="font-bold">{new Date(equipoDetalle.fecha_ingreso).toLocaleDateString('es-MX', {day:'2-digit', month:'short'})}</span></div>
+                                            <div className="flex justify-between items-center text-sm"><span className="opacity-60">SLA:</span><span className={`font-black ${equipoDetalle.sla <= 2 ? 'text-rose-500' : ''}`}>{equipoDetalle.sla} días</span></div>
+                                            <div className={`p-2 rounded-lg text-center text-xs font-black uppercase ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63]' : 'bg-emerald-100 text-emerald-700'}`}>{equipoDetalle.estatus_actual}</div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

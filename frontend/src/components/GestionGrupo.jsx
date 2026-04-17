@@ -7,7 +7,7 @@ import {
     ThumbsUp, HelpCircle, X, Paperclip, Tag, BookOpen, 
     Hash, User, Calendar, FileText, Image as ImageIcon, 
     Eye, ArrowRight, Edit3, Save, RefreshCw, Trash2,
-    Layers, MapPin, Activity, Settings2, List, Plus, Edit, Truck
+    Layers, MapPin, Activity, Settings2, List, Plus, Edit, Truck, FileCheck
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import Select from 'react-select';
@@ -52,6 +52,11 @@ const GestionGrupo = ({ darkMode, usuario }) => {
     const bgContainer = darkMode ? 'bg-[#141f0b]' : 'bg-white';
     const borderCard = darkMode ? 'border-[#C9EA63]/20' : 'border-slate-100';
     const textMain = darkMode ? 'text-[#F2F6F0]' : 'text-slate-800';
+
+    // Permisos por Rol
+    const esSoloLectura = ['aseguramiento', 'validacion'].includes(usuario?.rol);
+    const puedeEditarTotal = ['admin', 'recepcionista'].includes(usuario?.rol);
+    const puedeMoverEstatus = ['admin', 'recepcionista', 'metrologo', 'operador'].includes(usuario?.rol);
 
     const selectStyles = {
         control: (base, state) => ({
@@ -304,12 +309,31 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                             </button>
                         </div>
 
-                        <button 
-                            onClick={abrirModalOrden}
-                            className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md hover:scale-105 active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
-                        >
-                            <Settings2 size={16} /> Gestionar Orden
-                        </button>
+                        {/* Contador de Certificados PRO */}
+                        <div className={`hidden md:flex items-center gap-3 px-4 py-2 rounded-xl border ${darkMode ? 'bg-black/20 border-[#C9EA63]/20' : 'bg-slate-50 border-slate-200'}`}>
+                            <div className="flex -space-x-2">
+                                { [0,1,2].map(i => (
+                                    <div key={i} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/40' : 'bg-white border-emerald-500'}`}>
+                                        <FileCheck size={10} className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} />
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-[9px] font-black uppercase opacity-40 leading-none">Certificados</span>
+                                <span className={`text-xs font-black ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>
+                                    {equipos.filter(e => e.certificado_url).length} de {equipos.length} listos
+                                </span>
+                            </div>
+                        </div>
+
+                        {puedeEditarTotal && (
+                            <button 
+                                onClick={abrirModalOrden}
+                                className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md hover:scale-105 active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
+                            >
+                                <Settings2 size={16} /> Gestionar Orden
+                            </button>
+                        )}
                     </div>
                 </div>
             </header>
@@ -376,6 +400,20 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                                     <p className={`text-[9px] font-mono font-bold truncate opacity-60 ${textMain}`}>{eq.identificacion || 'S/I'}</p>
                                                 </div>
                                             </div>
+
+                                            {/* Alerta de Certificado Faltante */}
+                                            { !eq.certificado_url && (
+                                                <div className={`mb-2 px-2 py-1 rounded-md flex items-center gap-1.5 border animate-pulse ${darkMode ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+                                                    <AlertTriangle size={10} />
+                                                    <span className="text-[8px] font-black uppercase italic">⚠️ Sin Certificado</span>
+                                                </div>
+                                            )}
+                                            { eq.certificado_url && (
+                                                <div className={`mb-2 px-2 py-1 rounded-md flex items-center gap-1.5 border ${darkMode ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-emerald-50 border-emerald-100 text-emerald-700'}`}>
+                                                    <CheckCircle size={10} />
+                                                    <span className="text-[8px] font-black uppercase">Certificado: {eq.numero_informe || 'VINCULADO'}</span>
+                                                </div>
+                                            )}
 
                                             <div className="flex flex-wrap gap-1">
                                                 <div className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-tighter ${darkMode ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`}>
@@ -450,13 +488,19 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                         </div>
                                     </td>
                                     <td className="p-6">
-                                        <select 
-                                            value={eq.estatus_actual}
-                                            onChange={(e) => handleMoverEstatus(eq.id, e.target.value)}
-                                            className={`text-[10px] font-black uppercase px-4 py-1.5 rounded-full border outline-none cursor-pointer transition-all ${darkMode ? 'bg-[#141f0b] border-white/10 text-white hover:border-[#C9EA63]' : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-500'}`}
-                                        >
-                                            {ColumnasKanban.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
-                                        </select>
+                                        {puedeMoverEstatus ? (
+                                            <select 
+                                                value={eq.estatus_actual}
+                                                onChange={(e) => handleMoverEstatus(eq.id, e.target.value)}
+                                                className={`text-[10px] font-black uppercase px-4 py-1.5 rounded-full border outline-none cursor-pointer transition-all ${darkMode ? 'bg-[#141f0b] border-white/10 text-white hover:border-[#C9EA63]' : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-500'}`}
+                                            >
+                                                {ColumnasKanban.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
+                                            </select>
+                                        ) : (
+                                            <span className={`text-[10px] font-black uppercase px-4 py-1.5 rounded-full border ${darkMode ? 'bg-white/5 border-white/10 text-white/40' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                                                {eq.estatus_actual}
+                                            </span>
+                                        )}
                                     </td>
                                     <td className="p-6">
                                         <div className="flex justify-center gap-2">
@@ -467,20 +511,25 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                             >
                                                 <Eye size={16} />
                                             </button>
-                                            <button 
-                                                onClick={() => { setEquipoEditando(eq); setModalEditar(true); }}
-                                                className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-white/5 text-white/40 hover:text-emerald-400' : 'bg-slate-100 text-slate-400 hover:text-emerald-500'}`}
-                                                title="Editar"
-                                            >
-                                                <Edit3 size={16} />
-                                            </button>
-                                            <button 
-                                                onClick={() => eliminarInstrumento(eq.id)}
-                                                className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-white/5 text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10' : 'bg-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50'}`}
-                                                title="Eliminar"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
+                                            
+                                            {puedeEditarTotal && (
+                                                <>
+                                                    <button 
+                                                        onClick={() => { setEquipoEditando(eq); setModalEditar(true); }}
+                                                        className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-white/5 text-white/40 hover:text-emerald-400' : 'bg-slate-100 text-slate-400 hover:text-emerald-500'}`}
+                                                        title="Editar"
+                                                    >
+                                                        <Edit3 size={16} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => eliminarInstrumento(eq.id)}
+                                                        className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-white/5 text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10' : 'bg-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50'}`}
+                                                        title="Eliminar"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </>
+                                            )}
                                         </div>
                                     </td>
                                 </tr>
@@ -618,6 +667,52 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                             </div>
                                         </div>
                                     </section>
+
+                                    <section>
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 flex items-center gap-2 ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-800'}`}>
+                                            <FileCheck size={14} /> Documentación Digital
+                                        </h4>
+                                        
+                                        {equipoDetalle.certificado_url ? (
+                                            <div className={`p-6 rounded-[2rem] border flex items-center justify-between transition-all ${darkMode ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-white border-slate-200 shadow-sm'}`}>
+                                                <div className="flex items-center gap-4">
+                                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${darkMode ? 'bg-[#C9EA63] text-black' : 'bg-emerald-600 text-white'}`}>
+                                                        <FileText size={20} />
+                                                    </div>
+                                                    <div>
+                                                        <p className={`text-xs font-black uppercase ${textMain}`}>{equipoDetalle.numero_informe || 'Informe Localizado'}</p>
+                                                        <p className="text-[9px] opacity-40 font-mono italic">Documento verificado por Aseguramiento</p>
+                                                    </div>
+                                                </div>
+                                                <a 
+                                                    href={equipoDetalle.certificado_url} 
+                                                    target="_blank" 
+                                                    rel="noreferrer"
+                                                    className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${darkMode ? 'bg-[#C9EA63] text-black hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
+                                                >
+                                                    Ver PDF
+                                                </a>
+                                            </div>
+                                        ) : (
+                                            <div className={`p-8 rounded-[2rem] border-2 border-dashed flex flex-col items-center justify-center gap-4 ${darkMode ? 'border-amber-500/20 bg-amber-500/5' : 'border-slate-200 bg-slate-50'}`}>
+                                                <AlertCircle size={32} className="text-amber-500 opacity-40" />
+                                                <div className="text-center">
+                                                    <p className={`text-sm font-black uppercase ${textMain}`}>Documento Pendiente</p>
+                                                    <p className="text-[10px] opacity-40 italic mt-1">El certificado digital aún no ha sido cargado en el sistema.</p>
+                                                </div>
+                                                
+                                                { (usuario?.rol === 'admin' || usuario?.rol === 'aseguramiento') && (
+                                                    <button 
+                                                        onClick={() => navigate('/certificacion-agil')}
+                                                        className={`mt-2 flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${darkMode ? 'bg-[#C9EA63] text-black hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
+                                                    >
+                                                        <RefreshCw size={14} /> Ir a Certificación Ágil
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </section>
+
 
                                     <section>
                                         <h4 className="text-[10px] font-black uppercase tracking-[0.2em] mb-6 opacity-30 flex items-center gap-2">

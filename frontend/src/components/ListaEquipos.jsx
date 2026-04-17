@@ -689,10 +689,22 @@ const ListaEquipos = ({ darkMode }) => {
                   <section>
                     <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos del Instrumento</h4>
                     <div className="grid grid-cols-2 gap-4">
+                      {equipoSeleccionado.clave && (
+                        <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-[#C9EA63]/5 border-[#C9EA63]/10' : 'bg-emerald-50 border-emerald-100'}`}>
+                          <p className="text-[9px] font-black uppercase opacity-40 mb-1">Clave</p>
+                          <p className="text-sm font-black font-mono uppercase">{equipoSeleccionado.clave}</p>
+                        </div>
+                      )}
                       <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
                         <p className="text-[9px] font-black uppercase opacity-40 mb-1">Nombre / Equipo</p>
                         <p className="text-xs font-bold uppercase">{equipoSeleccionado.nombre_instrumento}</p>
                       </div>
+                      {equipoSeleccionado.no_certificado && (
+                        <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-[#C9EA63]/5 border-[#C9EA63]/10' : 'bg-emerald-50 border-emerald-100'}`}>
+                          <p className="text-[9px] font-black uppercase opacity-40 mb-1">No. Certificado</p>
+                          <p className="text-sm font-black font-mono uppercase">{equipoSeleccionado.no_certificado}</p>
+                        </div>
+                      )}
                       <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
                         <p className="text-[9px] font-black uppercase opacity-40 mb-1">Marca / Modelo</p>
                         <p className="text-xs font-bold uppercase">{equipoSeleccionado.marca || 'N/A'} {equipoSeleccionado.modelo ? `/ ${equipoSeleccionado.modelo}` : ''}</p>
@@ -705,6 +717,12 @@ const ListaEquipos = ({ darkMode }) => {
                         <p className="text-[9px] font-black uppercase opacity-40 mb-1">ID / Ubicación</p>
                         <p className="text-xs font-bold uppercase">{equipoSeleccionado.identificacion || 'N/A'} | {equipoSeleccionado.ubicacion || 'ALMACÉN'}</p>
                       </div>
+                      {equipoSeleccionado.intervalo_calibracion && equipoSeleccionado.intervalo_calibracion !== 'No especificado' && (
+                        <div className={`col-span-2 p-4 rounded-2xl border ${darkMode ? 'bg-blue-950/20 border-blue-500/20' : 'bg-blue-50 border-blue-200'}`}>
+                          <p className="text-[9px] font-black uppercase opacity-40 mb-1">Intervalo de Calibración</p>
+                          <p className="text-xs font-bold">{equipoSeleccionado.intervalo_calibracion}</p>
+                        </div>
+                      )}
                     </div>
                   </section>
 
@@ -738,6 +756,18 @@ const ListaEquipos = ({ darkMode }) => {
                         <p className="text-[9px] font-black uppercase opacity-40">Empresa / Socio Comercial</p>
                         <p className={`text-sm font-black tracking-tight ${darkMode ? 'text-white' : 'text-slate-800'}`}>{equipoSeleccionado.empresa || equipoSeleccionado.cliente}</p>
                       </div>
+                      {equipoSeleccionado.nombre_certificados && (
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black uppercase opacity-40">Certificados a nombre de</p>
+                          <p className={`text-sm font-bold tracking-tight ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>{equipoSeleccionado.nombre_certificados}</p>
+                        </div>
+                      )}
+                      {equipoSeleccionado.direccion && (
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black uppercase opacity-40">Dirección</p>
+                          <p className={`text-xs font-bold ${darkMode ? 'text-white/70' : 'text-slate-600'}`}>{equipoSeleccionado.direccion}</p>
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-4 pt-2 border-t border-dashed border-white/5">
                         <div className="space-y-1">
                           <p className="text-[9px] font-black uppercase opacity-40">Contacto</p>
@@ -748,8 +778,41 @@ const ListaEquipos = ({ darkMode }) => {
                           <p className={`text-xs font-black uppercase tracking-wider ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-500'}`}>{equipoSeleccionado.sla || 10} Días Naturales</p>
                         </div>
                       </div>
+                      {equipoSeleccionado.contacto_email && (
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black uppercase opacity-40">Email</p>
+                          <p className={`text-xs font-bold ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>{equipoSeleccionado.contacto_email}</p>
+                        </div>
+                      )}
                     </div>
                   </section>
+
+                  {/* DATOS DE ORDEN */}
+                  {(equipoSeleccionado.cotizacion_referencia || equipoSeleccionado.fecha_recepcion || equipoSeleccionado.servicio_solicitado) && (
+                    <section>
+                      <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos de la Orden</h4>
+                      <div className={`p-5 rounded-3xl border grid grid-cols-3 gap-3 ${darkMode ? 'bg-[#1b2b10]/60 border-[#C9EA63]/15' : 'bg-indigo-50 border-indigo-200'}`}>
+                        {equipoSeleccionado.cotizacion_referencia && (
+                          <div className="space-y-1">
+                            <p className="text-[9px] font-black uppercase opacity-40">Cotización Ref.</p>
+                            <p className={`text-sm font-black font-mono ${darkMode ? 'text-[#C9EA63]' : 'text-indigo-700'}`}>{equipoSeleccionado.cotizacion_referencia}</p>
+                          </div>
+                        )}
+                        {equipoSeleccionado.fecha_recepcion && (
+                          <div className="space-y-1">
+                            <p className="text-[9px] font-black uppercase opacity-40">Fecha Recepción</p>
+                            <p className={`text-sm font-black ${darkMode ? 'text-white' : 'text-slate-800'}`}>{equipoSeleccionado.fecha_recepcion}</p>
+                          </div>
+                        )}
+                        {equipoSeleccionado.servicio_solicitado && (
+                          <div className="space-y-1">
+                            <p className="text-[9px] font-black uppercase opacity-40">Servicio</p>
+                            <p className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{equipoSeleccionado.servicio_solicitado}</p>
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  )}
 
                   <section>
                     <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Técnico & Requisitos</h4>
