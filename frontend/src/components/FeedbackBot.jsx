@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { MessageSquare, CheckCircle, X } from 'lucide-react';
+import { MessageSquare, CheckCircle, X, Trash2, Award } from 'lucide-react';
 
 const FeedbackBot = ({ darkMode }) => {
     const [feedbacks, setFeedbacks] = useState([]);
@@ -26,6 +26,22 @@ const FeedbackBot = ({ darkMode }) => {
         try {
             await axios.put(`/api/bot/feedback/${id}/leido`);
             setFeedbacks(prev => prev.map(f => f.id === id ? { ...f, leido_admin: 1 } : f));
+        } catch (err) { console.error(err); }
+    };
+
+    const marcarImplementado = async (id) => {
+        if (!window.confirm('¿Marcar sugerencia como IMPLEMENTADA?')) return;
+        try {
+            await axios.put(`/api/bot/feedback/${id}/implementado`);
+            setFeedbacks(prev => prev.map(f => f.id === id ? { ...f, implementado: 1, leido_admin: 1 } : f));
+        } catch (err) { console.error(err); }
+    };
+
+    const eliminarFeedback = async (id) => {
+        if (!window.confirm('¿Eliminar esta sugerencia de forma permanente?')) return;
+        try {
+            await axios.delete(`/api/bot/feedback/${id}`);
+            setFeedbacks(prev => prev.filter(f => f.id !== id));
         } catch (err) { console.error(err); }
     };
 
@@ -68,7 +84,7 @@ const FeedbackBot = ({ darkMode }) => {
                         <div key={f.id} className={`p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 transition-colors ${!f.leido_admin ? (darkMode ? 'bg-[#C9EA63]/5' : 'bg-emerald-50') : ''} ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    {!f.leido_admin && (
+                                    {!f.leido_admin && !f.implementado && (
                                         <span className="w-2 h-2 rounded-full bg-emerald-500" />
                                     )}
                                     <span className={`text-[10px] font-black ${darkMode ? 'text-white/30' : 'text-slate-400'}`}>{f.cliente_wa}</span>
@@ -76,14 +92,29 @@ const FeedbackBot = ({ darkMode }) => {
                                         <span className={`px-2 py-0.5 rounded text-[9px] font-black ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-[#008a5e]'}`}>{f.empresa}</span>
                                     )}
                                     <span className={`text-xs ${darkMode ? 'text-white/30' : 'text-slate-400'}`}>{new Date(f.fecha).toLocaleString('es-MX')}</span>
+                                    {f.implementado === 1 && (
+                                        <span className={`px-2 py-0.5 ml-2 rounded text-[10px] font-black uppercase flex items-center gap-1 ${darkMode ? 'bg-indigo-900/40 text-indigo-300 border border-indigo-500/20' : 'bg-indigo-50 text-indigo-600 border border-indigo-200'}`}>
+                                            <Award size={10}/> Implementado
+                                        </span>
+                                    )}
                                 </div>
-                                <p className={`mt-2 text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{f.mensaje}</p>
+                                <p className={`mt-2 text-sm ${darkMode ? (f.implementado ? 'text-[#F2F6F0]/60' : 'text-[#F2F6F0]') : (f.implementado ? 'text-slate-500/80' : 'text-slate-800')}`}>{f.mensaje}</p>
                             </div>
-                            {!f.leido_admin && (
-                                <button onClick={() => marcarLeido(f.id)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${darkMode ? 'bg-[#253916] text-[#C9EA63] hover:bg-[#314a1c]' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}>
-                                    <CheckCircle size={14}/> Marcar leído
+                            <div className="flex gap-2 shrink-0">
+                                {!f.implementado && (
+                                    <button onClick={() => marcarImplementado(f.id)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${darkMode ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`} title="Marcar como mejora aplicada al sistema">
+                                        <Award size={14}/> Implementar
+                                    </button>
+                                )}
+                                {!f.leido_admin && !f.implementado && (
+                                    <button onClick={() => marcarLeido(f.id)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${darkMode ? 'bg-[#253916] text-[#C9EA63] hover:bg-[#314a1c]' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}>
+                                        <CheckCircle size={14}/> Leído
+                                    </button>
+                                )}
+                                <button onClick={() => eliminarFeedback(f.id)} className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors opacity-60 hover:opacity-100 ${darkMode ? 'bg-rose-900/20 text-rose-400 hover:bg-rose-900/50' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`} title="Eliminar definitivamente">
+                                    <Trash2 size={14}/>
                                 </button>
-                            )}
+                            </div>
                         </div>
                     ))}
                 </div>

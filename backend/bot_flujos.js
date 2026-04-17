@@ -12,6 +12,10 @@
 
 const db = require('./bd');
 const { guardarEnHistorial, normalizarTexto, buscarEnFAQ } = require('./bot_ia');
+const path = require('path');
+
+// ─── DOMINIO DINÁMICO ────────────────────────────────────────────────────────
+const DOMINIO_PUBLICO = process.env.APP_URL || 'https://crm.sicamet.com';
 
 // ─── CACHÉ EN MEMORIA (10 min) ────────────────────────────────────────────────
 let cacheConfigHorario = null;
@@ -176,7 +180,7 @@ async function escalarPorIntentosFallidos(wa, sesion, mensajeUsuario, motivoRegi
     // ✅ Notificar por WhatsApp a los números configurados
     await notificarNuevoAsesor(wa, motivoRegistro).catch(() => {});
     await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
-    const texto = `${mensajeUsuario}\n\n🧑‍💼 *Conectando con un asesor SICAMET…*\nUn representante se pondrá en contacto contigo pronto.\n\n📞 Si es urgente: *722 270 1584*\n\n_Escribe *0* para el menú principal._`;
+    const texto = `${mensajeUsuario}\n\n🧑‍💼 *Conectando con un asesor SICAMET…*\nUn representante se pondrá en contacto contigo pronto.\n\n_Escribe *0* para el menú principal._`;
     await guardarEnHistorial(wa, 'bot', texto);
     return { text: texto };
 }
@@ -331,13 +335,13 @@ async function responderMenuPrincipal(wa, sesion) {
         let texto = msgBase + '\n';
         texto += await construirTextoOpcionesMenu(datos);
 
-        texto += '\n\n_Escribe el número de tu opción o cuéntame en qué te puedo ayudar._';
+        texto += '\n\n_Escribe el número de tu opción, cuéntame en qué me necesitas, o escribe *Finalizar* para terminar el chat._';
 
         await guardarEnHistorial(wa, 'bot', texto);
         return { text: texto };
     } catch (e) {
         console.error('Error responderMenuPrincipal:', e.message);
-        return { text: '👋 ¡Hola! ¿En qué te puedo ayudar hoy?\n\n_Escribe tu consulta o llama al *722 270 1584*._' };
+        return { text: '👋 ¡Hola! ¿En qué te puedo ayudar hoy?\n\n_Escribe tu consulta para que podamos ayudarte._' };
     }
 }
 
@@ -362,7 +366,7 @@ async function responderNodo(wa, id, sesion) {
         texto += '\n\n' + nodo.opciones.map((o, i) => `*${i + 1}️⃣* ${o.texto_opcion}`).join('\n');
     }
 
-    texto += '\n\n_Escribe *0* para volver al menú principal._';
+    texto += '\n\n_Escribe *0* para volver al menú principal, o *Finalizar* para salir._';
 
     await guardarEnHistorial(wa, 'bot', texto);
     return { text: texto, mediaUrl: nodo.media_url || null, mediaTipo: nodo.media_tipo || null };
@@ -370,10 +374,11 @@ async function responderNodo(wa, id, sesion) {
 
 // ─── PROCESADOR PRINCIPAL ────────────────────────────────────────────────────
 
-async function procesarMensaje(wa, texto, detectarIntencion, respuestaIA) {
+async function procesarMensaje(wa, texto, detectarIntencion, respuestaIA, nrReal) {
     console.log(`🤖 Bot procesando mensaje de [${wa}] | Texto: "${texto}"`);
     const textoLower = texto.toLowerCase().trim();
     const sesion = await getSesion(wa);
+    sesion.numeroUserReal = nrReal;
     await guardarEnHistorial(wa, 'user', texto);
 
     // Verificar horario — si está fuera y modo=silent, no respond
@@ -394,6 +399,12 @@ async function procesarMensaje(wa, texto, detectarIntencion, respuestaIA) {
     if (textoLower === 'reiniciar') {
         await guardarSesion(wa, null, {});
         return await responderMenuPrincipal(wa, { ...sesion, datos: {}, nodo_actual_id: null });
+    }
+    if (['finalizar', 'salir', 'cerrar', 'terminar', 'adios', 'adiós', 'bye'].includes(textoLower)) {
+        await guardarSesion(wa, null, {});
+        const txt = 'Has finalizado la conversación. Ha sido un placer atenderte en SICAMET. ¡Vuelve pronto! 👋';
+        await guardarEnHistorial(wa, 'bot', txt);
+        return { text: txt };
     }
     if (['0', 'menu', 'inicio', 'hola', 'hi', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches'].includes(textoLower)) {
         const datosMenu = estadoTrasEscalado(sesion.datos);
@@ -629,8 +640,8 @@ async function mapearAccionANodo(accion, nodos) {
         'ESTATUS': 'consultar_estatus',
         'RECORDATORIO': 'registrar_equipo',
         'ESCALAR': 'escalar',
-        'SERVICIOS': null, // No tiene accion propia, buscar por nombre
-        'CONTACTO': null,
+        'SERVICIOS': 'servicios',
+        'CONTACTO': 'contacto',
         'NORMATIVO': null,
     };
 
@@ -660,6 +671,7 @@ async function ejecutarAccionEspecial(wa, texto, nodo, sesion) {
     if (nodo.accion === 'cotizacion') return await flujosCotizacionLogic(wa, texto, sesion);
     if (nodo.accion === 'registrar_equipo') return await flujosRegistroEquipoLogic(wa, texto, sesion);
     if (nodo.accion === 'escalar') return await escalarAHumanoLogic(wa, texto);
+    if (nodo.accion === 'feedback') return await feedbackLogic(wa, texto, sesion);
     return null;
 }
 
@@ -984,7 +996,7 @@ async function notificarNuevaCotizacion(d) {
     } catch(e) { console.error("Error notificarNuevaCotizacion:", e.message); }
 }
 
-async function notificarNuevoAsesor(wa, motivo) {
+async function notificarNuevoAsesor(wa, motivo, nrReal) {
     try {
         const cfg = await getConfigHorario();
         const numeros = [
@@ -996,12 +1008,35 @@ async function notificarNuevoAsesor(wa, motivo) {
             console.log("Advertencia notificarAsesor: sin numeros o bot no conectado");
             return;
         }
-        const numCliente = wa.split("@")[0].replace(/[^\d]/g, "");
+        let numCliente = nrReal || wa.split("@")[0].replace(/[^\d]/g, "");
+        try {
+            const contact = await global.botClient.getContactById(wa);
+            if (contact && contact.number) numCliente = contact.number;
+        } catch(e) {}
+        
+        // Remove LID length if it failed to resolve
+        if (numCliente.length > 15) numCliente = "Oculto por Privacidad de WS";
+
         const msg = `ALERTA: Cliente solicita ASESOR\n\nNumero: *${numCliente}*\nMotivo: ${(motivo || "Sin especificar").substring(0, 200)}\n\nAtiende al cliente en el CRM!`;
         for (const num of numeros) {
-            const jid = numToWaJid(num);
+            let jid = numToWaJid(num);
             if (!jid) continue;
-            await global.botClient.sendMessage(jid, msg).catch(e => console.warn("Error notif asesor a", jid, ":", e.message));
+            
+            // Intento principal
+            let sent = false;
+            try {
+                await global.botClient.sendMessage(jid, msg);
+                sent = true;
+            } catch (e) { console.warn("Fallo envio principal a", jid); }
+
+            // Si es de Mexico (empieza con 52) e intentó sin el 1, intentar con el 1
+            if (!sent && jid.startsWith('52@') === false && jid.startsWith('52') && !jid.startsWith('521')) {
+                const jidAlternativo = `521${jid.substring(2)}`;
+                await global.botClient.sendMessage(jidAlternativo, msg).catch(e => console.warn("Error notif asesor alternativo", jidAlternativo, ":", e.message));
+            } else if (!sent && jid.startsWith('521')) {
+                const jidAlternativo = `52${jid.substring(3)}`;
+                await global.botClient.sendMessage(jidAlternativo, msg).catch(e => console.warn("Error notif asesor alternativo", jidAlternativo, ":", e.message));
+            }
         }
     } catch(e) { console.error("Error notificarNuevoAsesor:", e.message); }
 }
@@ -1136,7 +1171,15 @@ async function consultarEstatusLogic(wa, texto, sesion) {
     if (keys.length === 1) {
         const lista = porOrden[keys[0]];
         if (lista.length === 1) {
-            return { text: formatearRespuestaEstatus(lista[0]) };
+            const el = lista[0];
+            let resp = { text: formatearRespuestaEstatus(el) };
+            if (el.estatus_recepcion?.toLowerCase() === 'entregado' && el.certificado_url) {
+                const fullUrl = `${DOMINIO_PUBLICO}${el.certificado_url}`;
+                resp.text += `\n\n📄 *Certificado Digital*\nAquí tienes tu certificado en PDF y QR. ¿Deseas consultar otro equipo?\n_Escribe *0* para el menú principal o *Finalizar*._`;
+                resp.media_pdf = fullUrl;
+                resp.media_image = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`;
+            }
+            return resp;
         }
         return { text: formatearOrdenAgrupada(lista) };
     }
@@ -1210,6 +1253,22 @@ async function consultarCertificadoLogic(wa, texto, sesion) {
         if (listos.length === 0) {
             msg += `_Por el momento ningún equipo de esta orden tiene su certificado digital cargado._\n\n`;
             msg += `_Te enviaremos un mensaje cuando estén disponibles._`;
+        } else if (listos.length === 1) {
+            const l = listos[0];
+            const fullUrl = `${DOMINIO_PUBLICO}${l.certificado_url}`;
+            msg += `\n📄 *Tu Certificado Digital:*\n`;
+            msg += `📋 Instrumento: ${l.nombre_instrumento} (Informe: ${l.numero_informe || 'N/A'})\n`;
+            msg += `🔗 ${fullUrl}\n\n`;
+            msg += `Aquí tienes tu certificado en PDF y QR. ¿Deseas consultar algo más?\n_Escribe *0* para el menú principal o *Finalizar*._`;
+            
+            // Clean up node state 
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...sesion.datos, modo_cert: null, os_id: null, listos_ids: null });
+            
+            return {
+                text: msg,
+                media_pdf: fullUrl,
+                media_image: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`
+            };
         } else {
             msg += `*¿Qué deseas hacer?*\n`;
             msg += `*1️⃣* Descargar todos los certificados listos\n`;
@@ -1239,7 +1298,7 @@ async function consultarCertificadoLogic(wa, texto, sesion) {
 
             let response = `📄 *Tus certificados listos (${listosPropios.length}):*\n\n`;
             listosPropios.forEach((l, i) => {
-                const fullUrl = `https://crm.sicamet.com${l.certificado_url}`;
+                const fullUrl = `${DOMINIO_PUBLICO}${l.certificado_url}`;
                 response += `${i+1}. *${l.nombre_instrumento}*\n`;
                 response += `   📋 Informe: ${l.numero_informe || 'N/A'}\n`;
                 response += `   🔗 ${fullUrl}\n\n`;
@@ -1254,9 +1313,9 @@ async function consultarCertificadoLogic(wa, texto, sesion) {
             if (listosPropios.length <= 3) {
                 return { 
                     text: response,
-                    // El primer certificado envía QR
-                    media: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(`https://crm.sicamet.com${listosPropios[0].certificado_url}`)}`,
-                    media_tipo: 'image'
+                    // El primer certificado envía QR y PDF
+                    media_pdf: `${DOMINIO_PUBLICO}${listosPropios[0].certificado_url}`,
+                    media_image: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(`${DOMINIO_PUBLICO}${listosPropios[0].certificado_url}`)}`
                 };
             }
             return { text: response };
@@ -1427,10 +1486,10 @@ async function escalarAHumanoLogic(wa, texto) {
         );
     } catch {}
     // ✅ Notificar por WhatsApp a los números de alertas configurados
-    await notificarNuevoAsesor(wa, texto).catch(() => {});
+    await notificarNuevoAsesor(wa, texto, sesion.numeroUserReal).catch(() => {});
     await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
     return {
-        text: '🧑‍💼 *Conectando con un asesor SICAMET...*\n\nUn representante se pondrá en contacto contigo muy pronto.\n\n📞 Si es urgente, llama directamente al *722 270 1584*\n\n_Escribe *0* cuando quieras volver al menú principal._'
+        text: '🧑‍💼 *Conectando con un asesor SICAMET...*\n\nUn representante se pondrá en contacto contigo muy pronto.\n\n_Escribe *0* cuando quieras volver al menú principal._'
     };
 }
 
@@ -1454,23 +1513,23 @@ async function feedbackLogic(wa, texto, sesion) {
     try {
         await db.query(
             'INSERT INTO feedback_bot (cliente_wa, empresa, mensaje) VALUES (?, ?, ?)',
-            [limpiarID(wa), sesion.datos?.nombre_empresa || null, raw]
+            [wa.replace('@c.us', ''), sesion.datos?.nombre_empresa || null, raw]
         );
 
         // Notificar al admin via socket
         if (global.io) {
             global.io.emit('nuevo_feedback', {
-                cliente_wa: limpiarID(wa),
+                cliente_wa: wa.replace('@c.us', ''),
                 empresa: sesion.datos?.nombre_empresa || 'No identificado',
                 mensaje: raw,
                 fecha: new Date().toISOString()
             });
         }
 
-        await guardarSesion(wa, sesion.nodo_actual_id, datosSinContadoresIntento(sesion.datos));
+        await guardarSesion(wa, null, datosSinContadoresIntento(sesion.datos));
 
         return {
-            text: `✅ *¡Gracias por tu opinión!*\n\nTu sugerencia ha sido registrada y nuestro equipo la revisará para mejorar el servicio.\n\n━━━━━━━━━━━━━━━━━━\n💬 *¿Deseas algo más?*\n\n*1️⃣* Consultar otro certificado\n*2️⃣* Consultar estatus de equipo\n*3️⃣* Hablar con un asesor\n*0️⃣* Menú principal`
+            text: `✅ *¡Gracias por tu opinión!*\n\nTu sugerencia ha sido registrada y nuestro equipo la revisará para mejorar el servicio.\n\n_Escribe *0* para volver al menú principal, o *Finalizar* para cerrar el chat._`
         };
     } catch (err) {
         console.error('Error al guardar feedback:', err.message);

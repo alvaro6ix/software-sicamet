@@ -47,7 +47,7 @@ async function ejecutarRecordatorios(botClient, isClientConnected) {
         for (const equipo of equipos30) {
             try {
                 const fechaFormateada = new Date(equipo.proxima_calibracion).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
-                const mensaje = `🔔 *Recordatorio de Calibración — SICAMET*\n\nHola${equipo.nombre_empresa ? ` *${equipo.nombre_empresa}*` : ''}, te recordamos que el certificado de calibración de tu:\n\n📦 *${equipo.nombre_equipo}*${equipo.marca ? ` | Marca: ${equipo.marca}` : ''}${equipo.rango ? ` | Rango: ${equipo.rango}` : ''}\n\nvence el *${fechaFormateada}* (en aprox. 30 días).\n\n¿Deseas agendar tu próxima calibración?\n\n*1️⃣* Sí, contactarme con un asesor\n*2️⃣* Solicitar cotización express\n*3️⃣* Recordármelo más tarde\n\nSICAMET · 722 270 1584 · *sicamet.mx*`;
+                const mensaje = `🔔 *Recordatorio de Calibración — SICAMET*\n\nHola${equipo.nombre_empresa ? ` *${equipo.nombre_empresa}*` : ''}, te recordamos que el certificado de calibración de tu:\n\n📦 *${equipo.nombre_equipo}*${equipo.marca ? ` | Marca: ${equipo.marca}` : ''}${equipo.rango ? ` | Rango: ${equipo.rango}` : ''}\n\nvence el *${fechaFormateada}* (en aprox. 30 días).\n\n¿Deseas agendar tu próxima calibración?\n\n*1️⃣* Sí, contactarme con un asesor\n*2️⃣* Solicitar cotización express\n*3️⃣* Recordármelo más tarde\n\nSICAMET · *sicamet.mx*`;
 
                 await botClient.sendMessage(equipo.cliente_whatsapp, mensaje);
                 await db.query('INSERT INTO recordatorios_enviados (equipo_id, tipo) VALUES (?, ?)', [equipo.id, '30dias']);
@@ -63,7 +63,7 @@ async function ejecutarRecordatorios(botClient, isClientConnected) {
         for (const equipo of equipos7) {
             try {
                 const fechaFormateada = new Date(equipo.proxima_calibracion).toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
-                const mensaje = `⚠️ *Aviso Urgente — SICAMET*\n\nHola${equipo.nombre_empresa ? ` *${equipo.nombre_empresa}*` : ''}, el certificado de:\n\n📦 *${equipo.nombre_equipo}*\n\nvence en *menos de 7 días* (${fechaFormateada}).\n\nPara evitar incumplimientos con tus auditorías, agenda tu calibración hoy:\n\n📞 *722 270 1584*\n📧 *sclientes@sicamet.net*\n🌐 *sicamet.mx*\n\n¿Quieres que un asesor te contacte ahora?\n*1️⃣* Sí, llamarme / WhatsApp\n*2️⃣* Enviar cotización urgente`;
+                const mensaje = `⚠️ *Aviso Urgente — SICAMET*\n\nHola${equipo.nombre_empresa ? ` *${equipo.nombre_empresa}*` : ''}, el certificado de:\n\n📦 *${equipo.nombre_equipo}*\n\nvence en *menos de 7 días* (${fechaFormateada}).\n\nPara evitar incumplimientos con tus auditorías, agenda tu calibración hoy:\n\n🌐 *sicamet.mx*\n\n¿Quieres que un asesor te contacte ahora?\n*1️⃣* Sí, llamarme / WhatsApp\n*2️⃣* Enviar cotización urgente`;
 
                 await botClient.sendMessage(equipo.cliente_whatsapp, mensaje);
                 await db.query('INSERT INTO recordatorios_enviados (equipo_id, tipo) VALUES (?, ?) ON DUPLICATE KEY UPDATE enviado_at = NOW()', [equipo.id, '7dias']);

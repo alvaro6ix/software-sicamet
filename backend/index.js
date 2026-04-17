@@ -1413,6 +1413,20 @@ app.put('/api/bot/feedback/:id/leido', verificarToken(['admin']), async (req, re
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.put('/api/bot/feedback/:id/implementado', verificarToken(['admin']), async (req, res) => {
+    try {
+        await db.query('UPDATE feedback_bot SET implementado = 1, leido_admin = 1 WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/bot/feedback/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        await db.query('DELETE FROM feedback_bot WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // --- KPI ACTUALIZADO CON SLA REAL ---
 app.get('/api/metrologia/kpis', verificarToken(), async (req, res) => {
     try {
@@ -2110,7 +2124,10 @@ function iniciarBot(sesionLimpia = false) {
         if (msg.from.includes('@g.us') || msg.from === 'status@broadcast') return;
         
         const idWhatsApp = msg.from; // ID original (@c.us o @lid) para el bot
-        const numeroUser = limpiarID(idWhatsApp); // Número limpio (dígitos) para el CRM
+        
+        let contactoResuelto;
+        try { contactoResuelto = await msg.getContact(); } catch(e){}
+        const numeroUser = (contactoResuelto && contactoResuelto.number) ? contactoResuelto.number : limpiarID(idWhatsApp); // Nmero real para la BD
         const textoRecibido = msg.body ? msg.body.trim() : '';
         
         let mediaUrl = null;
@@ -2130,13 +2147,22 @@ function iniciarBot(sesionLimpia = false) {
             } catch (e) { console.error('Error descargando media:', e.message); }
         }
 
+        // Ignorar logs de sistema vacíos que crashean o ensucian DB
+        const typesIgnore = ['vcard', 'location', 'contact_card_multi', 'image', 'document', 'video', 'audio', 'e2e_notification'];
+        if (!textoRecibido && !msg.hasMedia && typesIgnore.includes(msg.type)) {
+            return;
+        }
+
         const esPropio = msg.fromMe;
         const direccion = esPropio ? 'saliente' : 'entrante';
         const idParaWhatsApp = esPropio ? msg.to : idWhatsApp;
         const numeroParaRegistro = limpiarID(idParaWhatsApp);
 
         // Registrar entrada/propio
-        await registrarMensajeEnCRM(numeroParaRegistro, textoRecibido || (msg.hasMedia ? '[Media]' : ''), tipoMsg, direccion, mediaUrl);
+        const contenidoLimpio = textoRecibido || (msg.hasMedia ? '[Media]' : (msg.type !== 'chat' ? `[${msg.type}]` : ''));
+        if (!contenidoLimpio) return;
+
+        await registrarMensajeEnCRM(numeroParaRegistro, contenidoLimpio, tipoMsg, direccion, mediaUrl);
 
         // Actualizar chat metadata
         const contact = await msg.getContact().catch(() => null);
@@ -2192,7 +2218,8 @@ function iniciarBot(sesionLimpia = false) {
                 idWhatsApp, 
                 textoRecibido, 
                 botIA.detectarIntencion, 
-                botIA.respuestaIA
+                botIA.respuestaIA,
+                numeroUser // Pasar el número limpio al motor central
             );
 
             if (respuesta) {
@@ -2200,7 +2227,35 @@ function iniciarBot(sesionLimpia = false) {
                 if (textoAEnviar) {
                     console.log(`📤 Enviando respuesta (Flujo) a ${idWhatsApp}...`);
                     if (botClient.pupPage) {
-                        await botClient.sendMessage(idWhatsApp, textoAEnviar);
+                        if (typeof respuesta === 'object') {
+                            if (respuesta.media_image) {
+                                try {
+                                    const { MessageMedia } = require('whatsapp-web.js');
+                                    const mediaImg = await MessageMedia.fromUrl(respuesta.media_image, { unsafeMime: true });
+                                    await botClient.sendMessage(idWhatsApp, mediaImg); // QR Primero sin texto
+                                } catch (e) { console.error("Error enviando media_image QR:", e.message); }
+                            }
+                            if (respuesta.media_pdf) {
+                                try {
+                                    const { MessageMedia } = require('whatsapp-web.js');
+                                    const mediaPdf = await MessageMedia.fromUrl(respuesta.media_pdf, { unsafeMime: true, filename: 'Certificado_SICAMET.pdf' });
+                                    await botClient.sendMessage(idWhatsApp, mediaPdf); // PDF Segundo sin texto
+                                } catch (e) { console.error("Error enviando media_pdf PDF:", e.message); }
+                            }
+                            if (respuesta.media) {
+                                try {
+                                    const { MessageMedia } = require('whatsapp-web.js');
+                                    const mediaG = await MessageMedia.fromUrl(respuesta.media, { unsafeMime: true });
+                                    await botClient.sendMessage(idWhatsApp, mediaG, { caption: textoAEnviar });
+                                } catch (e) {
+                                    await botClient.sendMessage(idWhatsApp, textoAEnviar);
+                                }
+                            } else {
+                                await botClient.sendMessage(idWhatsApp, textoAEnviar);
+                            }
+                        } else {
+                            await botClient.sendMessage(idWhatsApp, textoAEnviar);
+                        }
                         await registrarMensajeEnCRM(numeroUser, textoAEnviar, 'texto', 'saliente');
                     } else {
                         console.error('❌ Error crítico: botClient.pupPage es null al procesar flujo.');
