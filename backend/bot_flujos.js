@@ -173,6 +173,8 @@ async function escalarPorIntentosFallidos(wa, sesion, mensajeUsuario, motivoRegi
             [wa, (motivoRegistro || '').substring(0, 400)]
         );
     } catch {}
+    // ✅ Notificar por WhatsApp a los números configurados
+    await notificarNuevoAsesor(wa, motivoRegistro).catch(() => {});
     await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
     const texto = `${mensajeUsuario}\n\n🧑‍💼 *Conectando con un asesor SICAMET…*\nUn representante se pondrá en contacto contigo pronto.\n\n📞 Si es urgente: *722 270 1584*\n\n_Escribe *0* para el menú principal._`;
     await guardarEnHistorial(wa, 'bot', texto);
@@ -225,11 +227,16 @@ async function getNodosVisibles(datos) {
     const d = datos || {};
     const esCliente = !!d.nombre_empresa;
     
-    // Nodos 3 y 4 requieren ser cliente. Nodo 1 es para identificarse (no necesario si ya es cliente).
-    return nodosAll.filter((n, i) => {
-        const posPositiva = i + 1;
-        if ((posPositiva === 3 || posPositiva === 4) && !esCliente) return false;
-        if (posPositiva === 1 && esCliente) return false;
+    // Acciones que requieren ser cliente identificado
+    const accionesSoloCliente = ['consultar_estatus', 'consultar_certificado', 'registrar_equipo'];
+    
+    return nodosAll.filter((n) => {
+        // Ocultar identificación si ya es cliente
+        if (n.accion === 'identificar_cliente' && esCliente) return false;
+        
+        // Ocultar opciones de cliente si no está identificado
+        if (accionesSoloCliente.includes(n.accion) && !esCliente) return false;
+        
         return true;
     });
 }
@@ -943,21 +950,60 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
 }
 
 // ─── NOTIFICAR COTIZACIÓN (múltiples números) ─────────────────────────────────
+/** Convierte numero limpio al formato JID de WhatsApp */
+function numToWaJid(num) {
+    const limpio = String(num).replace(/[^\d]/g, "");
+    if (!limpio || limpio.length < 8) return null;
+    if (String(num).includes("@")) return String(num);
+    return `${limpio}@c.us`;
+}
 
 async function notificarNuevaCotizacion(d) {
     try {
         const cfg = await getConfigHorario();
         const numeros = [
-            ...(cfg.notif_numeros || '').split(','),
+            ...(cfg.notif_numeros || "").split(","),
             ...(cfg.notif_cotizacion_wa ? [cfg.notif_cotizacion_wa] : [])
-        ].map(n => n.trim()).filter(n => n.length > 5);
+        ].map(n => n.trim()).filter(n => n.replace(/\D/g, "").length >= 8);
 
-        if (numeros.length === 0 || !global.botClient) return;
-        const msg = `🔔 *Nueva cotización recibida*\n\n🏢 Empresa: *${d.empresa}*\n🔧 Equipo: *${d.tipoEquipo}*\n🏷️ Marca: *${d.marcaModelo || 'N/E'}*\n📦 Cantidad: *${d.cantidad}*\n🔬 Servicio: *${d.tipoServicio}*`;
-        for (const num of numeros) {
-            await global.botClient.sendMessage(num, msg).catch(() => {});
+        if (numeros.length === 0 || !global.botClient) {
+            console.log("Advertencia notificarCotizacion: sin numeros o bot no conectado");
+            return;
         }
-    } catch {}
+        const empresa = d.empresa || "N/E";
+        const tipo = d.tipoEquipo || (d.items && d.items[0] ? d.items[0].tipoEquipo : "N/E");
+        const marca = d.marcaModelo || (d.items && d.items[0] ? d.items[0].marcaModelo : "N/E");
+        const cantidad = d.items ? d.items.length : (d.cantidad || 1);
+        const entrega = d.tiempoEntrega || "N/E";
+        const msg = `Nueva cotizacion recibida\n\nEmpresa: *${empresa}*\nEquipo: *${tipo}*\nMarca: *${marca}*\nCantidad: *${cantidad} equipo(s)*\nEntrega: *${entrega}*\n\nRevisa el sistema CRM!`;
+        for (const num of numeros) {
+            const jid = numToWaJid(num);
+            if (!jid) continue;
+            await global.botClient.sendMessage(jid, msg).catch(e => console.warn("Error notif cotizacion a", jid, ":", e.message));
+        }
+    } catch(e) { console.error("Error notificarNuevaCotizacion:", e.message); }
+}
+
+async function notificarNuevoAsesor(wa, motivo) {
+    try {
+        const cfg = await getConfigHorario();
+        const numeros = [
+            ...(cfg.notif_numeros || "").split(","),
+            ...(cfg.notif_asesor_wa ? [cfg.notif_asesor_wa] : [])
+        ].map(n => n.trim()).filter(n => n.replace(/\D/g, "").length >= 8);
+
+        if (numeros.length === 0 || !global.botClient) {
+            console.log("Advertencia notificarAsesor: sin numeros o bot no conectado");
+            return;
+        }
+        const numCliente = wa.split("@")[0].replace(/[^\d]/g, "");
+        const msg = `ALERTA: Cliente solicita ASESOR\n\nNumero: *${numCliente}*\nMotivo: ${(motivo || "Sin especificar").substring(0, 200)}\n\nAtiende al cliente en el CRM!`;
+        for (const num of numeros) {
+            const jid = numToWaJid(num);
+            if (!jid) continue;
+            await global.botClient.sendMessage(jid, msg).catch(e => console.warn("Error notif asesor a", jid, ":", e.message));
+        }
+    } catch(e) { console.error("Error notificarNuevoAsesor:", e.message); }
 }
 
 // ─── FLUJO ESTATUS ────────────────────────────────────────────────────────────
@@ -1105,54 +1151,160 @@ async function consultarEstatusLogic(wa, texto, sesion) {
 
 async function consultarCertificadoLogic(wa, texto, sesion) {
     if (!sesion) sesion = await getSesion(wa);
-    const busqueda = texto.trim().toUpperCase();
+    const raw = texto.trim();
+    const busqueda = raw.toUpperCase();
     const nombreEmpresaSesion = (sesion.datos?.nombre_empresa || '').toUpperCase();
 
-    if (!nombreEmpresaSesion) {
-        return { text: '⚠️ *Identificación requerida*\n\nPara consultar certificados, primero debes identificarte en la opción *1️⃣ Soy Cliente* del menú principal.' };
+    // === VALIDACIÓN ESTRICTA DE PRIVACIDAD ===
+    if (!nombreEmpresaSesion || nombreEmpresaSesion.length < 2) {
+        return { text: '⚠️ *Identificación requerida*\n\nPara consultar certificados, primero debes identificarte en la opción *1️⃣ Soy Cliente* del menú principal.\n\n_Por seguridad, solo podemos mostrar certificados vinculados a tu razón social._' };
     }
 
     if (busqueda.length < 3) {
         return await manejarFalloIntento(wa, sesion, {
-            reintento: 'Escribe el número de informe que deseas consultar (mínimo 3 caracteres).',
+            reintento: 'Escribe el número de informe, orden (OS) o certificado que deseas consultar. Mínimo 3 caracteres.',
             escala: 'No logramos procesar tu consulta. Te conectamos con un asesor.',
             claveIntentos: I_ESTATUS
         });
     }
 
-    const [rows] = await db.query(
+    // 1. ¿Es una consulta por Orden (OS)?
+    const esOS = pareceNumeroOrden(raw);
+
+    if (esOS) {
+        const [rows] = await db.query(
+            'SELECT * FROM instrumentos_estatus WHERE UPPER(orden_cotizacion) LIKE ?',
+            [`%${busqueda}%`]
+        );
+        // VALIDACIÓN DE PRIVACIDAD: solo mostrar los que pertenecen a la empresa del cliente
+        const propias = (rows || []).filter(r => ordenPerteneceARazonSocial(nombreEmpresaSesion, r));
+        const ajenas = rows.length - propias.length;
+
+        // Si hay resultados pero ninguno del cliente → RECHAZAR por privacidad
+        if (rows.length > 0 && propias.length === 0) {
+            return { text: `🔒 *Acceso Restringido*\n\nExisten registros con la orden *${busqueda}* pero *no están asociados a tu empresa* (${sesion.datos.nombre_empresa}).\n\n_Por políticas de privacidad, solo puedes consultar certificados de tu propia empresa._\n\nSi crees que esto es un error, escribe *ASESOR* para comunicarte con un humano.` };
+        }
+
+        if (propias.length === 0) {
+            return await manejarFalloIntento(wa, sesion, {
+                reintento: `❌ No encontramos certificados de tu empresa asociados a la orden "${busqueda}".`,
+                escala: 'Te pondremos en contacto con un asesor para ayudarte.',
+                claveIntentos: I_ESTATUS
+            });
+        }
+
+        const listos = propias.filter(p => p.certificado_url);
+        const pendientesCount = propias.length - listos.length;
+
+        let msg = `🔍 *Certificados de la Orden:* ${busqueda}\n`;
+        msg += `📦 *Total equipos de tu empresa:* ${propias.length}\n`;
+        msg += `✅ *Con certificado:* ${listos.length}\n`;
+
+        if (pendientesCount > 0) {
+            msg += `⏳ *En proceso:* ${pendientesCount}\n`;
+            msg += `_Estamos trabajando en tus certificados restantes. Te notificaremos cuando estén listos._\n\n`;
+        } else {
+            msg += `\n`;
+        }
+
+        if (listos.length === 0) {
+            msg += `_Por el momento ningún equipo de esta orden tiene su certificado digital cargado._\n\n`;
+            msg += `_Te enviaremos un mensaje cuando estén disponibles._`;
+        } else {
+            msg += `*¿Qué deseas hacer?*\n`;
+            msg += `*1️⃣* Descargar todos los certificados listos\n`;
+            msg += `*2️⃣* Ver uno específico (escribe el No. de Informe)\n\n`;
+            msg += `_Si eliges *1*, te enviaré todos los enlaces directos._`;
+
+            // Guardar en sesión que estamos en modo OS para esperar la respuesta 1 o 2 (o el informe)
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...sesion.datos, modo_cert: 'OS', os_id: busqueda, listos_ids: listos.map(l => l.id) });
+        }
+        return { text: msg };
+    }
+
+    // 2. ¿Es una respuesta a la selección de "Descargar Todos" (1) o "Específico" (2)?
+    if (sesion.datos?.modo_cert === 'OS') {
+        if (raw === '1') {
+            const [listosRows] = await db.query(
+                'SELECT * FROM instrumentos_estatus WHERE id IN (?)',
+                [sesion.datos.listos_ids]
+            );
+            
+            // Doble verificación de privacidad
+            const listosPropios = listosRows.filter(r => ordenPerteneceARazonSocial(nombreEmpresaSesion, r));
+            
+            if (listosPropios.length === 0) {
+                return { text: '⚠️ Ocurrió un error al validar los certificados. Por seguridad, contacta a un asesor.' };
+            }
+
+            let response = `📄 *Tus certificados listos (${listosPropios.length}):*\n\n`;
+            listosPropios.forEach((l, i) => {
+                const fullUrl = `https://crm.sicamet.com${l.certificado_url}`;
+                response += `${i+1}. *${l.nombre_instrumento}*\n`;
+                response += `   📋 Informe: ${l.numero_informe || 'N/A'}\n`;
+                response += `   🔗 ${fullUrl}\n\n`;
+            });
+            response += `━━━━━━━━━━━━━━━━━━\n`;
+            response += `💡 _¿Necesitas algo más?_\n`;
+            response += `Escribe *0* para el menú principal.`;
+            
+            await guardarSesion(wa, sesion.nodo_actual_id, datosSinContadoresIntento(sesion.datos));
+            
+            // Enviar también los QRs si son pocos
+            if (listosPropios.length <= 3) {
+                return { 
+                    text: response,
+                    // El primer certificado envía QR
+                    media: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(`https://crm.sicamet.com${listosPropios[0].certificado_url}`)}`,
+                    media_tipo: 'image'
+                };
+            }
+            return { text: response };
+        }
+        if (raw === '2') {
+             return { text: '📋 Perfecto, escribe el *Número de Informe* exacto que deseas descargar.\n\n_Ejemplo: ICM.0010.26_' };
+        }
+    }
+
+    // 3. Consulta por Informe Específico (Fallback o búsqueda directa)
+    const [certRows] = await db.query(
         'SELECT * FROM instrumentos_estatus WHERE UPPER(numero_informe) = ? OR (UPPER(numero_informe) LIKE ? AND LENGTH(?) > 5)',
         [busqueda, `%${busqueda}%`, busqueda]
     );
 
-    const propias = (rows || []).filter(r => ordenPerteneceARazonSocial(nombreEmpresaSesion, r));
+    // VALIDACIÓN DE PRIVACIDAD ESTRICTA
+    const matchPropio = (certRows || []).filter(r => ordenPerteneceARazonSocial(nombreEmpresaSesion, r));
+    const matchAjenos = certRows.length - matchPropio.length;
 
-    if (propias.length === 0) {
+    // Si existe el informe pero es de otra empresa → RECHAZAR
+    if (certRows.length > 0 && matchPropio.length === 0) {
+        return { text: `🔒 *Acceso Restringido*\n\nEl informe *${busqueda}* existe en nuestro sistema pero *no está registrado a nombre de tu empresa* (${sesion.datos.nombre_empresa}).\n\n_Por políticas de privacidad y protección de datos, no podemos compartir certificados de terceros._\n\nSi necesitas este documento, escribe *ASESOR* para solicitarlo.` };
+    }
+
+    if (matchPropio.length === 0) {
         return await manejarFalloIntento(wa, sesion, {
-            reintento: '❌ No encontramos ningún certificado asociado a ese número de informe para tu empresa.',
-            escala: 'Te pondremos en contacto con un asesor para ayudarte a buscar tu documento.',
+            reintento: `❌ No encontramos el informe "${busqueda}" para tu empresa. Verifica el número e intenta de nuevo.`,
+            escala: 'Te conectamos con un asesor para localizar tu documento.',
             claveIntentos: I_ESTATUS
         });
     }
 
-    const eq = propias[0];
+    const eq = matchPropio[0];
     if (!eq.certificado_url) {
-        return { text: `📍 *Informe ${eq.numero_informe}*\n\nEl equipo ya fue procesado pero el certificado digital aún no ha sido cargado en el sistema por el área de Aseguramiento.\n\n_Vuelve a consultar en unas horas._` };
+        return { text: `📍 *Informe ${eq.numero_informe}*\n\n*Equipo:* ${eq.nombre_instrumento}\n*Orden:* ${eq.orden_cotizacion}\n\nEl equipo ya fue procesado pero el certificado digital *aún no ha sido cargado*.\n\n_Te notificaremos cuando esté disponible. Vuelve a consultar en unas horas._` };
     }
 
-    // Limpiar intentos
-    const dOk = datosSinContadoresIntento(sesion.datos || {});
-    await guardarSesion(wa, sesion.nodo_actual_id, dOk);
-
-    const fullUrl = `https://crm.sicamet.com${eq.certificado_url}`; // Ajustar según despliegue real
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(fullUrl)}`;
+    await guardarSesion(wa, sesion.nodo_actual_id, datosSinContadoresIntento(sesion.datos));
+    const fullUrl = `https://crm.sicamet.com${eq.certificado_url}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`;
 
     return {
-        text: `📄 *¡Certificado Localizado!*\n\n*Equipo:* ${eq.nombre_instrumento}\n*Informe:* ${eq.numero_informe}\n\nEscanea el código QR de abajo o usa este enlace directo para descargar tu PDF:\n\n🔗 ${fullUrl}`,
+        text: `📄 *¡Certificado Localizado!*\n\n*Equipo:* ${eq.nombre_instrumento}\n*Orden:* ${eq.orden_cotizacion}\n*Informe:* ${eq.numero_informe}\n*Empresa:* ${eq.empresa}\n\n━━━━━━━━━━━━━━━━━━\n📱 *Escanea el QR* o descarga aquí:\n🔗 ${fullUrl}`,
         media: qrUrl,
         media_tipo: 'image'
     };
 }
+
 
 function formatearRespuestaEstatus(eq) {
     const etap = {
@@ -1274,10 +1426,79 @@ async function escalarAHumanoLogic(wa, texto) {
             [wa, (texto || '').substring(0, 400)]
         );
     } catch {}
+    // ✅ Notificar por WhatsApp a los números de alertas configurados
+    await notificarNuevoAsesor(wa, texto).catch(() => {});
     await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
     return {
         text: '🧑‍💼 *Conectando con un asesor SICAMET...*\n\nUn representante se pondrá en contacto contigo muy pronto.\n\n📞 Si es urgente, llama directamente al *722 270 1584*\n\n_Escribe *0* cuando quieras volver al menú principal._'
     };
+}
+
+// ─── FEEDBACK / SUGERENCIAS DEL CLIENTE ───────────────────────────────────────
+
+async function feedbackLogic(wa, texto, sesion) {
+    if (!sesion) sesion = await getSesion(wa);
+    const raw = texto.trim();
+
+    // Si el usuario escribe "0" o "menu" → volver al menú
+    if (['0', 'menu', 'inicio'].includes(raw.toLowerCase())) {
+        return await responderMenuPrincipal(wa, sesion);
+    }
+
+    // Si el texto es muy corto → pedir más detalle
+    if (raw.length < 10) {
+        return { text: '💡 Tu sugerencia es muy corta. Por favor, escribe con más detalle qué te gustaría que mejoremos.\n\n_Escribe *0* para el menú principal._' };
+    }
+
+    // Guardar feedback en BD
+    try {
+        await db.query(
+            'INSERT INTO feedback_bot (cliente_wa, empresa, mensaje) VALUES (?, ?, ?)',
+            [limpiarID(wa), sesion.datos?.nombre_empresa || null, raw]
+        );
+
+        // Notificar al admin via socket
+        if (global.io) {
+            global.io.emit('nuevo_feedback', {
+                cliente_wa: limpiarID(wa),
+                empresa: sesion.datos?.nombre_empresa || 'No identificado',
+                mensaje: raw,
+                fecha: new Date().toISOString()
+            });
+        }
+
+        await guardarSesion(wa, sesion.nodo_actual_id, datosSinContadoresIntento(sesion.datos));
+
+        return {
+            text: `✅ *¡Gracias por tu opinión!*\n\nTu sugerencia ha sido registrada y nuestro equipo la revisará para mejorar el servicio.\n\n━━━━━━━━━━━━━━━━━━\n💬 *¿Deseas algo más?*\n\n*1️⃣* Consultar otro certificado\n*2️⃣* Consultar estatus de equipo\n*3️⃣* Hablar con un asesor\n*0️⃣* Menú principal`
+        };
+    } catch (err) {
+        console.error('Error al guardar feedback:', err.message);
+        return { text: '⚠️ Ocurrió un error al registrar tu sugerencia. Intenta de nuevo o contacta a un asesor.' };
+    }
+}
+
+// ─── MANEJO DE RESPUESTA POST-CERTIFICADO (consultar otro o finalizar) ───────
+
+async function postCertificadoLogic(wa, texto, sesion) {
+    if (!sesion) sesion = await getSesion(wa);
+    const raw = texto.trim();
+
+    if (raw === '1' || raw.toLowerCase().includes('certificado')) {
+        return { text: '📋 Escribe el *Número de Informe* o *Orden de Servicio* que deseas consultar.\n\n_Ejemplo: ICM.0010.26 o P26-0461_' };
+    }
+    if (raw === '2' || raw.toLowerCase().includes('estatus')) {
+        return { text: '🔍 Escribe tu número de *Orden de Servicio* para consultar el estatus.\n\n_Ejemplo: P26-0461_' };
+    }
+    if (raw === '3' || raw.toLowerCase().includes('asesor')) {
+        return await escalarAHumanoLogic(wa, 'Cliente solicitó asesor después de consultar certificado');
+    }
+    if (raw === '0' || raw.toLowerCase() === 'menu') {
+        return await responderMenuPrincipal(wa, sesion);
+    }
+
+    // Si escribe algo más → tratar como feedback
+    return await feedbackLogic(wa, texto, sesion);
 }
 
 // ─── EXPORTS ──────────────────────────────────────────────────────────────────
@@ -1292,11 +1513,16 @@ async function esNodoConsultaEstatus(nodoId) {
 module.exports = {
     procesarMensaje,
     consultarEstatusLogic,
+    consultarCertificadoLogic,
     esNodoConsultaEstatus,
     escalarAHumanoLogic,
     responderMenuPrincipal,
+    feedbackLogic,
+    postCertificadoLogic,
     getConfigHorario,
     invalidarCacheConfig,
+    notificarNuevaCotizacion,
+    notificarNuevoAsesor,
     getEstado: getSesion,
     limpiarEstado: wa => guardarSesion(wa, null, {})
 };

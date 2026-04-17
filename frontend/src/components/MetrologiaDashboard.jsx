@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Package, Clock, AlertTriangle, AlertCircle, CheckCircle, Search, MessageSquare, ChevronDown, ChevronUp, CheckSquare, Square, ThumbsUp, HelpCircle, X, Paperclip, Tag, BookOpen, Hash, User, Calendar, FileText, Image as ImageIcon, Eye, ArrowRight } from 'lucide-react';
+import { Package, Clock, AlertTriangle, AlertCircle, CheckCircle, Search, MessageSquare, ChevronDown, ChevronUp, CheckSquare, Square, ThumbsUp, HelpCircle, X, Paperclip, Tag, BookOpen, Hash, User, Calendar, FileText, FileCheck, Image as ImageIcon, Eye, ArrowRight } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 const getOsaColor = (osStr, isDark) => {
@@ -129,7 +129,7 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
         const groupItems = tempGroups[e.orden_cotizacion];
         const globalCount = countsByOCGlobal[e.orden_cotizacion] || 0;
         
-        if (globalCount >= 5) {
+        if (globalCount >= 2) {
             grouped.push({ isGroup: true, oc: e.orden_cotizacion, items: groupItems, totalGlobal: globalCount });
             usedOCs.add(e.orden_cotizacion);
         } else {
@@ -208,7 +208,7 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
     const confirmarEnvioBatch = async () => {
         try {
             // Usamos el nuevo endpoint individual para cada equipo seleccionado
-            const promesas = seleccionados.map(id => axios.post(`/api/instrumentos/${id}/finalizar_metrologo`));
+            const promesas = seleccionados.map(id => axios.post(`/api/instrumentos/${id}/finalizar_metrologo`, {}));
             await Promise.all(promesas);
             
             toast.success(`Se ha finalizado el registro técnico de ${seleccionados.length} equipos.`);
@@ -418,7 +418,7 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                                     <div className="flex flex-wrap gap-1">
                                                         {eq.metrologos_asignados?.map((m, mIdx) => (
                                                             <span key={mIdx} className={`text-[9px] px-2 py-0.5 rounded-full font-bold border ${m.estatus === 'terminado' ? (darkMode ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-emerald-100 text-emerald-700 border-emerald-200') : (darkMode ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' : 'bg-amber-50 text-amber-600 border-amber-100')}`}>
-                                                                {m.nombre.split(' ')[0]} {m.estatus === 'terminado' ? '(L)' : '(...)'}
+                                                                {(m.nombre || 'Sin Nombre').split(' ')[0]} {m.estatus === 'terminado' ? '(L)' : '(...)'}
                                                             </span>
                                                         ))}
                                                     </div>
@@ -674,20 +674,25 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                     <section>
                                         <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos del Equipo</h4>
                                         <div className="space-y-3">
+                                            {equipoDetalle.clave && (
+                                                <div className="flex items-center gap-3 text-sm">
+                                                    <Tag size={16} className="opacity-40" />
+                                                    <span className="font-bold w-16">Clave:</span>
+                                                    <span className="opacity-80 font-mono font-bold">{equipoDetalle.clave}</span>
+                                                </div>
+                                            )}
                                             <div className="flex items-center gap-3 text-sm">
                                                 <Tag size={16} className="opacity-40" />
-                                                <span className="font-bold w-24">Área:</span>
-                                                <span className="opacity-80">{equipoDetalle.area_laboratorio || 'No definida'}</span>
+                                                <span className="font-bold w-24">Equipo:</span>
+                                                <span className="opacity-80 font-bold text-sm">{equipoDetalle.nombre_instrumento}</span>
                                             </div>
-                                            <div className="flex items-center gap-3 text-sm">
-                                                <User size={16} className="opacity-40" />
-                                                <span className="font-bold w-24">Metrólogos:</span>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {equipoDetalle.metrologos_asignados?.length ? equipoDetalle.metrologos_asignados.map(m => (
-                                                        <span key={m.id} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold">{m.nombre.split(' ')[0]} ({m.estatus})</span>
-                                                    )) : <span className="opacity-50 italic">Sin asignar</span>}
+                                            {equipoDetalle.no_certificado && (
+                                                <div className="flex items-center gap-3 text-sm">
+                                                    <FileText size={16} className="opacity-40 text-emerald-500" />
+                                                    <span className="font-bold w-24">Certificado:</span>
+                                                    <span className="opacity-80 font-mono font-bold">{equipoDetalle.no_certificado}</span>
                                                 </div>
-                                            </div>
+                                            )}
                                             <div className="flex items-center gap-3 text-sm">
                                                 <Tag size={16} className="opacity-40" />
                                                 <span className="font-bold w-24">Marca:</span>
@@ -713,24 +718,31 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                                 <span className="font-bold w-24">Ubicación:</span>
                                                 <span className="opacity-80">{equipoDetalle.ubicacion || 'N/A'}</span>
                                             </div>
-                                        </div>
-                                    </section>
-
-                                    <section>
-                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Cliente & Servicio</h4>
-                                        <div className="space-y-3">
-                                        <div className="flex items-start gap-3 text-sm">
-                                                <User size={16} className="opacity-40 mt-1" />
-                                                <div className="flex flex-col">
-                                                <span className="font-bold text-sm">{equipoDetalle.empresa}</span>
-                                                <span className="text-xs opacity-60">{equipoDetalle.persona || 'Sin contacto'}</span>
+                                            {equipoDetalle.intervalo_calibracion && equipoDetalle.intervalo_calibracion !== 'No especificado' && (
+                                                <div className={`p-3 rounded-xl border text-xs ${darkMode ? 'bg-blue-950/20 border-blue-500/20' : 'bg-blue-50 border-blue-200'}`}>
+                                                    <span className="font-black opacity-40 block mb-1">Intervalo:</span>
+                                                    {equipoDetalle.intervalo_calibracion}
+                                                </div>
+                                            )}
+                                            <div className="flex items-center gap-3 text-sm">
+                                                <FileCheck size={16} className="opacity-40 text-emerald-500" />
+                                                <span className="font-bold w-24">Área Lab:</span>
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black tracking-wider uppercase ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-50 text-emerald-700'}`}>
+                                                    {equipoDetalle.area_laboratorio || 'No definida'}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-3 text-sm">
+                                                <User size={16} className="opacity-40" />
+                                                <span className="font-bold w-24">Metrólogos:</span>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {equipoDetalle.metrologos_asignados?.length ? equipoDetalle.metrologos_asignados.map(m => (
+                                                        <span key={m.id} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold">{(m.nombre || 'Sin Nombre').split(' ')[0]} ({m.estatus})</span>
+                                                    )) : <span className="opacity-50 italic">Sin asignar</span>}
                                                 </div>
                                             </div>
                                         </div>
                                     </section>
-                                </div>
 
-                                <div className="space-y-6">
                                     <section>
                                         <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Requerimientos & Puntos</h4>
                                         <div className="space-y-4">
@@ -744,6 +756,89 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                             </div>
                                         </div>
                                     </section>
+                                </div>
+
+                                <div className="space-y-6">
+                                    <section>
+                                        <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Información del Cliente</h4>
+                                        <div className={`p-5 rounded-xl border space-y-3 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
+                                            <div>
+                                                <p className="text-[9px] font-black uppercase opacity-40">Empresa</p>
+                                                <p className="text-sm font-bold">{equipoDetalle.empresa || 'N/A'}</p>
+                                            </div>
+                                            {equipoDetalle.nombre_certificados && (
+                                                <div>
+                                                    <p className="text-[9px] font-black uppercase opacity-40">Certificados a nombre de</p>
+                                                    <p className="text-sm font-bold">{equipoDetalle.nombre_certificados}</p>
+                                                </div>
+                                            )}
+                                            {equipoDetalle.direccion && (
+                                                <div>
+                                                    <p className="text-[9px] font-black uppercase opacity-40">Dirección</p>
+                                                    <p className="text-xs">{equipoDetalle.direccion}</p>
+                                                </div>
+                                            )}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <p className="text-[9px] font-black uppercase opacity-40">Contacto</p>
+                                                    <p className="text-xs font-bold">{equipoDetalle.persona || 'N/A'}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[9px] font-black uppercase opacity-40">SLA</p>
+                                                    <p className="text-xs font-black">{equipoDetalle.sla} días</p>
+                                                </div>
+                                            </div>
+                                            {equipoDetalle.contacto_email && (
+                                                <div>
+                                                    <p className="text-[9px] font-black uppercase opacity-40">Email</p>
+                                                    <p className="text-xs font-bold text-blue-500">{equipoDetalle.contacto_email}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </section>
+
+                                    {(equipoDetalle.cotizacion_referencia || equipoDetalle.fecha_recepcion || equipoDetalle.servicio_solicitado) && (
+                                        <section>
+                                            <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos de la Orden</h4>
+                                            <div className={`p-4 rounded-xl border grid grid-cols-2 gap-3 ${darkMode ? 'bg-indigo-950/20 border-indigo-500/20' : 'bg-indigo-50 border-indigo-200'}`}>
+                                                {equipoDetalle.cotizacion_referencia && (
+                                                    <div>
+                                                        <p className="text-[9px] font-black uppercase opacity-40">Cotización Ref.</p>
+                                                        <p className="text-sm font-black font-mono">{equipoDetalle.cotizacion_referencia}</p>
+                                                    </div>
+                                                )}
+                                                {equipoDetalle.fecha_recepcion && (
+                                                    <div>
+                                                        <p className="text-[9px] font-black uppercase opacity-40">Fecha Recepción</p>
+                                                        <p className="text-sm font-bold">{equipoDetalle.fecha_recepcion}</p>
+                                                    </div>
+                                                )}
+                                                {equipoDetalle.servicio_solicitado && (
+                                                    <div>
+                                                        <p className="text-[9px] font-black uppercase opacity-40">Servicio</p>
+                                                        <p className="text-sm font-bold">{equipoDetalle.servicio_solicitado}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </section>
+                                    )}
+
+                                    <div className={`p-5 rounded-xl border ${darkMode ? 'bg-[#C9EA63]/5 border-[#C9EA63]/20' : 'bg-emerald-50 border-emerald-100'}`}>
+                                        <h4 className="text-[10px] font-black uppercase tracking-widest mb-3 opacity-50">Tiempos y Estatus</h4>
+                                        <div className="space-y-3">
+                                            <div className="flex justify-between items-center text-sm">
+                                                <span className="opacity-60">Registro:</span>
+                                                <span className="font-bold">{new Date(equipoDetalle.fecha_ingreso).toLocaleDateString('es-MX', {day:'2-digit', month:'short'})}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-sm">
+                                                <span className="opacity-60">SLA:</span>
+                                                <span className={`font-black ${equipoDetalle.sla <= 2 ? 'text-rose-500' : ''}`}>{equipoDetalle.sla} días</span>
+                                            </div>
+                                            <div className={`p-2 rounded-lg text-center text-xs font-black uppercase ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63]' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                {equipoDetalle.estatus_actual}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

@@ -1,35 +1,93 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { 
     MessageSquare, Phone, Search, Send, User, Bot, Plus, X, Paperclip, 
     FileText, CheckCircle, AlertTriangle, Star, MoreVertical, Download, 
-    Image as ImageIcon, Clock, RefreshCcw
+    Image as ImageIcon, Clock, RefreshCcw, UserCheck, UserX, Bell, Volume2, VolumeX
 } from 'lucide-react';
 import io from 'socket.io-client';
 
 const API = '';
 
-const Conversaciones = ({ darkMode }) => {
+// ─── Sonido de notificación (generado con Web Audio API) ─────────────────────
+function playNotifSound() {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.4, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.4);
+    } catch {}
+}
+
+const Conversaciones = ({ darkMode, usuario }) => {
     const limpiarID = (id) => {
         if (!id) return '';
         return id.split('@')[0].replace(/[^\d]/g, '');
     };
-    /** Número para mostrar al operador (prioriza dígitos reales del contacto). */
     const numeroParaMostrar = (chat) => {
         if (!chat) return '';
         const v = chat.numero_visible || chat.telefono_display;
         if (v) return String(v).replace(/\D/g, '');
         return limpiarID(chat.numero_wa);
     };
+
     const [chats, setChats] = useState([]);
     const [activeChat, setActiveChat] = useState(null);
-    const [mobileView, setMobileView] = useState('list'); // 'list' o 'chat'
+    const [mobileView, setMobileView] = useState('list');
     const [mensajes, setMensajes] = useState([]);
     const [inputMsg, setInputMsg] = useState('');
     const [busqueda, setBusqueda] = useState('');
     const [loading, setLoading] = useState(false);
     const [sending, setSending] = useState(false);
-    
+    const [soundEnabled, setSoundEnabled] = useState(() => {
+        return localStorage.getItem('sicamet_sound') !== 'off';
+    });
+
+    // ─── Sistema de asignación de conversaciones ─────────────────────────────
+    const [asignaciones, setAsignaciones] = useState({}); // { numero_wa: { usuario_id, usuario_nombre } }
+    const [asignandoChat, setAsignandoChat] = useState(false);
+
+    const fetchAsignaciones = async () => {
+        try {
+            const { data } = await axios.get(`${API}/api/whatsapp/asignaciones`);
+            const mapa = {};
+            (data || []).forEach(a => { mapa[a.numero_wa] = a; });
+            setAsignaciones(mapa);
+        } catch {}
+    };
+
+    const tomarConversacion = async (numWa) => {
+        if (asignandoChat) return;
+        setAsignandoChat(true);
+        try {
+            await axios.post(`${API}/api/whatsapp/chats/${encodeURIComponent(numWa)}/asignar`);
+            fetchAsignaciones();
+        } catch (err) {
+            alert('Error al tomar conversación');
+        } finally {
+            setAsignandoChat(false);
+        }
+    };
+
+    const liberarConversacion = async (numWa) => {
+        try {
+            await axios.delete(`${API}/api/whatsapp/chats/${encodeURIComponent(numWa)}/asignar`);
+            fetchAsignaciones();
+        } catch {}
+    };
+
+    const miAsignacion = activeChat ? asignaciones[limpiarID(activeChat.numero_wa)] : null;
+    const soyYoElAsignado = miAsignacion && miAsignacion.usuario_id === usuario?.id;
+    const otraPersonaAtiende = miAsignacion && miAsignacion.usuario_id !== usuario?.id;
+
     // Atajos
     const [atajos, setAtajos] = useState(() => {
         const g = localStorage.getItem('sicamet_atajos');
@@ -56,6 +114,9 @@ const Conversaciones = ({ darkMode }) => {
 
     const chatContainerRef = useRef(null);
     const fileInputRef = useRef(null);
+    const activeChatRef = useRef(null);
+    const soundRef = useRef(soundEnabled);
+    soundRef.current = soundEnabled;
 
     // 1. Cargar lista de chats
     const fetchChats = async () => {
@@ -81,21 +142,35 @@ const Conversaciones = ({ darkMode }) => {
     // 3. Inicializar Sockets y Carga Inicial
     useEffect(() => {
         fetchChats();
+        fetchAsignaciones();
         const socket = io(API);
         
         socket.on('nuevo_mensaje_whatsapp', (msg) => {
-            // Si el mensaje es del chat activo, añadirlo al historial
             setActiveChat(prevActive => {
-                if (prevActive && prevActive.numero_wa === msg.numero_wa) {
+                activeChatRef.current = prevActive;
+                if (prevActive && limpiarID(prevActive.numero_wa) === limpiarID(msg.numero_wa)) {
                     setMensajes(prev => [...prev, msg]);
+                } else if (msg.direccion !== 'saliente') {
+                    // Mensaje nuevo de otro chat → sonar si está habilitado
+                    if (soundRef.current) playNotifSound();
                 }
                 return prevActive;
             });
-            fetchChats(); // Refrescar lista lateral
+            fetchChats();
         });
 
-        socket.on('actualizacion_chat_whatsapp', () => {
-            fetchChats();
+        socket.on('actualizacion_chat_whatsapp', () => fetchChats());
+
+        // Eventos de asignación en tiempo real
+        socket.on('chat_asignado', (data) => {
+            setAsignaciones(prev => ({ ...prev, [data.numero_wa]: data }));
+        });
+        socket.on('chat_liberado', (data) => {
+            setAsignaciones(prev => {
+                const next = { ...prev };
+                delete next[data.numero_wa];
+                return next;
+            });
         });
 
         return () => socket.disconnect();
@@ -156,7 +231,6 @@ const Conversaciones = ({ darkMode }) => {
     const [showMenu, setShowMenu] = useState(false);
     const menuRef = useRef(null);
 
-    // Cerrar menú al hacer clic fuera
     useEffect(() => {
         const handleClickOutside = (e) => {
             if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false);
@@ -168,7 +242,6 @@ const Conversaciones = ({ darkMode }) => {
     const handleVaciarChat = async () => {
         if (!activeChat) return;
         if (!window.confirm(`⚠️ ¿Vaciar mensajes y reiniciar sesión del bot con ${activeChat.nombre_contacto || numeroParaMostrar(activeChat)}?`)) return;
-        
         try {
             await axios.delete(`${API}/api/whatsapp/chats/${encodeURIComponent(activeChat.numero_wa)}/mensajes`);
             setMensajes([]);
@@ -179,7 +252,7 @@ const Conversaciones = ({ darkMode }) => {
 
     const handleEliminarChat = async () => {
         if (!activeChat) return;
-        if (!window.confirm(`⚠️ ¿Eliminar por completo el chat con ${numeroParaMostrar(activeChat)}? Se borrarán mensajes y la ficha del CRM.`)) return;
+        if (!window.confirm(`⚠️ ¿Eliminar por completo el chat con ${numeroParaMostrar(activeChat)}?`)) return;
         try {
             await axios.delete(`${API}/api/whatsapp/chats/${encodeURIComponent(activeChat.numero_wa)}`);
             setActiveChat(null);
@@ -189,10 +262,13 @@ const Conversaciones = ({ darkMode }) => {
         } catch (err) { alert('Error al eliminar chat'); }
     };
 
-    const handleReenviar = (msg) => {
-        setInputMsg(msg.cuerpo || '');
-        setShowMenu(false); // Cerramos menú si se abrió desde ahí
-        // Opcional: hacer foco en el input
+    const handleReenviar = (msg) => { setInputMsg(msg.cuerpo || ''); setShowMenu(false); };
+
+    const toggleSound = () => {
+        const newVal = !soundEnabled;
+        setSoundEnabled(newVal);
+        localStorage.setItem('sicamet_sound', newVal ? 'on' : 'off');
+        if (newVal) playNotifSound(); // Sonido de prueba
     };
 
     const boxBg = darkMode ? 'bg-[#253916] border-[#C9EA63]/20' : 'bg-white border-gray-100 shadow-xl';
@@ -205,9 +281,22 @@ const Conversaciones = ({ darkMode }) => {
             {/* --- SIDEBAR DE CHATS --- */}
             <div className={`w-full md:w-1/3 h-full border-b md:border-b-0 md:border-r flex flex-col shrink-0 ${mobileView === 'list' ? 'flex' : 'hidden md:flex'} ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'}`}>
                 <div className="p-4 border-b border-inherit bg-inherit shrink-0">
-                    <h2 className={`font-bold text-lg flex items-center gap-2 mb-4 ${textTitle}`}>
-                        <MessageSquare size={20} className={darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'} /> CRM WhatsApp
-                    </h2>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className={`font-bold text-lg flex items-center gap-2 ${textTitle}`}>
+                            <MessageSquare size={20} className={darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'} /> CRM WhatsApp
+                        </h2>
+                        {/* Botón de sonido */}
+                        <button
+                            onClick={toggleSound}
+                            title={soundEnabled ? 'Silenciar notificaciones' : 'Activar sonido de notificaciones'}
+                            className={`p-2 rounded-full transition-all ${soundEnabled 
+                                ? (darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-50 text-[#008a5e]') 
+                                : (darkMode ? 'bg-white/5 text-white/30' : 'bg-slate-100 text-slate-400')
+                            }`}
+                        >
+                            {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                        </button>
+                    </div>
                     <div className={`flex items-center gap-2 w-full px-3 py-2 border rounded-xl ${inputBg}`}>
                         <Search size={16} className={darkMode ? 'text-[#F2F6F0]/50' : 'text-slate-400'} />
                         <input 
@@ -223,6 +312,11 @@ const Conversaciones = ({ darkMode }) => {
                     {filtrarChats.length === 0 && <div className="p-8 text-center text-xs opacity-50">No hay chats activos.</div>}
                     {filtrarChats.map(chat => {
                         const numMostrar = numeroParaMostrar(chat);
+                        const numLimpio = limpiarID(chat.numero_wa);
+                        const asignacion = asignaciones[numLimpio];
+                        const soyYoAqui = asignacion && asignacion.usuario_id === usuario?.id;
+                        const otraPersonaAqui = asignacion && asignacion.usuario_id !== usuario?.id;
+
                         return (
                             <div 
                                 key={chat.numero_wa}
@@ -233,8 +327,17 @@ const Conversaciones = ({ darkMode }) => {
                                         : (darkMode ? 'border-[#C9EA63]/10 hover:bg-[#314a1c]/30' : 'border-slate-100 hover:bg-slate-50')
                                 }`}
                             >
-                                <div className={`w-12 h-12 rounded-full overflow-hidden flex-shrink-0 ${darkMode ? 'bg-[#253916]' : 'bg-slate-200'}`}>
+                                <div className={`w-12 h-12 rounded-full overflow-hidden flex-shrink-0 relative ${darkMode ? 'bg-[#253916]' : 'bg-slate-200'}`}>
                                     {chat.foto_url ? <img src={chat.foto_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={24}/></div>}
+                                    {/* Indicador de quién atiende */}
+                                    {asignacion && (
+                                        <div 
+                                            className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center border-2 text-[8px] font-black ${soyYoAqui ? 'bg-emerald-500 border-emerald-700 text-white' : 'bg-amber-400 border-amber-600 text-black'}`}
+                                            title={soyYoAqui ? 'Tú atiendes' : `Atiende: ${asignacion.usuario_nombre}`}
+                                        >
+                                            {soyYoAqui ? '✓' : '!'}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-start mb-0.5">
@@ -245,12 +348,24 @@ const Conversaciones = ({ darkMode }) => {
                                             {new Date(chat.ultima_actividad).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     </div>
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between gap-1">
                                         <p className={`text-xs truncate font-mono ${darkMode ? 'text-[#F2F6F0]/50' : 'text-slate-500'}`} title={`ID interno: ${chat.numero_wa}`}>
                                             {chat.bot_desactivado === 1 ? <span className="text-rose-400 font-black tracking-tighter uppercase">[Manual] </span> : <span className={`${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'} font-black tracking-tighter uppercase`}>[In Bot] </span>}
                                             {numMostrar}
                                         </p>
-                                        {chat.es_favorito === 1 && <Star size={12} className="text-amber-400 fill-amber-400" />}
+                                        <div className="flex items-center gap-1 flex-shrink-0">
+                                            {chat.es_favorito === 1 && <Star size={10} className="text-amber-400 fill-amber-400" />}
+                                            {otraPersonaAqui && (
+                                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${darkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
+                                                    {asignacion.usuario_nombre?.split(' ')[0]}
+                                                </span>
+                                            )}
+                                            {soyYoAqui && (
+                                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${darkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                    Tú
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -264,68 +379,110 @@ const Conversaciones = ({ darkMode }) => {
                 {activeChat ? (
                     <>
                         {/* Cabecera del chat */}
-                        <div className={`p-3 md:p-4 border-b flex justify-between items-center ${darkMode ? 'border-[#C9EA63]/20 bg-[#141f0b]/50' : 'border-slate-200 bg-slate-50/50'}`}>
-                            <div className="flex items-center gap-2 md:gap-3">
-                                {/* Botón volver - Solo en móvil */}
-                                <button 
-                                    onClick={() => setMobileView('list')}
-                                    className={`md:hidden p-2 -ml-2 rounded-full hover:bg-black/10 ${darkMode ? 'text-[#C9EA63]' : 'text-slate-600'}`}
-                                >
-                                    <X size={20} />
-                                </button>
-                                
-                                <div className={`w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-50 text-[#008a5e]'} overflow-hidden shrink-0`}>
-                                    {activeChat.foto_url ? <img src={activeChat.foto_url} alt="" className="w-full h-full object-cover" /> : <User size={18} />}
-                                </div>
-                                <div className="min-w-0">
-                                    <h3 className={`font-bold text-sm truncate ${textTitle}`}>
-                                        {activeChat.nombre_contacto?.includes('@') ? limpiarID(activeChat.nombre_contacto) : (activeChat.nombre_contacto || numeroParaMostrar(activeChat))}
-                                    </h3>
-                                    <p className={`text-[10px] md:text-xs ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'} flex items-center gap-1 font-mono truncate`} title={`ID CRM: ${activeChat.numero_wa}`}>
-                                        <Phone size={10} /> {numeroParaMostrar(activeChat)}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2 relative" ref={menuRef}>
-                                <button 
-                                    onClick={() => toggleConfig('es_favorito', activeChat.es_favorito === 1 ? 0 : 1)}
-                                    className={`p-2 rounded-lg transition-colors ${activeChat.es_favorito === 1 ? 'text-amber-400' : 'text-slate-400 hover:bg-slate-200'}`}
-                                >
-                                    <Star size={18} className={activeChat.es_favorito === 1 ? 'fill-amber-400' : ''} />
-                                </button>
-                                
-                                <button 
-                                    onClick={() => setShowMenu(!showMenu)}
-                                    className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#253916] text-[#C9EA63]' : 'hover:bg-slate-200 text-slate-600'}`}
-                                >
-                                    <MoreVertical size={18} />
-                                </button>
-
-                                {/* Dropdown Menu */}
-                                {showMenu && (
-                                    <div className={`absolute right-0 top-12 w-48 rounded-xl border shadow-2xl z-50 py-2 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/30' : 'bg-white border-slate-100'}`}>
-                                        <button 
-                                            onClick={handleVaciarChat}
-                                            className={`w-full text-left px-4 py-2 text-xs font-bold transition-colors ${darkMode ? 'text-rose-400 hover:bg-rose-950/30' : 'text-rose-600 hover:bg-rose-50'}`}
-                                        >
-                                            Vaciar mensajes + reiniciar bot
-                                        </button>
-                                        <button 
-                                            onClick={handleEliminarChat}
-                                            className={`w-full text-left px-4 py-2 text-xs font-bold transition-colors ${darkMode ? 'text-orange-300 hover:bg-orange-950/30' : 'text-orange-700 hover:bg-orange-50'}`}
-                                        >
-                                            Eliminar chat del CRM
-                                        </button>
-                                        <div className={`h-px mx-2 my-1 ${darkMode ? 'bg-[#C9EA63]/10' : 'bg-slate-100'}`}></div>
-                                        <button 
-                                            onClick={() => window.alert("Próximamente: Exportar historial")}
-                                            className={`w-full text-left px-4 py-2 text-xs font-bold transition-colors ${darkMode ? 'text-[#F2F6F0] hover:bg-[#C9EA63]/10' : 'text-slate-600 hover:bg-slate-50'}`}
-                                        >
-                                            EXPORTAR CHAT
-                                        </button>
+                        <div className={`p-3 md:p-4 border-b flex flex-col gap-2 ${darkMode ? 'border-[#C9EA63]/20 bg-[#141f0b]/50' : 'border-slate-200 bg-slate-50/50'}`}>
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-2 md:gap-3">
+                                    <button 
+                                        onClick={() => setMobileView('list')}
+                                        className={`md:hidden p-2 -ml-2 rounded-full hover:bg-black/10 ${darkMode ? 'text-[#C9EA63]' : 'text-slate-600'}`}
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                    
+                                    <div className={`w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-50 text-[#008a5e]'} overflow-hidden shrink-0`}>
+                                        {activeChat.foto_url ? <img src={activeChat.foto_url} alt="" className="w-full h-full object-cover" /> : <User size={18} />}
                                     </div>
-                                )}
+                                    <div className="min-w-0">
+                                        <h3 className={`font-bold text-sm truncate ${textTitle}`}>
+                                            {activeChat.nombre_contacto?.includes('@') ? limpiarID(activeChat.nombre_contacto) : (activeChat.nombre_contacto || numeroParaMostrar(activeChat))}
+                                        </h3>
+                                        <p className={`text-[10px] md:text-xs ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'} flex items-center gap-1 font-mono truncate`} title={`ID CRM: ${activeChat.numero_wa}`}>
+                                            <Phone size={10} /> {numeroParaMostrar(activeChat)}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 relative" ref={menuRef}>
+                                    <button 
+                                        onClick={() => toggleConfig('es_favorito', activeChat.es_favorito === 1 ? 0 : 1)}
+                                        className={`p-2 rounded-lg transition-colors ${activeChat.es_favorito === 1 ? 'text-amber-400' : 'text-slate-400 hover:bg-slate-200'}`}
+                                    >
+                                        <Star size={18} className={activeChat.es_favorito === 1 ? 'fill-amber-400' : ''} />
+                                    </button>
+                                    
+                                    <button 
+                                        onClick={() => setShowMenu(!showMenu)}
+                                        className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-[#253916] text-[#C9EA63]' : 'hover:bg-slate-200 text-slate-600'}`}
+                                    >
+                                        <MoreVertical size={18} />
+                                    </button>
+
+                                    {showMenu && (
+                                        <div className={`absolute right-0 top-12 w-52 rounded-xl border shadow-2xl z-50 py-2 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/30' : 'bg-white border-slate-100'}`}>
+                                            <button 
+                                                onClick={handleVaciarChat}
+                                                className={`w-full text-left px-4 py-2 text-xs font-bold transition-colors ${darkMode ? 'text-rose-400 hover:bg-rose-950/30' : 'text-rose-600 hover:bg-rose-50'}`}
+                                            >
+                                                Vaciar mensajes + reiniciar bot
+                                            </button>
+                                            <button 
+                                                onClick={handleEliminarChat}
+                                                className={`w-full text-left px-4 py-2 text-xs font-bold transition-colors ${darkMode ? 'text-orange-300 hover:bg-orange-950/30' : 'text-orange-700 hover:bg-orange-50'}`}
+                                            >
+                                                Eliminar chat del CRM
+                                            </button>
+                                            <div className={`h-px mx-2 my-1 ${darkMode ? 'bg-[#C9EA63]/10' : 'bg-slate-100'}`}></div>
+                                            <button 
+                                                onClick={() => window.alert("Próximamente: Exportar historial")}
+                                                className={`w-full text-left px-4 py-2 text-xs font-bold transition-colors ${darkMode ? 'text-[#F2F6F0] hover:bg-[#C9EA63]/10' : 'text-slate-600 hover:bg-slate-50'}`}
+                                            >
+                                                EXPORTAR CHAT
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
+
+                            {/* ─── BANNER DE ASIGNACIÓN ─────────────────────────────── */}
+                            {otraPersonaAtiende && (
+                                <div className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold border ${darkMode ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                                    <div className="flex items-center gap-2">
+                                        <UserCheck size={14} />
+                                        <span>Esta conversación la atiende <strong>{miAsignacion.usuario_nombre}</strong></span>
+                                    </div>
+                                    <button 
+                                        onClick={() => tomarConversacion(limpiarID(activeChat.numero_wa))}
+                                        className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all ${darkMode ? 'bg-amber-500 text-black hover:bg-amber-400' : 'bg-amber-500 text-white hover:bg-amber-600'}`}
+                                    >
+                                        Tomar igual
+                                    </button>
+                                </div>
+                            )}
+                            {soyYoElAsignado && (
+                                <div className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold border ${darkMode ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+                                    <div className="flex items-center gap-2">
+                                        <UserCheck size={14} />
+                                        <span>Tú estás atendiendo esta conversación</span>
+                                    </div>
+                                    <button 
+                                        onClick={() => liberarConversacion(limpiarID(activeChat.numero_wa))}
+                                        className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all ${darkMode ? 'bg-white/10 text-white/70 hover:bg-white/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                    >
+                                        Liberar
+                                    </button>
+                                </div>
+                            )}
+                            {!miAsignacion && (
+                                <div className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs border ${darkMode ? 'bg-white/5 border-white/10 text-white/40' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                                    <span className="font-bold">Sin asignar — nadie atiende esta conversación</span>
+                                    <button 
+                                        onClick={() => tomarConversacion(limpiarID(activeChat.numero_wa))}
+                                        disabled={asignandoChat}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
+                                    >
+                                        <UserCheck size={12} /> Atender yo
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         {/* Contenedor de Mensajes */}
@@ -358,7 +515,6 @@ const Conversaciones = ({ darkMode }) => {
                                                     borderBottomRightRadius: '8px'
                                                  }}
                                             >
-                                                {/* Renderizado de Media */}
                                                 {msg.tipo === 'imagen' && msg.url_media && (
                                                     <div className="mb-2 rounded-lg overflow-hidden border border-black/10">
                                                         <img src={`${API}${msg.url_media}`} alt="WhatsApp" className="max-w-full max-h-[300px] object-cover cursor-zoom-in" onClick={() => window.open(`${API}${msg.url_media}`)} />
@@ -391,7 +547,6 @@ const Conversaciones = ({ darkMode }) => {
                                                     {soyYo && <CheckCircle size={14} className={darkMode ? "text-[#53bdeb]" : "text-[#53bdeb]"} />}
                                                 </div>
 
-                                                {/* Botón Flotante de Reenvío (Aparece en Hover) */}
                                                 <button 
                                                     onClick={() => handleReenviar(msg)}
                                                     title="Reenviar mensaje"
@@ -447,7 +602,6 @@ const Conversaciones = ({ darkMode }) => {
                                 </div>
                             ))}
 
-                            {/* Botón añadir nuevo atajo */}
                             {nuevoAtajo.visible ? (
                                 <div className={`flex items-center gap-1.5 flex-shrink-0 px-2 py-1 rounded-xl border ${
                                     darkMode ? 'bg-[#253916] border-[#C9EA63]/30' : 'bg-slate-50 border-slate-200'
@@ -533,7 +687,7 @@ const Conversaciones = ({ darkMode }) => {
                         </div>
                         <h3 className={`text-3xl font-black mb-2 ${textTitle}`}>Central de Atención</h3>
                         <p className={`max-w-xs text-sm font-medium ${darkMode ? 'text-white/40' : 'text-slate-500'}`}>
-                            Selecciona una conversación del panel izquierdo para comenzar a gestionar tus chats con el Bot Pro y tus clientes en tiempo real.
+                            Selecciona una conversación del panel izquierdo para comenzar a gestionar tus chats. El sistema de asignación evita que dos personas respondan al mismo cliente.
                         </p>
                     </div>
                 )}

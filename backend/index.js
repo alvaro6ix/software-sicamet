@@ -21,6 +21,7 @@ const pdf = require('pdf-parse');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require('child_process');
 
 // Módulos del Bot PRO
 const botIA = require('./bot_ia');
@@ -55,6 +56,38 @@ function limpiarID(wa) {
     return numerico;
 }
 
+// === FUNCION CRITICA: Calcular SLA real desde fecha_recepcion del PDF ===
+function calcularSLAReal(fechaRecepcionParsed, fechaRecepcionStr, fechaIngreso, slaDias) {
+    let fechaBase;
+    if (fechaRecepcionParsed) {
+        fechaBase = new Date(fechaRecepcionParsed);
+    } else if (fechaRecepcionStr) {
+        // Intentar parsear formatos: DD/MM/YYYY, YYYY.MM.DD, YYYY-MM-DD
+        let parsed = null;
+        const limpia = fechaRecepcionStr.trim();
+        // Formato DD/MM/YYYY
+        const m1 = limpia.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (m1) parsed = new Date(`${m1[3]}-${m1[2]}-${m1[1]}`);
+        // Formato YYYY.MM.DD
+        if (!parsed) {
+            const m2 = limpia.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})/);
+            if (m2) parsed = new Date(`${m2[1]}-${m2[2]}-${m2[3]}`);
+        }
+        // Formato YYYY-MM-DD
+        if (!parsed) {
+            const m3 = limpia.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+            if (m3) parsed = new Date(limpia);
+        }
+        fechaBase = parsed && !isNaN(parsed.getTime()) ? parsed : new Date(fechaIngreso);
+    } else {
+        fechaBase = new Date(fechaIngreso);
+    }
+    const hoy = new Date();
+    const diasPasados = Math.floor((hoy - fechaBase) / (1000 * 60 * 60 * 24));
+    const slaRestante = (slaDias || 10) - diasPasados;
+    return { diasPasados, slaRestante, fechaBase: fechaBase.toISOString().split('T')[0] };
+}
+
 async function ensureMetrologiaSchema() {
     try {
         // Asegurar columna numero_informe
@@ -63,6 +96,67 @@ async function ensureMetrologiaSchema() {
             await db.query('ALTER TABLE instrumentos_estatus ADD COLUMN numero_informe VARCHAR(100) DEFAULT NULL');
             console.log("✅ Columna numero_informe añadida");
         }
+
+        // Asegurar columna fecha_recepcion_parsed (para SLA real)
+        const [colsFecha] = await db.query('SHOW COLUMNS FROM instrumentos_estatus LIKE "fecha_recepcion_parsed"');
+        if (colsFecha.length === 0) {
+            await db.query('ALTER TABLE instrumentos_estatus ADD COLUMN fecha_recepcion_parsed DATE NULL AFTER fecha_recepcion');
+            console.log("✅ Columna fecha_recepcion_parsed añadida");
+        }
+
+        // Asegurar columna rechazos_aseguramiento
+        const [colsRechazos] = await db.query('SHOW COLUMNS FROM instrumentos_estatus LIKE "rechazos_aseguramiento"');
+        if (colsRechazos.length === 0) {
+            await db.query('ALTER TABLE instrumentos_estatus ADD COLUMN rechazos_aseguramiento INT DEFAULT 0 AFTER no_certificado');
+            console.log("✅ Columna rechazos_aseguramiento añadida");
+        }
+
+        // Asegurar tabla rechazos_aseguramiento (historial de auditoria)
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS rechazos_aseguramiento (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                instrumento_id INT NOT NULL,
+                usuario_rechaza_id INT NOT NULL,
+                usuario_destino_id INT NULL,
+                motivo TEXT NOT NULL,
+                fecha_rechazo DATETIME DEFAULT CURRENT_TIMESTAMP,
+                estatus_previo VARCHAR(50),
+                INDEX (instrumento_id),
+                INDEX (usuario_rechaza_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        console.log("✅ Tabla rechazos_aseguramiento verificada");
+
+        // Asegurar tabla feedback_bot
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS feedback_bot (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                cliente_wa VARCHAR(50) NOT NULL,
+                empresa VARCHAR(255) NULL,
+                mensaje TEXT NOT NULL,
+                fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                leido_admin TINYINT DEFAULT 0,
+                INDEX (cliente_wa),
+                INDEX (leido_admin)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        console.log("✅ Tabla feedback_bot verificada");
+
+        // Asegurar tabla auditoria_instrumentos
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS auditoria_instrumentos (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                instrumento_id INT NOT NULL,
+                accion VARCHAR(100) NOT NULL,
+                usuario_id INT NULL,
+                detalles JSON NULL,
+                fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                INDEX (instrumento_id),
+                INDEX (accion),
+                INDEX (usuario_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        console.log("✅ Tabla auditoria_instrumentos verificada");
 
         // Asegurar tabla instrumento_metrologos
         await db.query(`
@@ -77,7 +171,37 @@ async function ensureMetrologiaSchema() {
                 INDEX (usuario_id)
             )
         `);
-        console.log("✅ Tabla instrumento_metrologos verificada");
+        console.log("✅ Tabla instrumento_metrologos verificada (ensureMetrologiaSchema)");
+
+        // ✅ FIX: Asegurar tabla instrumentos_historial (era la causa del error 500)
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS instrumentos_historial (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                instrumento_id INT NOT NULL,
+                usuario_id INT NULL,
+                estatus_anterior VARCHAR(100) NULL,
+                estatus_nuevo VARCHAR(100) NULL,
+                comentario TEXT NULL,
+                fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+                INDEX (instrumento_id),
+                INDEX (usuario_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        console.log("✅ Tabla instrumentos_historial verificada");
+
+        // Asegurar tabla chat_assignments (para control de conversaciones entre recepcionistas)
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS chat_assignments (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                numero_wa VARCHAR(50) NOT NULL UNIQUE,
+                usuario_id INT NOT NULL,
+                usuario_nombre VARCHAR(150) NOT NULL,
+                asignado_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                INDEX (numero_wa),
+                INDEX (usuario_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        console.log("✅ Tabla chat_assignments verificada");
 
         // Asegurar tabla notificaciones_globales y leídas
         await db.query(`
@@ -275,6 +399,48 @@ app.use(express.json());
 // Servir archivos subidos públicamente
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// ─── ENDPOINT PÚBLICO: Ver certificado desde QR (sin auth) ───
+app.get('/api/public/certificado/:numeroInforme', async (req, res) => {
+    try {
+        const { numeroInforme } = req.params;
+        const [equipos] = await db.query(
+            `SELECT id, nombre_instrumento, orden_cotizacion, empresa, numero_informe, 
+                    no_certificado, marca, modelo, no_serie, fecha_ingreso, 
+                    estatus_actual, certificado_url, fecha_entrega
+             FROM instrumentos_estatus 
+             WHERE UPPER(numero_informe) = UPPER(?) OR UPPER(no_certificado) = UPPER(?)`,
+            [numeroInforme, numeroInforme]
+        );
+
+        if (equipos.length === 0) {
+            return res.status(404).json({ error: 'Certificado no encontrado' });
+        }
+
+        const eq = equipos[0];
+
+        res.json({
+            encontrado: true,
+            datos: {
+                equipo: eq.nombre_instrumento,
+                empresa: eq.empresa,
+                orden: eq.orden_cotizacion,
+                informe: eq.numero_informe,
+                certificado: eq.no_certificado,
+                marca: eq.marca,
+                modelo: eq.modelo,
+                serie: eq.no_serie,
+                estatus: eq.estatus_actual,
+                fecha_entrega: eq.fecha_entrega,
+                tiene_pdf: !!eq.certificado_url,
+                url_pdf: eq.certificado_url ? `https://crm.sicamet.com${eq.certificado_url}` : null
+            }
+        });
+    } catch (err) {
+        console.error('Error en /api/public/certificado:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- ESTADÍSTICAS ---
 app.get('/api/stats', async (req, res) => {
     try {
@@ -409,6 +575,36 @@ app.get('/api/kpis_negocio', async (req, res) => {
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
+app.get('/api/kpis_aseguramiento', async (req, res) => {
+    try {
+        const [[qAseg]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Aseguramiento'`);
+        const [[qCert]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Certificación'`);
+        const [[qListos]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Listo'`);
+        
+        // SLA Crítico (<= 1 día)
+        const [equiposSLA] = await db.query(`SELECT fecha_ingreso, sla FROM instrumentos_estatus WHERE estatus_actual NOT IN ('Entregado', 'Cancelado')`);
+        const criticos = equiposSLA.filter(e => {
+            const dIng = e.fecha_ingreso ? new Date(e.fecha_ingreso) : new Date();
+            const diasPasados = Math.floor((new Date() - dIng) / (1000 * 60 * 60 * 24));
+            return (e.sla - diasPasados) <= 1;
+        }).length;
+
+        const [[sinPdf]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual IN ('Certificación', 'Listo', 'Entregado') AND certificado_url IS NULL`);
+        
+        res.json({
+            pendientes_aseguramiento: qAseg.total || 0,
+            en_certificacion: qCert.total || 0,
+            listos_hoy: qListos.total || 0, // Fallback a total listos si no hay updated_at
+            sla_critico: criticos,
+            sin_pdf: sinPdf.total || 0,
+            distribucion_area: []
+        });
+    } catch(err) { 
+        console.error("Error en KPI Aseguramiento:", err.message);
+        res.status(500).json({error: err.message}); 
+    }
+});
+
 // --- ELIMINAR/VACIAR CONVERSACIÓN ---
 app.delete('/api/whatsapp/chats/:numero/mensajes', verificarToken(), async (req, res) => {
     try {
@@ -440,21 +636,43 @@ app.delete('/api/whatsapp/chats/:numero', verificarToken(), async (req, res) => 
 
 // --- OPERACIONES DE INSTRUMENTOS (CRUD MULTIRREGISTRO) ---
 app.post('/api/instrumentos-multiple', verificarToken(), async (req, res) => {
-    const { instrumentos, metrologos_ids } = req.body; 
+    const { instrumentos, metrologos_ids } = req.body;
     if (!instrumentos || instrumentos.length === 0) return res.status(400).json({error: "No hay datos"});
 
     try {
-        const query = `INSERT INTO instrumentos_estatus 
-            (orden_cotizacion, empresa, persona, tipo_servicio, nombre_instrumento, marca, modelo, no_serie, identificacion, ubicacion, requerimientos_especiales, puntos_calibrar, sla, estatus_actual, area_laboratorio, metrologo_asignado_id) 
-            VALUES ?`; 
-        
+        const query = `INSERT INTO instrumentos_estatus
+            (orden_cotizacion, cotizacion_referencia, fecha_recepcion, fecha_recepcion_parsed, servicio_solicitado, empresa, nombre_certificados, direccion, persona, contacto_email, tipo_servicio, nombre_instrumento, marca, modelo, no_serie, numero_informe, no_certificado, clave, identificacion, ubicacion, requerimientos_especiales, puntos_calibrar, intervalo_calibracion, sla, estatus_actual, area_laboratorio, metrologo_asignado_id)
+            VALUES ?`;
+
         const primerMetrologo = Array.isArray(metrologos_ids) && metrologos_ids.length > 0 ? metrologos_ids[0] : null;
 
-        const valores = instrumentos.map(ins => [
-            ins.orden_cotizacion, ins.empresa, ins.persona, ins.tipo_servicio, ins.nombre_instrumento, 
-            ins.marca, ins.modelo, ins.no_serie, ins.identificacion, ins.ubicacion, ins.requerimientos_especiales, ins.puntos_calibrar, ins.sla, 'Laboratorio',
-            ins.area_laboratorio || null, primerMetrologo // Mantenemos el primero en la columna legacy por compatibilidad
-        ]);
+        const valores = instrumentos.map(ins => {
+            // Parsear fecha_recepcion a DATE para SLA real
+            let fechaParsed = null;
+            if (ins.fecha_recepcion) {
+                const limpia = ins.fecha_recepcion.trim();
+                const m1 = limpia.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                if (m1) fechaParsed = `${m1[3]}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`;
+                else {
+                    const m2 = limpia.match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})/);
+                    if (m2) fechaParsed = `${m2[1]}-${m2[2].padStart(2,'0')}-${m2[3].padStart(2,'0')}`;
+                    else {
+                        const m3 = limpia.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+                        if (m3) fechaParsed = limpia;
+                    }
+                }
+            }
+            return [
+                ins.orden_cotizacion, ins.cotizacion_referencia || null, ins.fecha_recepcion || null, fechaParsed,
+                ins.servicio_solicitado || null,
+                ins.empresa, ins.nombre_certificados || null, ins.direccion || null, ins.persona, ins.contacto_email || null,
+                ins.tipo_servicio, ins.nombre_instrumento,
+                ins.marca, ins.modelo, ins.no_serie, ins.no_certificado || null, ins.no_certificado || null,
+                ins.clave || null, ins.identificacion, ins.ubicacion, ins.requerimientos_especiales, ins.puntos_calibrar,
+                ins.intervalo_calibracion || null, ins.sla, 'Laboratorio',
+                ins.area_laboratorio || null, primerMetrologo
+            ];
+        });
 
         const [r] = await db.query(query, [valores]);
         const firstId = r.insertId;
@@ -474,10 +692,22 @@ app.post('/api/instrumentos-multiple', verificarToken(), async (req, res) => {
             }
         }
 
-        console.log(`✅ Registradas ${instrumentos.length} partidas de la orden ${instrumentos[0].orden_cotizacion} → área: ${instrumentos[0].area_laboratorio}`);
-        
+        // Auditoría
+        const auditoriaValues = Array.from({length: count}, (_, i) => [
+            firstId + i, 'registro_multiple', req.usuario.id,
+            JSON.stringify({orden: instrumentos[0]?.orden_cotizacion, instrumento: instrumentos[i]?.nombre_instrumento})
+        ]);
+        for (const row of auditoriaValues) {
+            await db.query(
+                `INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) VALUES (?, ?, ?, ?)`,
+                [row[0], row[1], row[2], row[3]]
+            );
+        }
+
+        console.log(`✅ Registradas ${instrumentos.length} partidas de la orden ${instrumentos[0].orden_cotizacion} → área: ${instrumentos[0].area_laboratorio}, SLA desde: ${valores[0][3] || 'fecha_ingreso'}`);
+
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'registro_multiple' });
-        
+
         res.json({ success: true, count: instrumentos.length });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -537,11 +767,26 @@ app.get('/api/instrumentos', verificarToken(), async (req, res) => {
         }
 
         const [equipos] = await db.query(query, params);
-        // Parsear JSON de metrologos_asignados si viene como string
-        const finalEquipos = equipos.map(e => ({
-            ...e,
-            metrologos_asignados: typeof e.metrologos_asignados === 'string' ? JSON.parse(e.metrologos_asignados) : (e.metrologos_asignados || [])
-        }));
+        // Parsear JSON de metrologos_asignados y calcular SLA real
+        const finalEquipos = equipos.map(e => {
+            const metrologosParsed = typeof e.metrologos_asignados === 'string' ? JSON.parse(e.metrologos_asignados) : (e.metrologos_asignados || []);
+            
+            // Calcular SLA real desde fecha_recepcion_parsed (no fecha_ingreso)
+            const slaInfo = calcularSLAReal(
+                e.fecha_recepcion_parsed,
+                e.fecha_recepcion,
+                e.fecha_ingreso,
+                e.sla
+            );
+
+            return {
+                ...e,
+                metrologos_asignados: metrologosParsed,
+                dias_pasados: slaInfo.diasPasados,
+                sla_restante: slaInfo.slaRestante,
+                sla_fecha_base: slaInfo.fechaBase
+            };
+        });
         res.json(finalEquipos);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -655,30 +900,112 @@ app.post('/api/instrumentos/:id/finalizar_metrologo', verificarToken(), async (r
     try {
         const { id } = req.params;
         const userId = req.usuario.id;
+        const body = req.body || {}; // ✅ Protección: req.body puede ser undefined si no hay Content-Type
+        const { enviar_a_aseguramiento } = body; // Flag para forzar envío individual
 
+        // 1. Marcar mi parte como terminada
         await db.query(
             'UPDATE instrumento_metrologos SET estatus = "terminado", fecha_fin = NOW() WHERE instrumento_id = ? AND usuario_id = ?',
             [id, userId]
         );
 
-        // Verificar si todos los asignados terminaron
+        // 2. Verificar si TODOS los metrologos asignados terminaron
         const [pendientes] = await db.query(
             'SELECT COUNT(*) as total FROM instrumento_metrologos WHERE instrumento_id = ? AND estatus != "terminado"',
             [id]
         );
 
-        if (pendientes[0].total === 0) {
-            // Mover a Aseguramiento si todo el equipo terminó
-            await db.query('UPDATE instrumentos_estatus SET estatus_actual = "Aseguramiento" WHERE id = ?', [id]);
-            await db.query(
-                'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo, comentario) VALUES (?, ?, ?, ?, ?)',
-                [id, userId, 'Laboratorio', 'Aseguramiento', 'Todos los metrólogos terminaron su parte.']
-            );
+        // 3. Obtener info del instrumento para auditoria
+        const [infoInstrumento] = await db.query(
+            'SELECT orden_cotizacion, nombre_instrumento, estatus_actual FROM instrumentos_estatus WHERE id = ?',
+            [id]
+        );
+
+        const todosTerminaron = pendientes[0].total === 0;
+        const esEnvioForzado = enviar_a_aseguramiento === true;
+
+        // 4. Mover a Aseguramiento si:
+        //    a) Todos los metrologos terminaron, O
+        //    b) El metrologo fuerza el envío individual (quiere enviar su parte aunque otros no terminen)
+        if (todosTerminaron || esEnvioForzado) {
+            if (todosTerminaron) {
+                // Caso normal: todos terminaron → mover a Aseguramiento
+                await db.query('UPDATE instrumentos_estatus SET estatus_actual = "Aseguramiento" WHERE id = ?', [id]);
+                await db.query(
+                    'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo, comentario) VALUES (?, ?, ?, ?, ?)',
+                    [id, userId, 'Laboratorio', 'Aseguramiento', 'Todos los metrólogos terminaron su parte.']
+                );
+            } else {
+                // Envio individual: este metrologo terminó pero otros aún trabajan
+                await db.query('UPDATE instrumentos_estatus SET estatus_actual = "Aseguramiento" WHERE id = ?', [id]);
+                await db.query(
+                    'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo, comentario) VALUES (?, ?, ?, ?, ?)',
+                    [id, userId, 'Laboratorio', 'Aseguramiento', `Metrólogo ${req.usuario.nombre} finalizó su parte. Aún hay metrologos pendientes.`]
+                );
+
+                // Notificar a los metrologos pendientes (opcional, puede fallar sin romper el flujo)
+                try {
+                    const [pendientesInfo] = await db.query(
+                        `SELECT im.usuario_id, u.nombre FROM instrumento_metrologos im 
+                         JOIN usuarios u ON u.id = im.usuario_id 
+                         WHERE im.instrumento_id = ? AND im.estatus != 'terminado'`,
+                        [id]
+                    );
+
+                    for (const p of pendientesInfo) {
+                        await db.query(
+                            `INSERT INTO notificaciones_globales (titulo, detalle, tipo, ruta, urgencia, metadata, creado_por_id) 
+                             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                            ['Equipo enviado a Aseguramiento sin tu parte', 
+                             `El instrumento "${infoInstrumento[0]?.nombre_instrumento}" (${infoInstrumento[0]?.orden_cotizacion}) fue enviado a Aseguramiento por ${req.usuario.nombre} mientras aún tenías trabajo pendiente.`,
+                             'envio_individual', '/metrologia', 'alta',
+                             JSON.stringify({instrumento_id: id}), userId]
+                        );
+                    }
+                } catch (notifErr) {
+                    console.warn('⚠️ No se pudo enviar notificación a metrólogos pendientes:', notifErr.message);
+                }
+            }
+
+            // Log de auditoría (opcional, puede fallar sin romper el flujo)
+            try {
+                await db.query(
+                    `INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) 
+                     VALUES (?, ?, ?, ?)`,
+                    [id, 'envio_a_aseguramiento', userId,
+                     JSON.stringify({
+                         todos_terminaron: todosTerminaron,
+                         envio_forzado: esEnvioForzado,
+                         orden: infoInstrumento[0]?.orden_cotizacion
+                     })]
+                );
+            } catch (auditErr) {
+                console.warn('⚠️ No se pudo escribir auditoria_instrumentos:', auditErr.message);
+            }
+        } else {
+            // Solo marqué mi parte como terminada, el equipo sigue en Laboratorio
+            try {
+                await db.query(
+                    `INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) 
+                     VALUES (?, ?, ?, ?)`,
+                    [id, 'parte_terminada', userId,
+                     JSON.stringify({
+                         pendientes: pendientes[0].total,
+                         orden: infoInstrumento[0]?.orden_cotizacion
+                     })]
+                );
+            } catch (auditErr) {
+                console.warn('⚠️ No se pudo escribir auditoria_instrumentos:', auditErr.message);
+            }
         }
 
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'tecnico_termino', id });
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+        res.json({ success: true, todos_terminaron: todosTerminaron, enviado_a_aseguramiento: todosTerminaron || esEnvioForzado });
+    } catch (err) {
+        console.error('❌ Error en finalizar_metrologo (instrumento_id=' + req.params.id + '):', err.message);
+        console.error(err.stack);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.post('/api/instrumentos/:id/solicitar_correccion', verificarToken(), async (req, res) => {
@@ -714,30 +1041,552 @@ app.post('/api/instrumentos/:id/solicitar_correccion', verificarToken(), async (
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════
+// NUEVOS ENDPOINTS FASE 2: Rechazos, Validación, Metrología
+// ═══════════════════════════════════════════════════════════
+
+// --- RECHAZO DE ASEGURAMIENTO (con trazabilidad completa) ---
+app.post('/api/instrumentos/:id/rechazar_aseguramiento', verificarToken(), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { motivo, metrologo_destino_id } = req.body;
+        const userId = req.usuario.id;
+
+        // 1. Registrar en tabla de rechazos
+        const [infoInstrumento] = await db.query(
+            'SELECT orden_cotizacion, nombre_instrumento, estatus_actual FROM instrumentos_estatus WHERE id = ?', [id]
+        );
+
+        await db.query(
+            `INSERT INTO rechazos_aseguramiento (instrumento_id, usuario_rechaza_id, usuario_destino_id, motivo, estatus_previo) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [id, userId, metrologo_destino_id || null, motivo, infoInstrumento[0]?.estatus_actual]
+        );
+
+        // 2. Incrementar contador de rechazos
+        await db.query(
+            'UPDATE instrumentos_estatus SET rechazos_aseguramiento = rechazos_aseguramiento + 1 WHERE id = ?',
+            [id]
+        );
+
+        // 3. Regresar a Laboratorio
+        await db.query('UPDATE instrumentos_estatus SET estatus_actual = "Laboratorio" WHERE id = ?', [id]);
+
+        // 4. Resetear estatus de metrologos para que puedan trabajar la corrección
+        await db.query(
+            'UPDATE instrumento_metrologos SET estatus = "correccion", fecha_fin = NULL WHERE instrumento_id = ?',
+            [id]
+        );
+
+        // Si hay un metrólogo destino específico, crearle una nueva asignación de corrección
+        if (metrologo_destino_id) {
+            const [exists] = await db.query(
+                'SELECT id FROM instrumento_metrologos WHERE instrumento_id = ? AND usuario_id = ?',
+                [id, metrologo_destino_id]
+            );
+            if (exists.length === 0) {
+                await db.query(
+                    'INSERT INTO instrumento_metrologos (instrumento_id, usuario_id, estatus) VALUES (?, ?, ?)',
+                    [id, metrologo_destino_id, 'correccion']
+                );
+            }
+        }
+
+        // 5. Historial
+        await db.query(
+            'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo, comentario) VALUES (?, ?, ?, ?, ?)',
+            [id, userId, infoInstrumento[0]?.estatus_actual, 'Laboratorio', `RECHAZO #${(infoInstrumento[0]?.rechazos_aseguramiento || 0) + 1}: ${motivo}`]
+        );
+
+        // 6. Auditoría
+        await db.query(
+            `INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) VALUES (?, ?, ?, ?)`,
+            [id, 'rechazo_aseguramiento', userId, JSON.stringify({
+                motivo,
+                rechazos: (infoInstrumento[0]?.rechazos_aseguramiento || 0) + 1,
+                orden: infoInstrumento[0]?.orden_cotizacion,
+                instrumento: infoInstrumento[0]?.nombre_instrumento
+            })]
+        );
+
+        // 7. Notificación al metrólogo
+        await crearNotificacionGlobal({
+            titulo: `Equipo rechazado (Rechazo #${(infoInstrumento[0]?.rechazos_aseguramiento || 0) + 1})`,
+            detalle: `${req.usuario.nombre} rechazó "${infoInstrumento[0]?.nombre_instrumento}" (${infoInstrumento[0]?.orden_cotizacion}). Motivo: ${motivo}`,
+            tipo: 'rechazo',
+            ruta: '/metrologia',
+            urgencia: 'alta',
+            metadata: { instrumento_id: id },
+            usuario_destino_id: metrologo_destino_id
+        });
+
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'rechazo_aseguramiento', id });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- OBTENER HISTORIAL DE RECHAZOS DE UN INSTRUMENTO ---
+app.get('/api/instrumentos/:id/rechazos', verificarToken(), async (req, res) => {
+    try {
+        const [rechazos] = await db.query(
+            `SELECT r.*, 
+                    ur.nombre as rechaza_nombre,
+                    ud.nombre as destino_nombre
+             FROM rechazos_aseguramiento r
+             LEFT JOIN usuarios ur ON ur.id = r.usuario_rechaza_id
+             LEFT JOIN usuarios ud ON ud.id = r.usuario_destino_id
+             WHERE r.instrumento_id = ?
+             ORDER BY r.fecha_rechazo DESC`,
+            [req.params.id]
+        );
+        res.json(rechazos);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- VALIDACIÓN DE CERTIFICADO POR IA ---
+app.post('/api/instrumentos/:id/validar-certificado', verificarToken(), uploadCert.single('archivo'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No se subió archivo PDF' });
+
+        const [equipo] = await db.query(
+            'SELECT * FROM instrumentos_estatus WHERE id = ?',
+            [req.params.id]
+        );
+        if (equipo.length === 0) {
+            if (req.file.path) fs.unlinkSync(req.file.path);
+            return res.status(404).json({ error: 'Equipo no encontrado' });
+        }
+
+        const fullFilePath = path.join(__dirname, 'uploads', 'certificados', req.file.filename);
+
+        // Ejecutar parser del certificado
+        const { execFile } = require('child_process');
+        execFile('python', [path.join(__dirname, 'pdf_parser.py'), '--certificado', fullFilePath], 
+            { maxBuffer: 1024 * 1024 * 10 }, 
+            async (error, stdout, stderr) => {
+                if (error) {
+                    console.error("Error validación certificado:", stderr);
+                    if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
+                    return res.status(500).json({ error: 'Error al procesar el certificado con IA.' });
+                }
+
+                try {
+                    const certDatos = JSON.parse(stdout);
+                    if (certDatos.error) {
+                        return res.status(400).json({ error: certDatos.error });
+                    }
+
+                    // Preparar la "partida" del equipo para comparar
+                    const partida = {
+                        no_certificado: equipo[0].no_certificado || equipo[0].numero_informe,
+                        marca: equipo[0].marca,
+                        modelo: equipo[0].modelo,
+                        no_serie: equipo[0].no_serie,
+                        identificacion: equipo[0].identificacion
+                    };
+
+                    // Validar usando la función del parser
+                    const validacion = require('./pdf_parser.py'); // No se puede directamente, replicar lógica
+                    // Replicar la validación aquí
+                    const validacionResult = validarCertificadoContraOrden(certDatos.datos || {}, partida);
+
+                    res.json({
+                        validacion: validacionResult,
+                        datos_certificado: certDatos.datos,
+                        archivo_ruta: req.file.filename
+                    });
+                } catch (parseErr) {
+                    res.status(500).json({ error: 'Error al parsear resultado de IA: ' + parseErr.message });
+                }
+            }
+        );
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Función auxiliar de validación (replica la lógica del parser)
+function validarCertificadoContraOrden(certDatos, partida) {
+    function n(s) { return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+    function vacio(s) { return ['', 'no indicado', 'no indicada', 'no especificado'].includes(n(s)); }
+    
+    const comparaciones = [
+        ("no_certificado", certDatos.no_certificado || "", partida.no_certificado || ""),
+        ("marca",          certDatos.marca || "",          partida.marca || ""),
+        ("modelo",         certDatos.modelo || "",         partida.modelo || ""),
+        ("serie",          certDatos.serie || "",          partida.no_serie || ""),
+        ("identificacion", certDatos.identificacion || "", partida.identificacion || ""),
+    ];
+
+    const ok = [], fail = [];
+    for (const [campo, vc, vo] of comparaciones) {
+        if (vacio(vc) || vacio(vo)) continue;
+        const c = n(vc), o = n(vo);
+        if (c === o || c.includes(o) || o.includes(c)) ok.push(campo);
+        else fail.push({ campo, en_certificado: vc, en_orden: vo });
+    }
+
+    const total = ok.length + fail.length;
+    return {
+        coincide: fail.length === 0 && ok.length > 0,
+        confianza: total > 0 ? Math.round(ok.length / total * 100) : 0,
+        campos_ok: ok,
+        campos_fail: fail
+    };
+}
+
+// --- EQUIPOS LISTOS SIN CERTIFICADO (alerta persistente) ---
+app.get('/api/instrumentos/sin-certificado', verificarToken(), async (req, res) => {
+    try {
+        const [equipos] = await db.query(
+            `SELECT ie.*,
+                    (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', u.id, 'nombre', u.nombre, 'estatus', im.estatus))
+                     FROM instrumento_metrologos im
+                     JOIN usuarios u ON u.id = im.usuario_id
+                     WHERE im.instrumento_id = ie.id) as metrologos_asignados,
+                    ie.rechazos_aseguramiento
+             FROM instrumentos_estatus ie
+             WHERE (ie.estatus_actual = 'Listo' OR ie.estatus_actual = 'Entregado')
+               AND (ie.no_certificado IS NULL OR ie.no_certificado = '')
+               AND (ie.numero_informe IS NULL OR ie.numero_informe = '')
+             ORDER BY 
+                CASE ie.estatus_actual WHEN 'Listo' THEN 0 ELSE 1 END,
+                ie.fecha_ingreso DESC`,
+            []
+        );
+
+        const finalEquipos = equipos.map(e => ({
+            ...e,
+            metrologos_asignados: typeof e.metrologos_asignados === 'string' ? JSON.parse(e.metrologos_asignados) : []
+        }));
+
+        res.json(finalEquipos);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- MI BANDEJA (solo instrumentos asignados a este metrólogo) ---
+app.get('/api/metrologia/mi-bandeja', verificarToken(), async (req, res) => {
+    try {
+        const userId = req.usuario.id;
+        const [equipos] = await db.query(
+            `SELECT ie.*, im.estatus as mi_estatus, im.fecha_asignacion, im.fecha_fin,
+                    ie.rechazos_aseguramiento,
+                    (SELECT COUNT(*) FROM rechazos_aseguramiento WHERE instrumento_id = ie.id) as total_rechazos
+             FROM instrumentos_estatus ie
+             JOIN instrumento_metrologos im ON im.instrumento_id = ie.id
+             WHERE im.usuario_id = ? AND ie.estatus_actual = 'Laboratorio'
+             ORDER BY ie.fecha_recepcion_parsed ASC, ie.fecha_ingreso ASC`,
+            [userId]
+        );
+
+        // Calcular SLA real para cada equipo
+        const conSLA = equipos.map(e => ({
+            ...e,
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla)
+        }));
+
+        res.json(conSLA);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- LABORATORIO GENERAL (todos los instrumentos del área, para supervisores) ---
+app.get('/api/metrologia/laboratorio-general', verificarToken(), async (req, res) => {
+    try {
+        const { area } = req.query;
+        let query = `
+            SELECT ie.*,
+                   (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', u.id, 'nombre', u.nombre, 'estatus', im.estatus, 'fecha_fin', im.fecha_fin))
+                    FROM instrumento_metrologos im
+                    JOIN usuarios u ON u.id = im.usuario_id
+                    WHERE im.instrumento_id = ie.id) as metrologos_asignados,
+                   (SELECT COUNT(*) FROM rechazos_aseguramiento WHERE instrumento_id = ie.id) as total_rechazos
+            FROM instrumentos_estatus ie
+            WHERE ie.estatus_actual = 'Laboratorio'
+        `;
+        let params = [];
+
+        if (area) {
+            query += ' AND ie.area_laboratorio = ?';
+            params.push(area);
+        }
+
+        query += ' ORDER BY ie.fecha_recepcion_parsed ASC, ie.fecha_ingreso ASC';
+
+        const [equipos] = await db.query(query, params);
+        const finalEquipos = equipos.map(e => ({
+            ...e,
+            metrologos_asignados: typeof e.metrologos_asignados === 'string' ? JSON.parse(e.metrologos_asignados) : [],
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla)
+        }));
+
+        res.json(finalEquipos);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- CORRECCIONES PENDIENTES ---
+app.get('/api/metrologia/correcciones', verificarToken(), async (req, res) => {
+    try {
+        const userId = req.usuario.id;
+        const [equipos] = await db.query(
+            `SELECT ie.*, im.estatus as mi_estatus, r.motivo as ultimo_motivo, r.fecha_rechazo,
+                    ie.rechazos_aseguramiento
+             FROM instrumentos_estatus ie
+             JOIN instrumento_metrologos im ON im.instrumento_id = ie.id
+             LEFT JOIN rechazos_aseguramiento r ON r.instrumento_id = ie.id
+             WHERE im.usuario_id = ? AND im.estatus = 'correccion' AND ie.estatus_actual = 'Laboratorio'
+             ORDER BY r.fecha_rechazo DESC`,
+            [userId]
+        );
+
+        const conSLA = equipos.map(e => ({
+            ...e,
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla)
+        }));
+
+        res.json(conSLA);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- AUDITORÍA COMPLETA DE UN INSTRUMENTO ---
+app.get('/api/instrumentos/:id/auditoria', verificarToken(), async (req, res) => {
+    try {
+        const [auditoria] = await db.query(
+            `SELECT a.*, u.nombre as usuario_nombre
+             FROM auditoria_instrumentos a
+             LEFT JOIN usuarios u ON u.id = a.usuario_id
+             WHERE a.instrumento_id = ?
+             ORDER BY a.fecha DESC`,
+            [req.params.id]
+        );
+
+        const [historial] = await db.query(
+            `SELECT h.*, u.nombre as usuario_nombre
+             FROM instrumentos_historial h
+             LEFT JOIN usuarios u ON u.id = h.usuario_id
+             WHERE h.instrumento_id = ?
+             ORDER BY h.fecha DESC`,
+            [req.params.id]
+        );
+
+        const [rechazos] = await db.query(
+            `SELECT r.*, ur.nombre as rechaza_nombre
+             FROM rechazos_aseguramiento r
+             LEFT JOIN usuarios ur ON ur.id = r.usuario_rechaza_id
+             WHERE r.instrumento_id = ?
+             ORDER BY r.fecha_rechazo DESC`,
+            [req.params.id]
+        );
+
+        res.json({ auditoria, historial, rechazos });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- FEEDBACK DEL BOT ---
+app.post('/api/bot/feedback', async (req, res) => {
+    try {
+        const { cliente_wa, empresa, mensaje } = req.body;
+        if (!cliente_wa || !mensaje) return res.status(400).json({ error: 'Faltan datos' });
+
+        await db.query(
+            'INSERT INTO feedback_bot (cliente_wa, empresa, mensaje) VALUES (?, ?, ?)',
+            [limpiarID(cliente_wa), empresa || null, mensaje]
+        );
+
+        // Notificar al admin
+        if (global.io) global.io.emit('nuevo_feedback', { cliente_wa, empresa, mensaje });
+
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/bot/feedback', verificarToken(['admin']), async (req, res) => {
+    try {
+        const [feedbacks] = await db.query(
+            `SELECT * FROM feedback_bot ORDER BY fecha DESC`
+        );
+        res.json(feedbacks);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/bot/feedback/:id/leido', verificarToken(['admin']), async (req, res) => {
+    try {
+        await db.query('UPDATE feedback_bot SET leido_admin = 1 WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- KPI ACTUALIZADO CON SLA REAL ---
+app.get('/api/metrologia/kpis', verificarToken(), async (req, res) => {
+    try {
+        const { rol, id: userId, area } = req.usuario;
+
+        // Equipos en Laboratorio con SLA real
+        let labQuery = `
+            SELECT fecha_recepcion_parsed, fecha_recepcion, fecha_ingreso, sla,
+                   area_laboratorio, metrologo_asignado_id, id
+            FROM instrumentos_estatus WHERE estatus_actual = 'Laboratorio'
+        `;
+        let params = [];
+
+        if (rol !== 'admin') {
+            labQuery += ` AND (metrologo_asignado_id = ? OR EXISTS (
+                SELECT 1 FROM instrumento_metrologos im WHERE im.instrumento_id = instrumentos_estatus.id AND im.usuario_id = ?
+            ))`;
+            params = [userId, userId];
+        }
+
+        const [equiposLab] = await db.query(labQuery, params);
+
+        // Calcular SLA real para cada uno
+        const conSLA = equiposLab.map(e => ({
+            ...e,
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla)
+        }));
+
+        const countTotal = conSLA.length;
+        const countRojo = conSLA.filter(e => e.slaRestante <= 1).length;
+        const countAmarillo = conSLA.filter(e => e.slaRestante > 1 && e.slaRestante <= 3).length;
+        const countVerde = conSLA.filter(e => e.slaRestante > 3).length;
+
+        // Correcciones pendientes
+        const [[corrCount]] = await db.query(
+            `SELECT COUNT(*) as total FROM instrumento_metrologos im 
+             JOIN instrumentos_estatus ie ON ie.id = im.instrumento_id
+             WHERE im.usuario_id = ? AND im.estatus = 'correccion' AND ie.estatus_actual = 'Laboratorio'`,
+            [userId]
+        );
+
+        // Equipos sin certificado (persistente)
+        const [[sinCert]] = await db.query(
+            `SELECT COUNT(*) as total FROM instrumentos_estatus 
+             WHERE estatus_actual IN ('Listo', 'Entregado') 
+             AND (no_certificado IS NULL OR no_certificado = '')`
+        );
+
+        // Conteo por áreas
+        const [porAreas] = await db.query(
+            `SELECT area_laboratorio, COUNT(*) as total 
+             FROM instrumentos_estatus WHERE estatus_actual = 'Laboratorio' AND area_laboratorio IS NOT NULL 
+             GROUP BY area_laboratorio`
+        );
+
+        res.json({
+            total: countTotal,
+            rojo: countRojo,
+            amarillo: countAmarillo,
+            verde: countVerde,
+            correcciones: corrCount.total || 0,
+            sin_certificado: sinCert.total || 0,
+            por_areas: porAreas
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
 // SUBIR CERTIFICADO (PDF) POR ASEGURAMIENTO
 app.post('/api/instrumentos/:id/certificado', verificarToken(['admin', 'aseguramiento', 'validacion', 'validacin']), uploadCert.single('archivo'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo o no es PDF' });
         
-        // Validar que el equipo esté en Certificación antes de proceder
-        const [rows] = await db.query('SELECT estatus_actual FROM instrumentos_estatus WHERE id = ?', [req.params.id]);
-        if (rows.length === 0 || rows[0].estatus_actual !== 'Certificación') {
-            // Si no está en el estatus correcto, borrar el archivo subido para no basura
+        const [rows] = await db.query('SELECT orden_cotizacion, estatus_actual, numero_informe FROM instrumentos_estatus WHERE id = ?', [req.params.id]);
+        if (rows.length === 0) {
             if (req.file.path) fs.unlinkSync(req.file.path);
-            return res.status(400).json({ error: 'Solo se pueden subir certificados a equipos en estatus Certificación.' });
+            return res.status(404).json({ error: 'Equipo no encontrado.' });
         }
 
-        const filePath = `/uploads/certificados/${req.file.filename}`;
-        await db.query('UPDATE instrumentos_estatus SET certificado_url = ? WHERE id = ?', [filePath, req.params.id]);
+        const fullFilePath = path.join(__dirname, 'uploads', 'certificados', req.file.filename);
         
-        // Registrar en la bitácora automáticamente
-        // const usuarioId = req.usuario.id;
-        // await db.query('INSERT INTO instrumentos_comentarios (instrumento_id, usuario_id, mensaje) VALUES (?, ?, ?)', 
-        //    [req.params.id, usuarioId, 'Certificado PDF cargado por Aseguramiento.']);
+        // --- PROCESAMIENTO CON IA (PYTHON) ---
+        const pythonCommand = `python3 pdf_parser.py --certificado "${fullFilePath}"`;
+        
+        exec(pythonCommand, async (error, stdout, stderr) => {
+            if (error) {
+                console.error("Error IA Parser:", stderr);
+                if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
+                return res.status(500).json({ error: 'Error al procesar el certificado con IA.' });
+            }
 
-        res.json({ success: true, url: filePath });
+            try {
+                const aiResult = JSON.parse(stdout);
+                
+                if (aiResult.error) {
+                    if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
+                    return res.status(400).json({ error: `La IA no pudo procesar el PDF: ${aiResult.error}` });
+                }
+
+                const dataExtraida = aiResult.datos || {};
+                const nInforme = dataExtraida.no_certificado;
+                const osExtraida = dataExtraida.orden_servicio;
+
+                // 1. Validar que se extrajo un número de informe (Es un certificado legítimo)
+                if (!nInforme) {
+                    if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
+                    return res.status(400).json({ error: 'El archivo no parece ser un certificado de SICAMET válido (No se encontró número de informe).' });
+                }
+
+                // 2. Validar correspondencia de Orden de Servicio (Seguridad / Integridad)
+                const osCRM = (rows[0].orden_cotizacion || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                const osPDF = (osExtraida || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                // Comprobamos si la del PDF está contenida en la del CRM o viceversa (para tolerar prefijos O, OS, etc)
+                const matchOS = osCRM.includes(osPDF) || osPDF.includes(osCRM);
+
+                if (!matchOS && osPDF) {
+                    if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
+                    return res.status(400).json({ 
+                        error: `Conflicto de Orden: El certificado indica la orden "${osExtraida}", pero el equipo pertenece a la orden "${rows[0].orden_cotizacion}".`,
+                        debug: { osPDF, osCRM }
+                    });
+                }
+
+                // Si todo está bien, guardamos
+                const dbPath = `/uploads/certificados/${req.file.filename}`;
+                await db.query('UPDATE instrumentos_estatus SET certificado_url = ?, numero_informe = ? WHERE id = ?', 
+                    [dbPath, nInforme, req.params.id]);
+                
+                if (global.io) {
+                    global.io.emit('actualizacion_equipo', { id: req.params.id, certificado_url: dbPath, numero_informe: nInforme });
+                }
+
+                res.json({ 
+                    success: true, 
+                    url: dbPath, 
+                    numero_informe: nInforme,
+                    ai_data: dataExtraida,
+                    message: "Certificado validado y cargado con éxito."
+                });
+
+            } catch (pErr) {
+                if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
+                res.status(500).json({ error: 'Error al interpretar los datos de la IA.' });
+            }
+        });
+
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// NUEVO: Obtener instrumentos de una orden específica
+app.get('/api/ordenes/:orden/instrumentos', verificarToken(), async (req, res) => {
+    try {
+        const { orden } = req.params;
+        const [rows] = await db.query('SELECT * FROM instrumentos_estatus WHERE orden_cotizacion = ? OR orden_cotizacion LIKE ?', [orden, `%${orden}%`]);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// NUEVO: Guardado múltiple de certificados (Certificación Ágil)
+app.post('/api/instrumentos-multiple-certificados', verificarToken(['admin', 'aseguramiento']), async (req, res) => {
+    try {
+        const { vinculaciones } = req.body; // Array de { id, numero_informe, certificado_url }
+        if (!vinculaciones || !Array.isArray(vinculaciones)) return res.status(400).json({ error: 'Datos de vinculación inválidos' });
+
+        for (const v of vinculaciones) {
+            await db.query('UPDATE instrumentos_estatus SET certificado_url = ?, numero_informe = ? WHERE id = ?', 
+                [v.certificado_url, v.numero_informe, v.id]);
+        }
+
+        res.json({ success: true, message: `Se vincularon ${vinculaciones.length} certificados.` });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 app.put('/api/instrumentos/:id/estatus', verificarToken(), async (req, res) => {
     try {
@@ -1091,49 +1940,76 @@ app.post('/api/leer-pdf', upload.single('archivoPdf'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'Sin archivo' });
 
-        // Guardar temporalmente el PDF para que lo lea Python
         const tempPath = path.join(__dirname, `temp_${Date.now()}.pdf`);
         fs.writeFileSync(tempPath, req.file.buffer);
 
-        // Llamar al script de Python
         execFile('python', [path.join(__dirname, 'pdf_parser.py'), tempPath], { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
-            // Borramos el PDF sin importar si falló
             if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+            if (error) return res.status(500).json({ error: 'Fallo al procesar el PDF.' });
 
+            try {
+                const resultado = JSON.parse(stdout.trim());
+                if (resultado.error) return res.status(500).json({ error: resultado.error });
+
+                // Normalizar campos del parser nuevo (parser_ia.py)
+                if (resultado.cabecera) {
+                    const cab = resultado.cabecera;
+                    // Mapear nombres de campos del nuevo parser al formato del frontend
+                    cab.orden_cotizacion = cab.orden_numero || cab.orden_cotizacion || '';
+                    cab.persona = cab.contacto_nombre || cab.persona || '';
+                    cab.contacto_email = cab.contacto_email || '';
+                    cab.nombre_certificados = cab.nombre_certificados || '';
+                    cab.direccion = cab.direccion || '';
+                    cab.cotizacion_referencia = cab.cotizacion_referencia || '';
+                    cab.fecha_recepcion = cab.fecha_recepcion || '';
+                    cab.servicio_solicitado = cab.servicio_solicitado || '';
+                }
+                // Asegurar que cada partida tenga todos los campos nuevos
+                if (resultado.partidas) {
+                    resultado.partidas.forEach(p => {
+                        p.clave = p.clave || '';
+                        p.no_certificado = p.no_certificado || '';
+                        p.intervalo_calibracion = p.intervalo_calibracion || 'No especificado';
+                    });
+                }
+
+                res.json({ success: true, ...resultado });
+            } catch (err) { res.status(500).json({ error: 'El parser no generó un JSON válido.' }); }
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/leer-certificado', upload.single('archivoCert'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'Sin archivo' });
+
+        // NOTA: Para certificados, guardamos el archivo en la carpeta oficial de una vez si es posible
+        // Pero para la IA, usamos el buffer temporal o el archivo ya movido
+        const fileName = `certificado_${req.usuario?.id || 0}_${Date.now()}.pdf`;
+        const finalPath = path.join(__dirname, 'uploads', 'certificados', fileName);
+        fs.writeFileSync(finalPath, req.file.buffer);
+
+        execFile('python', [path.join(__dirname, 'pdf_parser.py'), '--certificado', finalPath], { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
             if (error) {
-                console.error('❌ Error ejecutando Python:', error, stderr);
-                return res.status(500).json({ error: 'Fallo al procesar el PDF.' });
+                if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
+                return res.status(500).json({ error: 'Error al procesar certificado con IA.' });
             }
 
             try {
-                // Stdout contiene el JSON de resultado
-                const resultado = JSON.parse(stdout.trim());
-                if (resultado.error) {
-                    return res.status(500).json({ error: resultado.error });
+                const result = JSON.parse(stdout.trim());
+                if (result.error) {
+                    if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
+                    return res.status(500).json({ error: result.error });
                 }
-
-                console.log(`✅ EXTRACCIÓN MAESTRA EN PYTHON -> FOLIO: "${resultado.cabecera.orden_cotizacion}" | PARTIDAS: ${resultado.partidas.length}`);
-                
-                res.json({
-                    success: true,
-                    cabecera: { 
-                        orden_cotizacion: resultado.cabecera.orden_cotizacion, 
-                        empresa: resultado.cabecera.empresa, 
-                        persona: resultado.cabecera.persona, 
-                        sla: resultado.cabecera.sla 
-                    },
-                    partidas: resultado.partidas
-                });
+                res.json({ success: true, datos: result.datos, url: `/uploads/certificados/${fileName}` });
             } catch (err) {
-                console.error('❌ Error parseando respuesta de Python:', err, stdout);
-                res.status(500).json({ error: 'El parser no generó un JSON válido.' });
+                if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
+                res.status(500).json({ error: 'Error parseando respuesta de IA.' });
             }
         });
-    } catch (err) {
-        console.error('❌ Error /api/leer-pdf:', err);
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 
 // ============================================================
 // BOT WHATSAPP — Sistema de Auto-Recuperación Inteligente
@@ -1503,6 +2379,57 @@ app.put('/api/whatsapp/chats/:numero/config', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── ASIGNACIÓN DE CONVERSACIONES (Sistema de Ownership) ────────────────────────────
+// Permite que una recepcionista "tome" una conversación para evitar colisiones
+
+// GET: Ver quién atiende una conversación
+app.get('/api/whatsapp/chats/:numero/asignacion', verificarToken(), async (req, res) => {
+    try {
+        const num = limpiarID(req.params.numero);
+        const [rows] = await db.query(
+            'SELECT ca.*, u.nombre as nombreUsuario FROM chat_assignments ca LEFT JOIN usuarios u ON u.id = ca.usuario_id WHERE ca.numero_wa = ?',
+            [num]
+        );
+        res.json(rows[0] || null);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST: Tomar/asignar una conversación
+app.post('/api/whatsapp/chats/:numero/asignar', verificarToken(), async (req, res) => {
+    try {
+        const num = limpiarID(req.params.numero);
+        const { id: userId, nombre: nombreUsuario } = req.usuario;
+        await db.query(
+            'INSERT INTO chat_assignments (numero_wa, usuario_id, usuario_nombre) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE usuario_id = VALUES(usuario_id), usuario_nombre = VALUES(usuario_nombre), asignado_at = NOW()',
+            [num, userId, nombreUsuario]
+        );
+        if (global.io) {
+            global.io.emit('chat_asignado', { numero_wa: num, usuario_id: userId, usuario_nombre: nombreUsuario });
+        }
+        res.json({ success: true, numero_wa: num, usuario_nombre: nombreUsuario });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE: Liberar una conversación
+app.delete('/api/whatsapp/chats/:numero/asignar', verificarToken(), async (req, res) => {
+    try {
+        const num = limpiarID(req.params.numero);
+        await db.query('DELETE FROM chat_assignments WHERE numero_wa = ?', [num]);
+        if (global.io) global.io.emit('chat_liberado', { numero_wa: num });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET: Lista de todas las asignaciones activas (para saber qué conversaciones están tomadas)
+app.get('/api/whatsapp/asignaciones', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            'SELECT ca.numero_wa, ca.usuario_id, ca.usuario_nombre, ca.asignado_at FROM chat_assignments ca'
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── MODIFICACIÓN DE ÓRDENES (RECEPCIÓN / ADMIN) ───────────────────────────────────
 app.post('/api/instrumentos/orden/:folio/modificar', verificarToken(['admin', 'recepcion', 'recepcionista']), async (req, res) => {
     const connection = await db.getConnection();
@@ -1699,12 +2626,14 @@ app.get('/api/bot/stats', async (req, res) => {
         const [[cots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE DATE(created_at) = CURDATE()");
         const [[pendientes]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'");
         const [[escalados]] = await db.query("SELECT COUNT(*) as total FROM escalados WHERE estatus = 'pendiente'");
-        
+
         // --- MÉTRICAS OPERATIVAS (Para Badges) ---
         const [[listos]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Listo'");
         const [[validacion]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Aseguramiento'");
+        const [[sinCert]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual IN ('Listo', 'Entregado') AND (no_certificado IS NULL OR no_certificado = '')`);
+        const [[feedbackNuevos]] = await db.query("SELECT COUNT(*) as total FROM feedback_bot WHERE leido_admin = 0");
         const [metrologiaAreas] = await db.query("SELECT area_laboratorio, COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Laboratorio' AND area_laboratorio IS NOT NULL GROUP BY area_laboratorio");
-        
+
         // Convertir metrología a objeto { 'NombreArea': conteo }
         const metroMap = {};
         metrologiaAreas.forEach(a => { metroMap[a.area_laboratorio] = a.total; });
@@ -1716,7 +2645,9 @@ app.get('/api/bot/stats', async (req, res) => {
             // Nuevas métricas operativas
             listosEntrega: listos.total || 0,
             pendientesValidacion: validacion.total || 0,
-            metrologiaAreaCounts: metroMap
+            metrologiaAreaCounts: metroMap,
+            sin_certificado: sinCert.total || 0,
+            feedback_nuevos: feedbackNuevos.total || 0
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });

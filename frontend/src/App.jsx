@@ -19,8 +19,14 @@ import MetrologiaDashboard from './components/MetrologiaDashboard';
 import Validacion from './components/Validacion';
 import Entregas from './components/Entregas';
 import GestionGrupo from './components/GestionGrupo';
+import AseguramientoCertificados from './components/AseguramientoCertificados';
 import BusquedaGlobal from './components/BusquedaGlobal';
 import NotificacionesBell from './components/NotificacionesBell';
+import AseguramientoDashboard from './components/AseguramientoDashboard';
+import MiBandeja from './components/MiBandeja';
+import CorreccionesMetrologia from './components/CorreccionesMetrologia';
+import SinCertificado from './components/SinCertificado';
+import FeedbackBot from './components/FeedbackBot';
 import io from 'socket.io-client';
 
 import { ToastContainer, toast } from 'react-toastify';
@@ -54,13 +60,14 @@ axios.interceptors.response.use(
   }
 );
 
-import { 
+import {
   LayoutDashboard, FileText, List, Moon, Sun, Menu, X, Bell,
   Users, BookOpen, Tag, Package, MessageSquare, Search, Truck,
-  Bot, ScanLine, Target, LogOut, ShieldCheck, UserCircle, Save, FileCheck
+  Bot, ScanLine, Target, LogOut, ShieldCheck, UserCircle, Save, FileCheck,
+  AlertTriangle, FileText as FileTextIcon, Inbox
 } from 'lucide-react';
 
-const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, onLogout, counts, sidebarOculta, setSidebarOculta }) => {
+const Sidebar = ({ darkMode, toggleDarkMode, mobileOpen, setMobileOpen, usuario, onLogout, counts, sidebarOculta, setSidebarOculta }) => {
   const location = useLocation();
   const esAdmin = usuario?.rol === 'admin';
 
@@ -68,10 +75,17 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
     { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['admin', 'recepcionista'] },
     { name: 'Registro Ágil', path: '/registro', icon: FileText, roles: ['admin', 'recepcionista'] },
     { name: 'Entregas', path: '/entregas', icon: Truck, roles: ['admin', 'recepcionista'] },
-    { name: 'Lista Gral. Equipos', path: '/equipos', icon: List, roles: ['admin', 'recepcionista'] },
-    { name: 'Pipeline Kanban', path: '/kanban', icon: Package, roles: ['admin', 'recepcionista', 'operador', 'metrologo'] },
+    { name: 'Dashboard Aseguramiento', path: '/aseguramiento-dashboard', icon: LayoutDashboard, roles: ['admin', 'aseguramiento', 'validacion'] },
+    { name: 'Gestión Operativa', path: '/validacion', icon: FileCheck, roles: ['admin', 'aseguramiento', 'validacion'] },
+    { name: 'Certificación Ágil', path: '/certificacion-agil', icon: FileCheck, roles: ['admin', 'aseguramiento', 'validacion'] },
+    { name: 'Lista Gral. Equipos', path: '/equipos', icon: List, roles: ['admin', 'recepcionista', 'aseguramiento', 'validacion'] },
+    { name: 'Pipelines Kanban', path: '/kanban', icon: Package, roles: ['admin', 'recepcionista', 'operador', 'metrologo', 'aseguramiento', 'validacion'] },
+    // Centro de Metrología - Sub-módulos
+    { name: 'Mi Bandeja', path: '/mi-bandeja', icon: Inbox, roles: ['admin', 'operador', 'metrologo'] },
     { name: 'Centro Metrología', path: '/metrologia', icon: Package, roles: ['admin', 'operador', 'metrologo'] },
-    { name: 'Aseguramiento', path: '/validacion', icon: FileCheck, roles: ['admin', 'aseguramiento', 'validacion'] },
+    { name: 'Correcciones', path: '/correcciones-metrologia', icon: AlertTriangle, roles: ['admin', 'operador', 'metrologo'] },
+    { name: 'Sin Certificado', path: '/sin-certificado', icon: FileTextIcon, roles: ['admin', 'aseguramiento', 'validacion'] },
+    // Catálogos y Admin
     { name: 'Clientes', path: '/clientes', icon: Users, roles: ['admin', 'recepcionista'] },
     { name: 'Catálogo Inst.', path: '/catalogo-instrumentos', icon: BookOpen, roles: ['admin', 'recepcionista'] },
     { name: 'Catálogo Marcas', path: '/marcas', icon: Tag, roles: ['admin'] },
@@ -80,6 +94,7 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
     { name: 'Conversaciones WA', path: '/conversaciones', icon: MessageSquare, roles: ['admin', 'recepcionista'] },
     { name: 'Posibles Clientes', path: '/leads', icon: Target, roles: ['admin', 'recepcionista'] },
     { name: 'Vincular WhatsApp', path: '/whatsapp-qr', icon: ScanLine, roles: ['admin', 'recepcionista'] },
+    { name: 'Feedback Bot', path: '/feedback-bot', icon: MessageSquare, roles: ['admin'] },
     { name: 'Gestión Usuarios', path: '/usuarios', icon: Users, roles: ['admin'] },
   ].filter(item => {
       // Si el usuario tiene permisos específicos (y no es array vacío), filtramos por eso
@@ -164,7 +179,7 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
               )}
               {item.name === 'Centro Metrología' && (
                 (() => {
-                  const metroCount = usuario.rol === 'admin' 
+                  const metroCount = usuario.rol === 'admin'
                     ? Object.values(counts.metrologiaAreaCounts || {}).reduce((a, b) => a + b, 0)
                     : (counts.metrologiaAreaCounts?.[usuario.area] || 0);
                   return metroCount > 0 ? (
@@ -173,6 +188,16 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
                     </span>
                   ) : null;
                 })()
+              )}
+              {item.name === 'Sin Certificado' && counts.sin_certificado > 0 && (
+                <span className="bg-amber-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg border border-white/20 animate-pulse">
+                  {counts.sin_certificado}
+                </span>
+              )}
+              {item.name === 'Feedback Bot' && counts.feedback_nuevos > 0 && (
+                <span className="bg-violet-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg border border-white/20">
+                  {counts.feedback_nuevos}
+                </span>
               )}
             </Link>
           );
@@ -195,7 +220,7 @@ const Sidebar = ({ darkMode, setDarkMode, mobileOpen, setMobileOpen, usuario, on
 
         <div className="flex gap-2">
           <button
-            onClick={() => setDarkMode(!darkMode)}
+            onClick={toggleDarkMode}
             className={`flex-1 flex items-center justify-center gap-2 p-2.5 rounded-xl shadow-sm transition-all text-xs font-bold ${
               darkMode ? 'bg-[#253916] text-[#C9EA63] hover:bg-[#314a1c]' : 'bg-white text-[#253916] hover:bg-gray-50'
             }`}
@@ -252,6 +277,16 @@ const Layout = () => {
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
 
+  const toggleDarkMode = () => {
+    if (!document.startViewTransition) {
+      setDarkMode(!darkMode);
+      return;
+    }
+    document.startViewTransition(() => {
+      setDarkMode(!darkMode);
+    });
+  };
+
   useEffect(() => {
     const token = localStorage.getItem('crm_token');
     if (token) {
@@ -271,12 +306,14 @@ const Layout = () => {
 
   const handleLogin = (usr) => setUsuario(usr);
   
-  const [pendingCounts, setPendingCounts] = useState({ 
-    cots: 0, 
-    escalados: 0, 
-    listosEntrega: 0, 
-    pendientesValidacion: 0, 
-    metrologiaAreaCounts: {} 
+  const [pendingCounts, setPendingCounts] = useState({
+    cots: 0,
+    escalados: 0,
+    listosEntrega: 0,
+    pendientesValidacion: 0,
+    metrologiaAreaCounts: {},
+    sin_certificado: 0,
+    feedback_nuevos: 0
   });
 
   useEffect(() => {
@@ -316,7 +353,9 @@ const Layout = () => {
         escalados: res.data.escaladosPendientes || 0,
         listosEntrega: res.data.listosEntrega || 0,
         pendientesValidacion: res.data.pendientesValidacion || 0,
-        metrologiaAreaCounts: res.data.metrologiaAreaCounts || {}
+        metrologiaAreaCounts: res.data.metrologiaAreaCounts || {},
+        sin_certificado: res.data.sin_certificado || 0,
+        feedback_nuevos: res.data.feedback_nuevos || 0
       });
     } catch (e) { console.error("Error global stats", e); }
   };
@@ -355,7 +394,7 @@ const Layout = () => {
 
         <Sidebar 
             darkMode={darkMode} 
-            setDarkMode={setDarkMode} 
+            toggleDarkMode={toggleDarkMode} 
             mobileOpen={mobileOpen} 
             setMobileOpen={setMobileOpen} 
             usuario={usuario}
@@ -384,7 +423,7 @@ const Layout = () => {
             <div className="flex items-center gap-2">
               <NotificacionesBell darkMode={darkMode} />
               <button
-                onClick={() => setDarkMode(!darkMode)}
+                onClick={toggleDarkMode}
                 className={`p-2 rounded-xl transition-all ${darkMode ? 'hover:bg-[#253916] text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-700'}`}
                 title={darkMode ? 'Modo claro' : 'Modo oscuro'}
               >
@@ -395,12 +434,22 @@ const Layout = () => {
 
           <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-8">
             <Routes>
-              <Route path="/" element={<Dashboard darkMode={darkMode} />} />
+              <Route path="/" element={
+                usuario?.rol === 'aseguramiento' || usuario?.rol === 'validacion' 
+                  ? <Navigate to="/aseguramiento-dashboard" replace /> 
+                  : <Dashboard darkMode={darkMode} />
+              } />
+              <Route path="/aseguramiento-dashboard" element={<AseguramientoDashboard darkMode={darkMode} />} />
               <Route path="/registro" element={<Registro darkMode={darkMode} />} />
+              <Route path="/certificacion-agil" element={<AseguramientoCertificados darkMode={darkMode} />} />
               <Route path="/equipos" element={<ListaEquipos darkMode={darkMode} />} />
               <Route path="/kanban" element={<TableroKanban darkMode={darkMode} />} />
               <Route path="/equipos/grupo/:oc" element={<GestionGrupo darkMode={darkMode} />} />
               <Route path="/metrologia" element={<MetrologiaDashboard darkMode={darkMode} usuario={usuario} />} />
+              <Route path="/mi-bandeja" element={<MiBandeja darkMode={darkMode} usuario={usuario} />} />
+              <Route path="/correcciones-metrologia" element={<CorreccionesMetrologia darkMode={darkMode} usuario={usuario} />} />
+              <Route path="/sin-certificado" element={<SinCertificado darkMode={darkMode} usuario={usuario} />} />
+              <Route path="/feedback-bot" element={<FeedbackBot darkMode={darkMode} />} />
               <Route path="/validacion" element={<Validacion darkMode={darkMode} usuario={usuario} />} />
               <Route path="/entregas" element={<Entregas darkMode={darkMode} usuario={usuario} />} />
               <Route path="/clientes" element={<Clientes darkMode={darkMode} />} />
@@ -408,7 +457,7 @@ const Layout = () => {
               <Route path="/marcas" element={<Marcas darkMode={darkMode} />} />
               <Route path="/modelos" element={<Modelos darkMode={darkMode} />} />
               <Route path="/flujos-whatsapp" element={<FlujosWhatsapp darkMode={darkMode} usuario={usuario} />} />
-              <Route path="/conversaciones" element={<Conversaciones darkMode={darkMode} />} />
+              <Route path="/conversaciones" element={<Conversaciones darkMode={darkMode} usuario={usuario} />} />
               <Route path="/leads" element={<PosiblesClientes darkMode={darkMode} />} />
               <Route path="/whatsapp-qr" element={<WhatsappQR darkMode={darkMode} />} />
               <Route path="/usuarios" element={<GestionUsuarios darkMode={darkMode} />} />
