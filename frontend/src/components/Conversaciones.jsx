@@ -149,7 +149,11 @@ const Conversaciones = ({ darkMode, usuario }) => {
             setActiveChat(prevActive => {
                 activeChatRef.current = prevActive;
                 if (prevActive && limpiarID(prevActive.numero_wa) === limpiarID(msg.numero_wa)) {
-                    setMensajes(prev => [...prev, msg]);
+                    setMensajes(prev => {
+                        // Evitar duplicados por id de mensaje
+                        if (prev.some(m => m.id === msg.id)) return prev;
+                        return [...prev, msg];
+                    });
                 } else if (msg.direccion !== 'saliente') {
                     // Mensaje nuevo de otro chat → sonar si está habilitado
                     if (soundRef.current) playNotifSound();
@@ -515,7 +519,8 @@ const Conversaciones = ({ darkMode, usuario }) => {
                                                     borderBottomRightRadius: '8px'
                                                  }}
                                             >
-                                                {msg.tipo === 'imagen' && msg.url_media && (
+                                                {/* Imagen recibida por WhatsApp */}
+                                                {(msg.tipo === 'imagen' || msg.tipo === 'sticker') && msg.url_media && (
                                                     <div className="mb-2 rounded-lg overflow-hidden border border-black/10">
                                                         <img src={`${API}${msg.url_media}`} alt="WhatsApp" className="max-w-full max-h-[300px] object-cover cursor-zoom-in" onClick={() => window.open(`${API}${msg.url_media}`)} />
                                                     </div>
@@ -536,9 +541,25 @@ const Conversaciones = ({ darkMode, usuario }) => {
                                                     </a>
                                                 )}
 
-                                                <p className="text-[14.2px] leading-[19px] whitespace-pre-wrap word-break">
-                                                    {msg.tipo === 'texto' ? msg.cuerpo : (msg.tipo === 'imagen' && !msg.cuerpo.includes('Imagen/Archivo') ? msg.cuerpo : '')}
-                                                </p>
+                                                {/* Texto del mensaje — solo si es texto puro o imagen con caption real */}
+                                                {(() => {
+                                                    const cuerpo = msg.cuerpo || '';
+                                                    // Nunca mostrar base64 crudo ni placeholders técnicos
+                                                    const esBase64 = cuerpo.length > 200 && /^[A-Za-z0-9+/=]{100,}$/.test(cuerpo.replace(/\s/g,''));
+                                                    const esTipoMedia = ['imagen','sticker','archivo'].includes(msg.tipo);
+                                                    const esCaptionVacio = !cuerpo || cuerpo === '[Media]' || cuerpo.startsWith('[') || esBase64;
+                                                    if (msg.tipo === 'texto' && !esBase64) {
+                                                        return <p className="text-[14.2px] leading-[19px] whitespace-pre-wrap break-words">{cuerpo}</p>;
+                                                    }
+                                                    if (esTipoMedia && !esCaptionVacio) {
+                                                        return <p className="text-[14.2px] leading-[19px] whitespace-pre-wrap break-words">{cuerpo}</p>;
+                                                    }
+                                                    if (esTipoMedia && !msg.url_media) {
+                                                        // Media sin archivo guardado (sticker sin descarga, etc.)
+                                                        return <p className="text-[11px] italic opacity-50">{msg.tipo === 'sticker' ? '🎭 Sticker' : '📎 Archivo multimedia'}</p>;
+                                                    }
+                                                    return null;
+                                                })()}
                                                 
                                                 <div className={`float-right ml-3 mt-1 flex items-center justify-end gap-1 font-medium`}>
                                                     <span className={`text-[10.5px] ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>

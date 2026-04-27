@@ -235,6 +235,9 @@ async function getNodosVisibles(datos) {
     const accionesSoloCliente = ['consultar_estatus', 'consultar_certificado', 'registrar_equipo'];
     
     return nodosAll.filter((n) => {
+        // Ocultar sub-menús del menú principal
+        if (['calificacion', 'verificentro', 'ventas'].includes(n.accion)) return false;
+
         // Ocultar identificación si ya es cliente
         if (n.accion === 'identificar_cliente' && esCliente) return false;
         
@@ -313,7 +316,9 @@ async function construirTextoOpcionesMenu(datos) {
     const visibles = await getNodosVisibles(datos);
     let texto = '';
     visibles.forEach((n, i) => {
-        texto += `\n*${i + 1}️⃣* ${n.nombre}`;
+        const idx = i + 1;
+        const emoji = idx <= 9 ? `${idx}️⃣` : `${idx}.`;
+        texto += `\n*${emoji}* ${n.nombre}`;
     });
     return texto;
 }
@@ -486,6 +491,7 @@ async function manejarMenuRaiz(wa, texto, textoLower, sesion, detectarIntencion,
     }
 
     // Mapa de intención a nodo (por accion guardada en bot_nodos)
+    const nodos = await getTodosNodos();
     const accionANodo = await mapearAccionANodo(accion, nodos);
     if (accionANodo) {
         const d0 = estadoTrasEscalado(sesion.datos || {});
@@ -517,7 +523,7 @@ async function manejarMenuRaiz(wa, texto, textoLower, sesion, detectarIntencion,
 
     // 4. Fallo: No entendido -> Strike
     return await manejarFalloIntento(wa, sesion, {
-        reintento: 'No entendí tu opción. Por favor escribe un número del 1 al 7.',
+        reintento: 'No entendí tu opción. Por favor escribe el número de una de las opciones del menú.',
         escala: 'Te conectamos con un asesor.',
         claveIntentos: I_MENU,
         motivoEscalado: 'Menú principal: 3 opciones no reconocidas'
@@ -634,9 +640,11 @@ Al final, ofrece opciones relevantes del menú si aplica.`;
 // ─── MAPEO DE INTENCIÓN A NODO ───────────────────────────────────────────────
 
 async function mapearAccionANodo(accion, nodos) {
-    // Mapa directo por accion registrada en bot_nodos
     const accionMap = {
         'COTIZACION': 'cotizacion',
+        'CALIFICACION': 'calificacion',
+        'VERIFICENTRO': 'verificentro',
+        'VENTAS': 'ventas',
         'ESTATUS': 'consultar_estatus',
         'RECORDATORIO': 'registrar_equipo',
         'ESCALAR': 'escalar',
@@ -652,7 +660,6 @@ async function mapearAccionANodo(accion, nodos) {
         return nodos.find(n => n.accion === accionBD) || null;
     }
 
-    // Buscar por nombre aproximado
     const nombreMap = { 'SERVICIOS': 'Servicios', 'CONTACTO': 'Contacto', 'NORMATIVO': 'Servicios' };
     const nombreBuscar = nombreMap[accion];
     if (nombreBuscar) {
@@ -669,6 +676,9 @@ async function ejecutarAccionEspecial(wa, texto, nodo, sesion) {
     if (nodo.accion === 'consultar_estatus') return await consultarEstatusLogic(wa, texto, sesion);
     if (nodo.accion === 'consultar_certificado') return await consultarCertificadoLogic(wa, texto, sesion);
     if (nodo.accion === 'cotizacion') return await flujosCotizacionLogic(wa, texto, sesion);
+    if (nodo.accion === 'calificacion') return await flujosCalificacionLogic(wa, texto, sesion);
+    if (nodo.accion === 'verificentro') return await flujosVerificentroLogic(wa, texto, sesion);
+    if (nodo.accion === 'ventas') return await flujosVentasLogic(wa, texto, sesion);
     if (nodo.accion === 'registrar_equipo') return await flujosRegistroEquipoLogic(wa, texto, sesion);
     if (nodo.accion === 'escalar') return await escalarAHumanoLogic(wa, texto);
     if (nodo.accion === 'feedback') return await feedbackLogic(wa, texto, sesion);
@@ -768,14 +778,65 @@ function interpretarOpcionTiempoEntrega(texto) {
 
 async function flujosCotizacionLogic(wa, texto, sesion) {
     const datos = sesion.datos || {};
-    const paso = datos.paso || 1;
+    const subcotizacion = datos.subcotizacion || null;
+    const paso = datos.paso || 0;
     const items = datos.items || [];
     const currentItem = datos.currentItem || {};
 
     const textoTrim = texto.trim();
     const textoLower = textoTrim.toLowerCase();
 
-    switch (paso) {
+    // Paso 0: Submenú de tipo de cotización
+    if (paso === 0 && !subcotizacion) {
+        const opcion = textoTrim;
+        if (opcion === '1' || textoLower.includes('calibracion') || textoLower.includes('calibración')) {
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, subcotizacion: 'calibracion', paso: 1 });
+            return {
+                text: `🔬 *Cotización de Calibración*\n\n¿Qué tipo de equipo o instrumento deseas calibrar?\n\n` +
+                    Object.entries(TIPOS_EQUIPO).map(([k, v]) => `*${k}️⃣* ${v}`).join('\n') +
+                    `\n\n_O escribe directamente la descripción del equipo. Ej: Termómetro digital Fluke 52._`
+            };
+        }
+        if (opcion === '2' || textoLower.includes('calificacion') || textoLower.includes('calificación')) {
+            // Redirigir al flujo de calificación
+            const nodos = await getTodosNodos();
+            const nodoCalif = nodos.find(n => n.accion === 'calificacion');
+            if (nodoCalif) {
+                await guardarSesion(wa, nodoCalif.id, {});
+                return await responderNodo(wa, nodoCalif.id, await getSesion(wa));
+            }
+            // Si no existe el nodo, ejecutar directamente
+            await guardarSesion(wa, sesion.nodo_actual_id, { subcotizacion: 'calificacion', paso: 1 });
+            return await flujosCalificacionLogic(wa, 'inicio', { ...sesion, datos: { subcotizacion: 'calificacion', paso: 1 } });
+        }
+        if (opcion === '3' || textoLower.includes('verificentro')) {
+            const nodos = await getTodosNodos();
+            const nodoVerif = nodos.find(n => n.accion === 'verificentro');
+            if (nodoVerif) {
+                await guardarSesion(wa, nodoVerif.id, {});
+                return await responderNodo(wa, nodoVerif.id, await getSesion(wa));
+            }
+            await guardarSesion(wa, sesion.nodo_actual_id, { subcotizacion: 'verificentro', paso: 1 });
+            return await flujosVerificentroLogic(wa, 'inicio', { ...sesion, datos: { subcotizacion: 'verificentro', paso: 1 } });
+        }
+        if (opcion === '4' || textoLower.includes('ventas') || textoLower.includes('instrumento')) {
+            const nodos = await getTodosNodos();
+            const nodoVentas = nodos.find(n => n.accion === 'ventas');
+            if (nodoVentas) {
+                await guardarSesion(wa, nodoVentas.id, {});
+                return await responderNodo(wa, nodoVentas.id, await getSesion(wa));
+            }
+        }
+        // Mostrar submenú
+        await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 0 });
+        return {
+            text: `📋 *Menú de Cotizaciones*\n\n¿Qué tipo de cotización deseas solicitar?\n\n*1️⃣* Calibración de Instrumentos\n*2️⃣* Calificación de Equipos/Áreas\n*3️⃣* Verificentro (Masa/Volumen)\n*4️⃣* Ventas de Instrumentos\n\n_Escribe el número de tu opción._`
+        };
+    }
+
+    // Flujo de calibración (subcotizacion === 'calibracion' o paso >= 1 por compatibilidad)
+    const pasoCalib = datos.paso || 1;
+    switch (pasoCalib) {
         case 1: { // Inicio: Tipo de equipo o descripción
             if (!textoTrim || textoTrim.length < 2) {
                 return await manejarFalloIntento(wa, sesion, {
@@ -898,11 +959,17 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
                 });
             }
             const tiempo = TIEMPOS_ENTREGA[claveT];
+            const esClienteId = !!(datos.nombre_empresa || datos.cliente_id);
+            if (esClienteId) {
+                await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoCotiz({ ...datos, paso: 9, tiempoEntrega: tiempo, empresa: datos.nombre_empresa }));
+                const numWa = wa.split('@')[0].replace(/\D/g, '');
+                return { text: `✅ *${tiempo}*\n\nTu cotización es para *${datos.nombre_empresa}*.\n\n¿Deseas que te contactemos al *${numWa}* o tienes otro número? Escribe el número (10 dígitos) o escribe *mismo* para usar el número actual.` };
+            }
             await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoCotiz({ ...datos, paso: 8, tiempoEntrega: tiempo }));
             return { text: `✅ *${tiempo}*\n\n¿Cuál es el nombre de tu *empresa* o razón social?` };
         }
 
-        case 8: // Empresa y Guardado Final
+        case 8: { // Razón social (solo si no está identificado)
             if (!textoTrim || textoTrim.length < 2) {
                 return await manejarFalloIntento(wa, sesion, {
                     reintento: MSG_COTIZ_REINTENTO,
@@ -911,49 +978,43 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
                     motivoEscalado: 'Cotización: paso 8 — razón social inválida'
                 });
             }
-            const empresa = textoTrim;
-            const dFinal = { ...datos, empresa, items };
-            
+            await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoCotiz({ ...datos, paso: 9, empresa: textoTrim }));
+            return { text: `✅ *${textoTrim}*\n\n¿Cuál es tu número de teléfono de contacto? (10 dígitos)\n\n_Ej: 7221234567_` };
+        }
+
+        case 9: { // Teléfono y Guardado Final
+            const numWa = wa.split('@')[0].replace(/\D/g, '');
+            let telefono = textoTrim.toLowerCase() === 'mismo' ? numWa : textoTrim.replace(/\D/g, '');
+            if (telefono.length < 7) {
+                return await manejarFalloIntento(wa, sesion, {
+                    reintento: 'Número inválido. Por favor escribe tu teléfono de 10 dígitos o escribe *mismo* para usar este número.',
+                    escala: MSG_COTIZ_ESCALA,
+                    claveIntentos: I_COTIZ,
+                    motivoEscalado: 'Cotización: paso 9 — teléfono inválido'
+                });
+            }
+            const empresa = datos.empresa || datos.nombre_empresa || '';
+            const dFinal = { ...datos, empresa, telefono, items };
             try {
-                // Tomamos el primer equipo como referencia para los campos principales de la tabla
                 const primer = items[0] || {};
                 await db.query(
                     'INSERT INTO cotizaciones_bot (cliente_whatsapp, nombre_empresa, tipo_equipo, marca, cantidad, tiempo_entrega, detalle_instrumentos, estatus) VALUES (?,?,?,?,?,?,?,?)',
-                    [
-                        wa, 
-                        empresa, 
-                        primer.tipoEquipo || 'Múltiples', 
-                        primer.marcaModelo || 'Varios', 
-                        items.length,
-                        dFinal.tiempoEntrega,
-                        JSON.stringify(items),
-                        'nueva'
-                    ]
+                    [wa, empresa, primer.tipoEquipo || 'Múltiples', primer.marcaModelo || 'Varios', items.length, dFinal.tiempoEntrega, JSON.stringify(items), 'nueva']
                 );
-                
-                // Emitir alerta en tiempo real
                 if (global.io) {
-                    global.io.emit('nueva_cotizacion', { 
-                        id: (await db.query('SELECT LAST_INSERT_ID() as id'))[0][0].id,
-                        empresa,
-                        cantidad: items.length 
-                    });
+                    global.io.emit('nueva_cotizacion', { empresa, cantidad: items.length });
                 }
-                
                 await notificarNuevaCotizacion(dFinal);
                 await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
-                
-                let resumen = `🎉 ¡Solicitud registrada exitosamente!\n\n📋 *Resumen:*\n• Empresa: *${empresa}*\n• Ítems: *${items.length} equipos*\n• Entrega: *${dFinal.tiempoEntrega}*\n\nListado:`;
-                items.forEach((it, i) => {
-                    resumen += `\n${i+1}. ${it.tipoEquipo} (${it.marcaModelo || 'S/M'})`;
-                });
+                let resumen = `🎉 *¡Solicitud de Calibración registrada!*\n\n📋 *Resumen:*\n• Empresa: *${empresa}*\n• Teléfono: *${telefono}*\n• Ít. equipos: *${items.length}*\n• Entrega: *${dFinal.tiempoEntrega}*\n\nListado:`;
+                items.forEach((it, i) => { resumen += `\n${i+1}. ${it.tipoEquipo} (${it.marcaModelo || 'S/M'})`; });
                 resumen += `\n\nEn breve un especialista SICAMET se pondrá en contacto. ¡Gracias! 📧\n\n_Escribe *0* para volver al menú._`;
-
                 return { text: resumen };
             } catch (err) {
                 console.error('Error al guardar cotización:', err);
                 return { text: '❌ Hubo un error al guardar tu solicitud. Por favor intenta de nuevo o contacta a un asesor.' };
             }
+        }
 
         default:
             await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
@@ -1558,6 +1619,350 @@ async function postCertificadoLogic(wa, texto, sesion) {
 
     // Si escribe algo más → tratar como feedback
     return await feedbackLogic(wa, texto, sesion);
+}
+
+// ─── HELPER: RAZÓN SOCIAL + TELÉFONO ─────────────────────────────────────────
+/**
+ * Retorna la empresa y teléfono de la sesión actual o pide los datos faltantes.
+ * Uso: const result = await pedirEmpresaTelefono(wa, textoTrim, sesion, datosFlujo, pasoEmpresa, pasoTelefono, callbackGuardar);
+ * Si result.done === true, result.empresa y result.telefono están listos.
+ * Si result.done === false, result.respuesta es el mensaje a enviar.
+ */
+async function pedirEmpresaTelefono(wa, textoTrim, sesion, datos, pasoEmpresa, pasoTelefono, paso) {
+    const esClienteId = !!(datos.nombre_empresa || datos.cliente_id);
+    const numWa = wa.split('@')[0].replace(/\D/g, '');
+
+    if (paso === pasoEmpresa) {
+        if (esClienteId) {
+            // Cliente identificado: saltamos empresa, pedimos teléfono
+            const empresa = datos.nombre_empresa || datos.empresa || '';
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: pasoTelefono, empresa });
+            return {
+                done: false,
+                respuesta: { text: `✅ Registrando para *${empresa}*.\n\n¿Deseas que te contactemos al *${numWa}* o tienes otro número? Escribe el número (10 dígitos) o escribe *mismo*.` }
+            };
+        }
+        if (!textoTrim || textoTrim.length < 2) {
+            return { done: false, respuesta: { text: '⚠️ Por favor escribe el nombre de tu empresa o razón social.' } };
+        }
+        await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: pasoTelefono, empresa: textoTrim });
+        return { done: false, respuesta: { text: `✅ *${textoTrim}*\n\n¿Cuál es tu número de teléfono de contacto? (10 dígitos)\n\n_Ej: 7221234567_` } };
+    }
+
+    if (paso === pasoTelefono) {
+        let telefono = textoTrim.toLowerCase() === 'mismo' ? numWa : textoTrim.replace(/\D/g, '');
+        if (telefono.length < 7) {
+            return { done: false, respuesta: { text: 'Número inválido. Por favor escribe tu teléfono de 10 dígitos o escribe *mismo* para usar este número.' } };
+        }
+        return { done: true, empresa: datos.empresa || datos.nombre_empresa || '', telefono };
+    }
+
+    return { done: false, respuesta: { text: '⚠️ Error interno de flujo. Escribe *0* para volver al menú.' } };
+}
+
+// ─── FLUJO CALIFICACIÓN ───────────────────────────────────────────────────────
+const ETAPAS_CALIF = {
+    '1': 'DQ — Calificación de Diseño',
+    '2': 'IQ — Calificación de Instalación',
+    '3': 'OQ — Calificación de Operación',
+    '4': 'PQ — Calificación de Performance'
+};
+
+async function flujosCalificacionLogic(wa, texto, sesion) {
+    const datos = sesion.datos || {};
+    const paso = datos.paso || 1;
+    const textoTrim = (texto || '').trim();
+    const textoLower = textoTrim.toLowerCase();
+
+    switch (paso) {
+        case 1: { // Capturar rama (Equipos vs Mapeo)
+            const isEquipos = textoTrim === '1' || textoLower.includes('equipo') || textoLower.includes('estufa');
+            const isMapeo = textoTrim === '2' || textoLower.includes('mapeo') || textoLower.includes('almacen') || textoLower.includes('recinto');
+            if (!isEquipos && !isMapeo) {
+                return { text: `⚠️ Por favor elige una opción:\n*1️⃣* Equipos (Estufa, Baños, etc)\n*2️⃣* Mapeo Térmico (Almacén, Recintos)` };
+            }
+            const rama = isEquipos ? 'equipos' : 'mapeo';
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 15, rama });
+            if (rama === 'equipos') {
+                return { text: `🏷️ *Calificación de Equipos*\n\nDescribe el equipo que deseas calificar.\n_Ejemplo: Estufa de vacío, Autoclave, Baño María, etc._` };
+            } else {
+                return { text: `🏷️ *Mapeo Térmico*\n\nDescribe el área que deseas mapear.\n_Ejemplo: Almacén de materia prima, Cámara fría, etc._` };
+            }
+        }
+
+        case 15: { // Capturar descripción y preguntar etapas
+            if (!textoTrim || textoTrim.length < 2) {
+                return { text: `⚠️ Por favor describe brevemente el ${datos.rama === 'equipos' ? 'equipo' : 'área'}.` };
+            }
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 2, equipo_calif: textoTrim });
+            return {
+                text: `✅ Entendido.\n\n¿Qué etapas deseas calificar?\n\n` +
+                    Object.entries(ETAPAS_CALIF).map(([k, v]) => `*${k}️⃣* ${v}`).join('\n') +
+                    `\n\n_Puedes elegir una o varias. Ej: "1", "1 y 3", "DQ y OQ", o "todas"._\n_Contexto rápido:_\n` +
+                    `• *DQ* ¿Está bien concebido desde el papel?\n• *IQ* ¿Está bien instalado?\n• *OQ* ¿Funciona como debería en condiciones controladas?\n• *PQ* ¿Sirve para lo que fue comprado en la práctica?`
+            };
+        }
+
+        case 2: { // Capturar selección de etapas
+            let etapasSeleccionadas = [];
+            const txt = textoLower;
+            if (txt === 'todas' || txt === 'all' || txt === 'las 4' || txt.includes('todas')) {
+                etapasSeleccionadas = Object.values(ETAPAS_CALIF);
+            } else {
+                let recog = [];
+                if (txt.includes('1') || txt.includes('dq') || txt.includes('diseño')) recog.push(ETAPAS_CALIF['1']);
+                if (txt.includes('2') || txt.includes('iq') || txt.includes('instalacion') || txt.includes('instalación')) recog.push(ETAPAS_CALIF['2']);
+                if (txt.includes('3') || txt.includes('oq') || txt.includes('operacion') || txt.includes('operación')) recog.push(ETAPAS_CALIF['3']);
+                if (txt.includes('4') || txt.includes('pq') || txt.includes('performance') || txt.includes('desempeño')) recog.push(ETAPAS_CALIF['4']);
+                etapasSeleccionadas = recog;
+            }
+            if (etapasSeleccionadas.length === 0) {
+                return { text: `⚠️ No reconocí tu selección. Por favor escribe los números o siglas (ej: "1 y 3" o "DQ y OQ").` };
+            }
+            
+            if (datos.rama === 'equipos') {
+                await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 3, etapas: etapasSeleccionadas.join(', ') });
+                return { text: `✅ *Etapas seleccionadas:* ${etapasSeleccionadas.join(', ')}\n\n¿El proceso requiere *Autoclave*?\n\n*1️⃣* Sí\n*2️⃣* No` };
+            } else {
+                await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 6, etapas: etapasSeleccionadas.join(', ') });
+                return { text: `✅ *Etapas seleccionadas:* ${etapasSeleccionadas.join(', ')}\n\n¿El espacio es *Almacén* o *Recinto*?\n\n*1️⃣* Almacén\n*2️⃣* Recinto` };
+            }
+        }
+
+        case 3: { // Autoclave
+            const siNo = textoTrim === '1' || textoLower.startsWith('si') || textoLower === 'sí';
+            const noResp = textoTrim === '2' || textoLower.startsWith('no');
+            if (!siNo && !noResp) return { text: `Por favor responde *1* (Sí) o *2* (No) para el Autoclave.` };
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 4, autoclave: siNo ? 1 : 0 });
+            return { text: `✅ ${siNo ? 'Con Autoclave' : 'Sin Autoclave'}\n\n¿Requiere *Horno de Despirogenización*?\n\n*1️⃣* Sí\n*2️⃣* No` };
+        }
+
+        case 4: { // Horno despirogenización
+            const siNo = textoTrim === '1' || textoLower.startsWith('si') || textoLower === 'sí';
+            const noResp = textoTrim === '2' || textoLower.startsWith('no');
+            if (!siNo && !noResp) return { text: `Por favor responde *1* (Sí) o *2* (No) para el Horno de Despirogenización.` };
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 5, horno: siNo ? 1 : 0 });
+            return { text: `✅ ${siNo ? 'Con Horno de Despirogenización' : 'Sin Horno'}\n\n¿Cuántos *patrones de carga* se requieren?\n\n_Escribe el número. Ej: 3_` };
+        }
+
+        case 5: { // Patrones de carga
+            const n = parseInt(textoTrim);
+            if (isNaN(n) || n < 0) return { text: `Por favor escribe un número válido de patrones de carga. Ej: 3` };
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 90, patrones_carga: n });
+            return await pedirEmpresaTelefonoCalif(wa, '', sesion, { ...datos, paso: 90, patrones_carga: n }, 90, 91);
+        }
+
+        case 6: { // Tipo de espacio
+            const esAlmacen = textoTrim === '1' || textoLower.includes('almacen') || textoLower.includes('almacén');
+            const esRecinto = textoTrim === '2' || textoLower.includes('recinto');
+            if (!esAlmacen && !esRecinto) return { text: `Por favor responde *1* (Almacén) o *2* (Recinto).` };
+            const tipoEspacio = esAlmacen ? 'Almacén' : 'Recinto';
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 7, tipo_espacio: tipoEspacio });
+            return { text: `✅ *${tipoEspacio}*\n\n¿Cuáles son las *medidas* del espacio?\n\nPuedes escribir en un solo mensaje: *Largo x Ancho x Alto* en metros\n_Ej: 5x3x2.5 — o bien escríbelas por separado y te las voy pidiendo._` };
+        }
+
+        case 7: { // Medidas (acepta formato "LxAxH" o empieza con largo)
+            const partes = textoTrim.split(/[x×\/\s,]+/i).map(p => parseFloat(p.replace(',', '.')));
+            if (partes.length === 3 && partes.every(p => !isNaN(p) && p > 0)) {
+                const [largo, ancho, alto] = partes;
+                await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 90, largo, ancho, alto });
+                return await pedirEmpresaTelefonoCalif(wa, '', sesion, { ...datos, paso: 90, largo, ancho, alto }, 90, 91);
+            }
+            const largo = parseFloat(textoTrim.replace(',', '.'));
+            if (!isNaN(largo) && largo > 0) {
+                await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 8, largo });
+                return { text: `✅ *Largo: ${largo}m*\n\n¿Cuál es el *Ancho* en metros?` };
+            }
+            return { text: `No reconocí las medidas. Escribe en formato *LargoXAnchoXAlto* (ej: 5x3x2.5) o empieza con el largo.` };
+        }
+
+        case 8: { // Ancho
+            const ancho = parseFloat(textoTrim.replace(',', '.'));
+            if (isNaN(ancho) || ancho <= 0) return { text: `Por favor escribe el *Ancho* en metros. Ej: 3` };
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 9, ancho });
+            return { text: `✅ *Ancho: ${ancho}m*\n\n¿Cuál es el *Alto* en metros?` };
+        }
+
+        case 9: { // Alto
+            const alto = parseFloat(textoTrim.replace(',', '.'));
+            if (isNaN(alto) || alto <= 0) return { text: `Por favor escribe el *Alto* en metros. Ej: 2.5` };
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 90, alto });
+            return await pedirEmpresaTelefonoCalif(wa, '', sesion, { ...datos, paso: 90, alto }, 90, 91);
+        }
+
+        case 90: { // Pedir empresa/confirmar
+            return await pedirEmpresaTelefonoCalif(wa, textoTrim, sesion, datos, 90, 91);
+        }
+        case 91: { // Pedir teléfono
+            return await pedirEmpresaTelefonoCalif(wa, textoTrim, sesion, datos, 90, 91);
+        }
+
+        default:
+            await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
+            return await responderMenuPrincipal(wa, sesion);
+    }
+}
+
+/** Helper interno para calificación: gestiona empresa+teléfono y guarda en BD */
+async function pedirEmpresaTelefonoCalif(wa, textoTrim, sesion, datos, pasoEmpresa, pasoTelefono) {
+    const paso = datos.paso;
+    const result = await pedirEmpresaTelefono(wa, textoTrim, sesion, datos, pasoEmpresa, pasoTelefono, paso);
+    if (!result.done) return result.respuesta;
+
+    const { empresa, telefono } = result;
+    try {
+        await db.query(
+            'INSERT INTO calificaciones_bot (cliente_whatsapp, nombre_empresa, telefono_contacto, etapas, autoclave, horno_despirogenizacion, patrones_carga, tipo_espacio, largo, ancho, alto, estatus, detalle_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [wa, empresa, telefono, datos.etapas || '', datos.autoclave || 0, datos.horno || 0, datos.patrones_carga || 0, datos.tipo_espacio || '', datos.largo || 0, datos.ancho || 0, datos.alto || 0, 'nueva', JSON.stringify({ rama: datos.rama, equipo: datos.equipo_calif || '' })]
+        );
+        if (global.io) global.io.emit('nueva_calificacion', { empresa });
+        await notificarGenerico('nueva_calificacion_bot', empresa, 'Calificación');
+        await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
+        
+        const detalles = datos.rama === 'equipos'
+            ? `• Autoclave: *${datos.autoclave ? 'Sí' : 'No'}*\n• Horno Despirogenización: *${datos.horno ? 'Sí' : 'No'}*\n• Patrones de carga: *${datos.patrones_carga}*`
+            : `• Espacio: *${datos.tipo_espacio}* (${datos.largo}m × ${datos.ancho}m × ${datos.alto}m)`;
+
+        return {
+            text: `🎉 *¡Solicitud de Calificación registrada!*\n\n📋 *Resumen:*\n• Empresa: *${empresa}*\n• Teléfono: *${telefono}*\n• Área: *${datos.rama === 'equipos' ? 'Equipos' : 'Mapeo Térmico'}*\n• Equipo/Área a calificar: *${datos.equipo_calif}*\n• Etapas: *${datos.etapas}*\n${detalles}\n\n⏱️ *Tiempo de entrega estimado: 20 a 35 días hábiles* a partir de la generación de la Orden de Servicio (O.S.).\n_(Este plazo inicia una vez enviada la cotización, negociada y aceptada por el cliente, generando el estudio y la O.S.)_\n\nEn breve un especialista SICAMET se pondrá en contacto. ¡Gracias! 🙏\n\n_Escribe *0* para volver al menú._`
+        };
+    } catch (err) {
+        console.error('Error al guardar calificación:', err);
+        return { text: '❌ Hubo un error al registrar. Intenta de nuevo o contacta a un asesor.' };
+    }
+}
+
+// ─── FLUJO VERIFICENTRO ───────────────────────────────────────────────────────
+async function flujosVerificentroLogic(wa, texto, sesion) {
+    const datos = sesion.datos || {};
+    const paso = datos.paso || 1;
+    const textoTrim = (texto || '').trim();
+    const textoLower = textoTrim.toLowerCase();
+
+    switch (paso) {
+        case 1: { // Líneas
+            const n = parseInt(textoTrim);
+            if (isNaN(n) || n < 1) return { text: `✅ *Cotización de Verificentro*\n\n¿Cuántas *líneas* tiene el verificentro?\n\n_Escribe el número de líneas. Ej: 4_` };
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 2, num_lineas: n });
+            return { text: `✅ *${n} línea(s)*\n\n¿Requiere medición de *Fuerza*?\n\n*1️⃣* Sí\n*2️⃣* No` };
+        }
+
+        case 2: { // Fuerza
+            const si = textoTrim === '1' || textoLower.startsWith('si') || textoLower === 'sí';
+            const no = textoTrim === '2' || textoLower.startsWith('no');
+            if (!si && !no) return { text: `Responde *1* (Sí) o *2* (No) para Fuerza.` };
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 3, fuerza: si ? 1 : 0 });
+            return { text: `✅ *Fuerza: ${si ? 'Sí' : 'No'}*\n\n¿Requiere medición de *Dimensión*?\n\n*1️⃣* Sí\n*2️⃣* No` };
+        }
+
+        case 3: { // Dimensión
+            const si = textoTrim === '1' || textoLower.startsWith('si') || textoLower === 'sí';
+            const no = textoTrim === '2' || textoLower.startsWith('no');
+            if (!si && !no) return { text: `Responde *1* (Sí) o *2* (No) para Dimensión.` };
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 4, dimension: si ? 1 : 0 });
+            return { text: `✅ *Dimensión: ${si ? 'Sí' : 'No'}*\n\n¿Requiere medición de *Velocidad*?\n\n*1️⃣* Sí\n*2️⃣* No` };
+        }
+
+        case 4: { // Velocidad
+            const si = textoTrim === '1' || textoLower.startsWith('si') || textoLower === 'sí';
+            const no = textoTrim === '2' || textoLower.startsWith('no');
+            if (!si && !no) return { text: `Responde *1* (Sí) o *2* (No) para Velocidad.` };
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 90, velocidad: si ? 1 : 0 });
+            return await pedirEmpresaTelefonoVerif(wa, '', sesion, { ...datos, paso: 90, velocidad: si ? 1 : 0 }, 90, 91);
+        }
+
+        case 90: return await pedirEmpresaTelefonoVerif(wa, textoTrim, sesion, datos, 90, 91);
+        case 91: return await pedirEmpresaTelefonoVerif(wa, textoTrim, sesion, datos, 90, 91);
+
+        default:
+            await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
+            return await responderMenuPrincipal(wa, sesion);
+    }
+}
+
+async function pedirEmpresaTelefonoVerif(wa, textoTrim, sesion, datos, pasoEmpresa, pasoTelefono) {
+    const paso = datos.paso;
+    const result = await pedirEmpresaTelefono(wa, textoTrim, sesion, datos, pasoEmpresa, pasoTelefono, paso);
+    if (!result.done) return result.respuesta;
+
+    const { empresa, telefono } = result;
+    try {
+        await db.query(
+            'INSERT INTO verificentros_bot (cliente_whatsapp, nombre_empresa, telefono_contacto, num_lineas, fuerza, dimension_req, velocidad, estatus) VALUES (?,?,?,?,?,?,?,?)',
+            [wa, empresa, telefono, datos.num_lineas || 0, datos.fuerza || 0, datos.dimension || 0, datos.velocidad || 0, 'nueva']
+        );
+        if (global.io) global.io.emit('nueva_verificentro', { empresa });
+        await notificarGenerico('nueva_verificentro_bot', empresa, 'Verificentro');
+        await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
+        return {
+            text: `🎉 *¡Solicitud de Verificentro registrada!*\n\n📋 *Resumen:*\n• Empresa: *${empresa}*\n• Teléfono: *${telefono}*\n• Líneas: *${datos.num_lineas}*\n• Fuerza: *${datos.fuerza ? 'Sí' : 'No'}*\n• Dimensión: *${datos.dimension ? 'Sí' : 'No'}*\n• Velocidad: *${datos.velocidad ? 'Sí' : 'No'}*\n\n⏱️ *Tiempo de entrega estimado: 5 a 7 días hábiles.*\n\nEn breve un especialista SICAMET se pondrá en contacto. ¡Gracias! 🙏\n\n_Escribe *0* para volver al menú._`
+        };
+    } catch (err) {
+        console.error('Error al guardar verificentro:', err);
+        return { text: '❌ Hubo un error al registrar. Intenta de nuevo o contacta a un asesor.' };
+    }
+}
+
+// ─── FLUJO VENTAS ─────────────────────────────────────────────────────────────
+async function flujosVentasLogic(wa, texto, sesion) {
+    const datos = sesion.datos || {};
+    const paso = datos.paso || 1;
+    const textoTrim = (texto || '').trim();
+
+    switch (paso) {
+        case 1: { // Capturar descripción
+            if (!textoTrim || textoTrim.length < 3) {
+                return { text: `Por favor describe el instrumento que necesitas con un poco más de detalle. Ej: _"Termómetro digital certificado por ema iso 17025"_` };
+            }
+            await guardarSesion(wa, sesion.nodo_actual_id, { ...datos, paso: 90, descripcion: textoTrim });
+            return await pedirEmpresaTelefonoVentas(wa, '', sesion, { ...datos, paso: 90, descripcion: textoTrim }, 90, 91);
+        }
+
+        case 90: return await pedirEmpresaTelefonoVentas(wa, textoTrim, sesion, datos, 90, 91);
+        case 91: return await pedirEmpresaTelefonoVentas(wa, textoTrim, sesion, datos, 90, 91);
+
+        default:
+            await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
+            return await responderMenuPrincipal(wa, sesion);
+    }
+}
+
+async function pedirEmpresaTelefonoVentas(wa, textoTrim, sesion, datos, pasoEmpresa, pasoTelefono) {
+    const paso = datos.paso;
+    const result = await pedirEmpresaTelefono(wa, textoTrim, sesion, datos, pasoEmpresa, pasoTelefono, paso);
+    if (!result.done) return result.respuesta;
+
+    const { empresa, telefono } = result;
+    try {
+        await db.query(
+            'INSERT INTO ventas_bot (cliente_whatsapp, nombre_empresa, telefono_contacto, descripcion_instrumento, estatus) VALUES (?,?,?,?,?)',
+            [wa, empresa, telefono, datos.descripcion || '', 'nueva']
+        );
+        if (global.io) global.io.emit('nueva_venta', { empresa });
+        await notificarGenerico('nueva_venta_bot', empresa, 'Venta');
+        await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
+        return {
+            text: `🎉 *¡Solicitud de Venta registrada!*\n\n📋 *Resumen:*\n• Empresa: *${empresa}*\n• Teléfono: *${telefono}*\n• Instrumento solicitado:\n  _"${datos.descripcion}"_\n\nℹ️ Todos nuestros instrumentos son *fabricados bajo pedido* con las especificaciones exactas que requieres.\n\nEn breve un especialista SICAMET se pondrá en contacto con disponibilidad y precios. ¡Gracias! 🙏\n\n_Escribe *0* para volver al menú._`
+        };
+    } catch (err) {
+        console.error('Error al guardar venta:', err);
+        return { text: '❌ Hubo un error al registrar. Intenta de nuevo o contacta a un asesor.' };
+    }
+}
+
+// ─── NOTIFICACIÓN GENÉRICA ────────────────────────────────────────────────────
+async function notificarGenerico(tipo, empresa, labelTipo) {
+    try {
+        const cfg = await getConfigHorario();
+        const numeros = [...(cfg.notif_numeros || '').split(',')]
+            .map(n => n.trim()).filter(n => n.replace(/\D/g, '').length >= 8);
+        if (!numeros.length || !global.botClient) return;
+        const msg = `🔔 Nueva solicitud de *${labelTipo}*\n\nEmpresa: *${empresa}*\n\nRevisa el sistema CRM!`;
+        for (const num of numeros) {
+            const jid = numToWaJid(num);
+            if (jid) await global.botClient.sendMessage(jid, msg).catch(() => {});
+        }
+    } catch (e) { console.error('Error notificarGenerico:', e.message); }
 }
 
 // ─── EXPORTS ──────────────────────────────────────────────────────────────────

@@ -3,7 +3,8 @@ import axios from 'axios';
 import { 
   Bot, MessageSquare, BookOpen, HelpCircle, Settings, RefreshCw, Send, CheckCircle, Bell, 
   Trash2, Plus, Download, ChevronRight, X, User, Phone, Calendar, Building, TrendingUp, Package, 
-  Clock, AlertCircle, PlayCircle, Smartphone, Edit2, Zap, Search, Award, Info, Save
+  Clock, AlertCircle, PlayCircle, Smartphone, Edit2, Zap, Search, Award, Info, Save,
+  ShieldCheck, Factory, ShoppingCart, Eye, XCircle, CheckSquare, Layers
 } from 'lucide-react';
 import io from 'socket.io-client';
 
@@ -47,6 +48,13 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
   const chatRef = useRef(null);
   const fileInputRef = useRef(null);
   const [selectedCotizacion, setSelectedCotizacion] = useState(null);
+  // Nuevos módulos
+  const [calificaciones, setCalificaciones] = useState([]);
+  const [verificentros, setVerificentros] = useState([]);
+  const [ventas, setVentas] = useState([]);
+  const [selectedCalificacion, setSelectedCalificacion] = useState(null);
+  const [selectedVerificentro, setSelectedVerificentro] = useState(null);
+  const [selectedVenta, setSelectedVenta] = useState(null);
   const esAdmin = usuario?.rol === 'admin';
 
   // Colores por tema
@@ -60,7 +68,6 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     fetchStats();
     const interval = setInterval(fetchStatusBot, 8000);
     
-    // Configurar Socket para actualizaciones en tiempo real
     const socket = io('');
     socket.on('nueva_cotizacion', () => {
       fetchStats();
@@ -69,6 +76,21 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     socket.on('actualizacion_cotizacion', () => {
       fetchStats();
       if (pestana === 'cotizaciones') fetchCotizaciones();
+    });
+    socket.on('nueva_calificacion', () => {
+      fetchStats();
+      if (pestana === 'calificaciones') fetchCalificaciones();
+    });
+    socket.on('actualizacion_calificacion', () => {
+      if (pestana === 'calificaciones') fetchCalificaciones();
+    });
+    socket.on('nueva_verificentro', () => {
+      fetchStats();
+      if (pestana === 'verificentros') fetchVerificentros();
+    });
+    socket.on('nueva_venta', () => {
+      fetchStats();
+      if (pestana === 'ventas') fetchVentas();
     });
 
     return () => {
@@ -85,6 +107,9 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     if (pestana === 'mensajes') fetchBotNodos();
     if (pestana === 'faq') fetchBotFaq();
     if (pestana === 'config') fetchBotConfig();
+    if (pestana === 'calificaciones') fetchCalificaciones();
+    if (pestana === 'verificentros') fetchVerificentros();
+    if (pestana === 'ventas') fetchVentas();
     if (pestana === 'simulador' && mensajes.length === 0) resetChat();
   }, [pestana]);
 
@@ -231,6 +256,38 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
   const fetchCache = async () => {
     try { const { data } = await axios.get(`${API}/api/bot/cache`); setCacheIA(data); } catch {}
   };
+  const fetchCalificaciones = async () => {
+    try { const { data } = await axios.get(`${API}/api/calificaciones-bot`); setCalificaciones(data); } catch {}
+  };
+  const fetchVerificentros = async () => {
+    try { const { data } = await axios.get(`${API}/api/verificentros-bot`); setVerificentros(data); } catch {}
+  };
+  const fetchVentas = async () => {
+    try { const { data } = await axios.get(`${API}/api/ventas-bot`); setVentas(data); } catch {}
+  };
+  const cambiarEstatusCalif = async (id, estatus) => {
+    try { await axios.put(`${API}/api/calificaciones-bot/${id}/estatus`, { estatus }); fetchCalificaciones(); fetchStats(); } catch {}
+  };
+  const eliminarCalif = async (id) => {
+    if (!confirm('¿Eliminar este registro de Calificación?')) return;
+    try { await axios.delete(`${API}/api/calificaciones-bot/${id}`); fetchCalificaciones(); } catch {}
+  };
+  const cambiarEstatusVerif = async (id, estatus) => {
+    try { await axios.put(`${API}/api/verificentros-bot/${id}/estatus`, { estatus }); fetchVerificentros(); fetchStats(); } catch {}
+  };
+  const eliminarVerif = async (id) => {
+    if (!confirm('¿Eliminar este registro de Verificentro?')) return;
+    try { await axios.delete(`${API}/api/verificentros-bot/${id}`); fetchVerificentros(); } catch {}
+  };
+  const cambiarEstatusVenta = async (id, estatus) => {
+    try { await axios.put(`${API}/api/ventas-bot/${id}/estatus`, { estatus }); fetchVentas(); fetchStats(); } catch {}
+  };
+  const eliminarVenta = async (id) => {
+    if (!confirm('¿Eliminar este registro de Venta?')) return;
+    try { await axios.delete(`${API}/api/ventas-bot/${id}`); fetchVentas(); } catch {}
+  };
+
+
 
   // Detecta si el texto del bot contiene un menú con opciones numeradas
   const esTextoMenu = (text) => text && (/\*\d+[️⃣]*\*|\d+\)/.test(text) && text.includes('\n'));
@@ -336,7 +393,10 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
 
   const TABS = [
     { id: 'simulador', label: '💬 Simulador', icon: Smartphone },
-    { id: 'cotizaciones', label: '📋 Cotizaciones Bot', icon: TrendingUp },
+    { id: 'cotizaciones', label: '📋 Cotizaciones', icon: TrendingUp, badge: stats.pendientesCotizacion },
+    { id: 'calificaciones', label: '🏷️ Calificaciones', icon: ShieldCheck, badge: stats.calificacionesNuevas },
+    { id: 'verificentros', label: '✅ Verificentros', icon: Factory, badge: stats.verificentrosNuevos },
+    { id: 'ventas', label: '💰 Ventas', icon: ShoppingCart, badge: stats.ventasNuevas },
     { id: 'escalados', label: '🧑‍💼 Escalados', icon: AlertCircle },
     { id: 'equipos', label: '📅 Equipos', icon: Package },
     { id: 'cache', label: '🧠 Caché IA', icon: Zap },
@@ -428,8 +488,12 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
               : (darkMode ? 'bg-[#141f0b] text-[#F2F6F0]/50 hover:bg-[#C9EA63]/10 border border-white/5' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}`}>
             {tab.icon && <tab.icon size={16} />}
             {tab.label}
+            {tab.badge > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white leading-none">{tab.badge}</span>
+            )}
           </button>
         ))}
+
       </div>
 
       {/* ── SIMULADOR ────────────────────────────────────────────────── */}
@@ -648,8 +712,317 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
         </div>
       )}
 
+      {/* ── CALIFICACIONES ────────────────────────────────────────────── */}
+      {pestana === 'calificaciones' && (
+        <div className={`rounded-2xl border ${box} overflow-hidden`}>
+          <div className="p-4 border-b border-[#C9EA63]/10 flex justify-between items-center">
+            <div>
+              <h3 className={`font-bold text-lg flex items-center gap-2 ${textPrimary}`}>
+                <ShieldCheck size={20} className={darkMode ? 'text-[#C9EA63]' : 'text-blue-600'} />
+                Cotizaciones de Calificación
+              </h3>
+              <p className={`text-xs mt-0.5 ${textMuted}`}>DQ · IQ · OQ · PQ — Tiempo entrega: 20 días hábiles tras O.S.</p>
+            </div>
+            <button onClick={fetchCalificaciones} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-[#C9EA63]/10' : 'hover:bg-slate-100'}`}>
+              <RefreshCw size={16} className={textMuted} />
+            </button>
+          </div>
+
+          {/* Modal de detalle */}
+          {selectedCalificacion && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setSelectedCalificacion(null)}>
+              <div className={`rounded-2xl border p-6 w-full max-w-lg mx-4 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`} onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className={`font-bold text-lg ${textPrimary}`}>Detalle de Calificación #{selectedCalificacion.id}</h4>
+                  <button onClick={() => setSelectedCalificacion(null)} className={`p-1 rounded ${darkMode ? 'hover:bg-[#C9EA63]/10' : 'hover:bg-slate-100'}`}><X size={18} /></button>
+                </div>
+                <div className="space-y-2 text-sm">
+                  {[
+                    ['Empresa', selectedCalificacion.nombre_empresa],
+                    ['WhatsApp', selectedCalificacion.cliente_whatsapp_display || selectedCalificacion.cliente_whatsapp?.replace('@c.us', '')],
+                    ['Teléfono', selectedCalificacion.telefono_contacto],
+                    ['Etapas', selectedCalificacion.etapas],
+                    ['Autoclave', selectedCalificacion.autoclave ? '✅ Sí' : '❌ No'],
+                    ['Horno Despirogenización', selectedCalificacion.horno_despirogenizacion ? '✅ Sí' : '❌ No'],
+                    ['Patrones de carga', selectedCalificacion.patrones_carga],
+                    ['Tipo espacio', selectedCalificacion.tipo_espacio],
+                    ['Medidas', `${selectedCalificacion.largo}m × ${selectedCalificacion.ancho}m × ${selectedCalificacion.alto}m`],
+                    ['Fecha solicitud', new Date(selectedCalificacion.created_at).toLocaleDateString('es-MX')],
+                  ].map(([k, v]) => (
+                    <div key={k} className="flex gap-2">
+                      <span className={`font-semibold min-w-[180px] ${darkMode ? 'text-[#C9EA63]' : 'text-slate-600'}`}>{k}:</span>
+                      <span className={textPrimary}>{v ?? '—'}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex gap-2 flex-wrap">
+                  {['negociando', 'rechazada', 'completada'].map(st => (
+                    <button key={st} onClick={() => { cambiarEstatusCalif(selectedCalificacion.id, st); setSelectedCalificacion(null); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize ${
+                        st === 'negociando' ? (darkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700') :
+                        st === 'rechazada' ? (darkMode ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-100 text-rose-700') :
+                        (darkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700')
+                      }`}>{st === 'completada' ? '✅ Completada / Generar O.S.' : st === 'negociando' ? '💬 Negociando' : '❌ Rechazada'}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className={darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}>
+                <tr>{['Empresa', 'WhatsApp', 'Etapas', 'Espacio', 'Estatus', 'Fecha', 'Acciones'].map(h => (
+                  <th key={h} className={`px-4 py-3 text-left font-semibold ${textMuted} text-xs uppercase tracking-wide`}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody className={darkMode ? 'divide-y divide-[#C9EA63]/10' : 'divide-y divide-slate-100'}>
+                {calificaciones.length === 0 ? (
+                  <tr><td colSpan={7} className={`text-center py-10 ${textMuted}`}>Sin solicitudes de calificación recibidas</td></tr>
+                ) : calificaciones.map(c => (
+                  <tr key={c.id} className={darkMode ? 'hover:bg-[#C9EA63]/5' : 'hover:bg-blue-50/30'}>
+                    <td className={`px-4 py-3 font-semibold ${textPrimary}`}>{c.nombre_empresa}</td>
+                    <td className={`px-4 py-3 font-mono text-xs ${textMuted}`}>{c.cliente_whatsapp_display || c.cliente_whatsapp?.replace('@c.us','')}</td>
+                    <td className={`px-4 py-3 ${textMuted} text-xs max-w-[160px]`}>{c.etapas}</td>
+                    <td className={`px-4 py-3 ${textMuted} text-xs`}>{c.tipo_espacio}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        c.estatus === 'nueva' ? (darkMode ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-700') :
+                        c.estatus === 'negociando' ? 'bg-amber-100 text-amber-700' :
+                        c.estatus === 'rechazada' ? 'bg-rose-100 text-rose-700' :
+                        'bg-emerald-100 text-emerald-700'
+                      }`}>{c.estatus}</span>
+                    </td>
+                    <td className={`px-4 py-3 ${textMuted} text-xs`}>{new Date(c.created_at).toLocaleDateString('es-MX')}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1">
+                        <button onClick={() => setSelectedCalificacion(c)} title="Ver detalle"
+                          className={`p-1.5 rounded-lg ${darkMode ? 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
+                          <Eye size={14} />
+                        </button>
+                        <button onClick={() => eliminarCalif(c.id)}
+                          className={`p-1.5 rounded-lg ${darkMode ? 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── VERIFICENTROS ─────────────────────────────────────────────── */}
+      {pestana === 'verificentros' && (
+        <div className={`rounded-2xl border ${box} overflow-hidden`}>
+          <div className="p-4 border-b border-[#C9EA63]/10 flex justify-between items-center">
+            <div>
+              <h3 className={`font-bold text-lg flex items-center gap-2 ${textPrimary}`}>
+                <Factory size={20} className={darkMode ? 'text-[#C9EA63]' : 'text-purple-600'} />
+                Solicitudes de Verificentro
+              </h3>
+              <p className={`text-xs mt-0.5 ${textMuted}`}>Tiempo de entrega estimado: 5 a 7 días hábiles</p>
+            </div>
+            <button onClick={fetchVerificentros} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-[#C9EA63]/10' : 'hover:bg-slate-100'}`}>
+              <RefreshCw size={16} className={textMuted} />
+            </button>
+          </div>
+
+          {/* Modal de detalle */}
+          {selectedVerificentro && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setSelectedVerificentro(null)}>
+              <div className={`rounded-2xl border p-6 w-full max-w-lg mx-4 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`} onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className={`font-bold text-lg ${textPrimary}`}>Detalle de Verificentro #{selectedVerificentro.id}</h4>
+                  <button onClick={() => setSelectedVerificentro(null)} className={`p-1 rounded ${darkMode ? 'hover:bg-[#C9EA63]/10' : 'hover:bg-slate-100'}`}><X size={18} /></button>
+                </div>
+                <div className="space-y-2 text-sm">
+                  {[
+                    ['Empresa', selectedVerificentro.nombre_empresa],
+                    ['WhatsApp', selectedVerificentro.cliente_whatsapp_display || selectedVerificentro.cliente_whatsapp?.replace('@c.us', '')],
+                    ['Teléfono', selectedVerificentro.telefono_contacto],
+                    ['Líneas', selectedVerificentro.num_lineas],
+                    ['Fuerza', selectedVerificentro.fuerza ? '✅ Sí' : '❌ No'],
+                    ['Dimensión', selectedVerificentro.dimension_req ? '✅ Sí' : '❌ No'],
+                    ['Velocidad', selectedVerificentro.velocidad ? '✅ Sí' : '❌ No'],
+                    ['Fecha solicitud', new Date(selectedVerificentro.created_at).toLocaleDateString('es-MX')],
+                  ].map(([k, v]) => (
+                    <div key={k} className="flex gap-2">
+                      <span className={`font-semibold min-w-[150px] ${darkMode ? 'text-[#C9EA63]' : 'text-slate-600'}`}>{k}:</span>
+                      <span className={textPrimary}>{v ?? '—'}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex gap-2 flex-wrap">
+                  {['en-proceso', 'rechazada', 'completada'].map(st => (
+                    <button key={st} onClick={() => { cambiarEstatusVerif(selectedVerificentro.id, st); setSelectedVerificentro(null); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize ${
+                        st === 'en-proceso' ? (darkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700') :
+                        st === 'rechazada' ? (darkMode ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-100 text-rose-700') :
+                        (darkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700')
+                      }`}>{st === 'completada' ? '✅ Completada' : st === 'en-proceso' ? '💬 En proceso' : '❌ Rechazada'}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className={darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}>
+                <tr>{['Empresa', 'WhatsApp', 'Teléfono', 'Líneas', 'Fuerza', 'Dim.', 'Vel.', 'Estatus', 'Fecha', 'Acciones'].map(h => (
+                  <th key={h} className={`px-3 py-3 text-left font-semibold ${textMuted} text-xs uppercase tracking-wide`}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody className={darkMode ? 'divide-y divide-[#C9EA63]/10' : 'divide-y divide-slate-100'}>
+                {verificentros.length === 0 ? (
+                  <tr><td colSpan={10} className={`text-center py-10 ${textMuted}`}>Sin solicitudes de verificentro recibidas</td></tr>
+                ) : verificentros.map(v => (
+                  <tr key={v.id} className={darkMode ? 'hover:bg-[#C9EA63]/5' : 'hover:bg-purple-50/30'}>
+                    <td className={`px-3 py-3 font-semibold ${textPrimary}`}>{v.nombre_empresa}</td>
+                    <td className={`px-3 py-3 font-mono text-xs ${textMuted}`}>{v.cliente_whatsapp_display || v.cliente_whatsapp?.replace('@c.us','')}</td>
+                    <td className={`px-3 py-3 text-xs ${textMuted}`}>{v.telefono_contacto || '—'}</td>
+                    <td className={`px-3 py-3 text-center font-bold ${textPrimary}`}>{v.num_lineas}</td>
+                    <td className="px-3 py-3 text-center">{v.fuerza ? '✅' : '—'}</td>
+                    <td className="px-3 py-3 text-center">{v.dimension_req ? '✅' : '—'}</td>
+                    <td className="px-3 py-3 text-center">{v.velocidad ? '✅' : '—'}</td>
+                    <td className="px-3 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        v.estatus === 'nueva' ? (darkMode ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-700') :
+                        v.estatus === 'en-proceso' ? 'bg-amber-100 text-amber-700' :
+                        v.estatus === 'completada' ? 'bg-emerald-100 text-emerald-700' :
+                        'bg-slate-100 text-slate-500'
+                      }`}>{v.estatus}</span>
+                    </td>
+                    <td className={`px-3 py-3 text-xs ${textMuted}`}>{new Date(v.created_at).toLocaleDateString('es-MX')}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex gap-1">
+                        <button onClick={() => setSelectedVerificentro(v)} title="Ver detalle"
+                          className={`p-1.5 rounded-lg ${darkMode ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'}`}>
+                          <Eye size={14} />
+                        </button>
+                        {v.estatus === 'nueva' && <button onClick={() => cambiarEstatusVerif(v.id, 'en-proceso')}
+                          className={`px-2 py-1 rounded text-xs font-bold ${darkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>En proceso</button>}
+                        {v.estatus === 'en-proceso' && <button onClick={() => cambiarEstatusVerif(v.id, 'completada')}
+                          className={`px-2 py-1 rounded text-xs font-bold ${darkMode ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>Completar</button>}
+                        <button onClick={() => eliminarVerif(v.id)}
+                          className={`p-1.5 rounded ${darkMode ? 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}><Trash2 size={14} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── VENTAS ────────────────────────────────────────────────────── */}
+      {pestana === 'ventas' && (
+        <div className={`rounded-2xl border ${box} overflow-hidden`}>
+          <div className="p-4 border-b border-[#C9EA63]/10 flex justify-between items-center">
+            <div>
+              <h3 className={`font-bold text-lg flex items-center gap-2 ${textPrimary}`}>
+                <ShoppingCart size={20} className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} />
+                Solicitudes de Venta de Instrumentos
+              </h3>
+              <p className={`text-xs mt-0.5 ${textMuted}`}>Todos los instrumentos son fabricados bajo pedido</p>
+            </div>
+            <button onClick={fetchVentas} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-[#C9EA63]/10' : 'hover:bg-slate-100'}`}>
+              <RefreshCw size={16} className={textMuted} />
+            </button>
+          </div>
+
+          {/* Modal de detalle */}
+          {selectedVenta && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setSelectedVenta(null)}>
+              <div className={`rounded-2xl border p-6 w-full max-w-lg mx-4 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`} onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className={`font-bold text-lg ${textPrimary}`}>Detalle de Venta #{selectedVenta.id}</h4>
+                  <button onClick={() => setSelectedVenta(null)} className={`p-1 rounded ${darkMode ? 'hover:bg-[#C9EA63]/10' : 'hover:bg-slate-100'}`}><X size={18} /></button>
+                </div>
+                <div className="space-y-2 text-sm">
+                  {[
+                    ['Empresa', selectedVenta.nombre_empresa],
+                    ['WhatsApp', selectedVenta.cliente_whatsapp_display || selectedVenta.cliente_whatsapp?.replace('@c.us', '')],
+                    ['Teléfono', selectedVenta.telefono_contacto],
+                    ['Instrumento solicitado', selectedVenta.descripcion_instrumento],
+                    ['Fecha solicitud', new Date(selectedVenta.created_at).toLocaleDateString('es-MX')],
+                  ].map(([k, v]) => (
+                    <div key={k} className="flex flex-col gap-1 mb-2">
+                      <span className={`font-semibold ${darkMode ? 'text-[#C9EA63]' : 'text-slate-600'}`}>{k}:</span>
+                      <span className={`p-2 rounded ${darkMode ? 'bg-white/5' : 'bg-slate-50'} ${textPrimary} whitespace-pre-wrap`}>{v ?? '—'}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex gap-2 flex-wrap">
+                  {['en-proceso', 'rechazada', 'completada'].map(st => (
+                    <button key={st} onClick={() => { cambiarEstatusVenta(selectedVenta.id, st); setSelectedVenta(null); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize ${
+                        st === 'en-proceso' ? (darkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700') :
+                        st === 'rechazada' ? (darkMode ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-100 text-rose-700') :
+                        (darkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700')
+                      }`}>{st === 'completada' ? '✅ Completada' : st === 'en-proceso' ? '💬 En proceso' : '❌ Rechazada'}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className={darkMode ? 'bg-[#141f0b]' : 'bg-slate-50'}>
+                <tr>{['Empresa', 'WhatsApp', 'Teléfono', 'Instrumento solicitado', 'Estatus', 'Fecha', 'Acciones'].map(h => (
+                  <th key={h} className={`px-4 py-3 text-left font-semibold ${textMuted} text-xs uppercase tracking-wide`}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody className={darkMode ? 'divide-y divide-[#C9EA63]/10' : 'divide-y divide-slate-100'}>
+                {ventas.length === 0 ? (
+                  <tr><td colSpan={7} className={`text-center py-10 ${textMuted}`}>Sin solicitudes de venta recibidas</td></tr>
+                ) : ventas.map(v => (
+                  <tr key={v.id} className={darkMode ? 'hover:bg-[#C9EA63]/5' : 'hover:bg-emerald-50/30'}>
+                    <td className={`px-4 py-3 font-semibold ${textPrimary}`}>{v.nombre_empresa}</td>
+                    <td className={`px-4 py-3 font-mono text-xs ${textMuted}`}>{v.cliente_whatsapp_display || v.cliente_whatsapp?.replace('@c.us','')}</td>
+                    <td className={`px-4 py-3 text-xs ${textMuted}`}>{v.telefono_contacto || '—'}</td>
+                    <td className={`px-4 py-3 ${textMuted} max-w-[280px]`}>
+                      <p className="text-xs italic truncate" title={v.descripcion_instrumento}>{v.descripcion_instrumento}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        v.estatus === 'nueva' ? (darkMode ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-700') :
+                        v.estatus === 'en-proceso' ? 'bg-amber-100 text-amber-700' :
+                        v.estatus === 'completada' ? 'bg-emerald-100 text-emerald-700' :
+                        'bg-slate-100 text-slate-500'
+                      }`}>{v.estatus}</span>
+                    </td>
+                    <td className={`px-4 py-3 text-xs ${textMuted}`}>{new Date(v.created_at).toLocaleDateString('es-MX')}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1">
+                        <button onClick={() => setSelectedVenta(v)} title="Ver detalle"
+                          className={`p-1.5 rounded-lg ${darkMode ? 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20' : 'bg-amber-50 text-amber-600 hover:bg-amber-100'}`}>
+                          <Eye size={14} />
+                        </button>
+                        {v.estatus === 'nueva' && <button onClick={() => cambiarEstatusVenta(v.id, 'en-proceso')}
+                          className={`px-2 py-1 rounded text-xs font-bold ${darkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>En proceso</button>}
+                        {v.estatus === 'en-proceso' && <button onClick={() => cambiarEstatusVenta(v.id, 'completada')}
+                          className={`px-2 py-1 rounded text-xs font-bold ${darkMode ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>Completar</button>}
+                        <button onClick={() => eliminarVenta(v.id)}
+                          className={`p-1.5 rounded ${darkMode ? 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}><Trash2 size={14} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ── EQUIPOS ─────────────────────────────────────────────────── */}
       {pestana === 'equipos' && (
+
         <div className={`rounded-2xl border ${box} overflow-hidden`}>
           <div className="p-4 border-b border-[#C9EA63]/10 flex justify-between items-center">
             <h3 className={`font-bold ${textPrimary}`}>Equipos registrados para recordatorios</h3>

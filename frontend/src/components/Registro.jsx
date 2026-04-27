@@ -3,12 +3,19 @@ import axios from 'axios';
 import Select from 'react-select';
 import { Save, ClipboardList, Hash, FileUp, Loader2, Trash2, Building, User, Settings2, Hand, FlaskConical, MapPin, FileText, Mail, Calendar, Tag, MapPinned } from 'lucide-react';
 
-const opcionesSLA = [
+const opcionesSLA_calibracion = [
   { value: 5, label: '🔴 Urgente (5 días)' },
   { value: 7, label: '🟠 Rápido (7 días)' },
   { value: 10, label: '🟡 Normal (10 días)' },
   { value: 15, label: '🔵 Especial (15 días)' },
   { value: 20, label: '🟣 Crítico (20 días)' }
+];
+
+const opcionesSLA_calificacion = [
+  { value: 20, label: '🟤 Calificación Estándar (20 días)' },
+  { value: 25, label: '🔵 Calificación Normal (25 días)' },
+  { value: 30, label: '🟣 Calificación Especial (30 días)' },
+  { value: 35, label: '🔴 Calificación Crítica (35 días)' }
 ];
 
 const opcionesServicio = [
@@ -18,6 +25,7 @@ const opcionesServicio = [
   "Calificación"
 ];
 
+
 const Registro = ({ darkMode }) => {
   const fileInputRef = useRef(null);
   const excelInputRef = useRef(null);
@@ -25,6 +33,7 @@ const Registro = ({ darkMode }) => {
   const [cargandoPdf, setCargandoPdf] = useState(false);
   const [cargandoExcel, setCargandoExcel] = useState(false);
   const [tipoCatalogo, setTipoCatalogo] = useState('instrumentos');
+  const [tipoOS, setTipoOS] = useState('calibracion'); // 'calibracion' | 'calificacion'
 
   const [modoRegistro, setModoRegistro] = useState('pdf');
 
@@ -248,6 +257,39 @@ const Registro = ({ darkMode }) => {
 
         <form onSubmit={handleSubmitFinal}>
           {/* CABECERA */}
+          {/* TIPO DE ORDEN + CABECERA */}
+          <div className={`flex items-center gap-3 mb-4 p-3 rounded-xl border ${darkMode ? 'bg-[#1b2b10]/50 border-[#C9EA63]/20' : 'bg-slate-50 border-slate-200'}`}>
+            <span className={`text-xs font-bold uppercase tracking-wide ${darkMode ? 'text-[#C9EA63]' : 'text-slate-600'}`}>Tipo de O.S.:</span>
+            <div className={`flex rounded-lg p-0.5 gap-0.5 ${darkMode ? 'bg-[#141f0b]' : 'bg-slate-200'}`}>
+              <button
+                type="button"
+                onClick={() => { setTipoOS('calibracion'); setCabecera(c => ({...c, sla: null})); }}
+                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
+                  tipoOS === 'calibracion'
+                    ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-[#008a5e] text-white')
+                    : (darkMode ? 'text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'text-slate-500 hover:text-slate-800')
+                }`}
+              >
+                🔬 Calibración
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTipoOS('calificacion'); setCabecera(c => ({...c, sla: null, servicio_solicitado: { value: 'Calificación', label: 'Calificación' }})); }}
+                className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
+                  tipoOS === 'calificacion'
+                    ? (darkMode ? 'bg-amber-500 text-white' : 'bg-amber-500 text-white')
+                    : (darkMode ? 'text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'text-slate-500 hover:text-slate-800')
+                }`}
+              >
+                🏷️ Calificación
+              </button>
+            </div>
+            {tipoOS === 'calificacion' && (
+              <span className={`text-xs italic ${darkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                ⚠️ Entrega: 20–35 días hábiles
+              </span>
+            )}
+          </div>
           <div className={`grid grid-cols-1 md:grid-cols-4 gap-4 p-6 rounded-xl border mb-6 shadow-sm transition-colors ${headerBg} ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'}`}>
             <div className="md:col-span-1">
               <label className={`text-xs font-bold flex items-center gap-1.5 mb-1 ${labelText}`}><Hash size={14}/> Ref / Orden</label>
@@ -263,7 +305,7 @@ const Registro = ({ darkMode }) => {
             </div>
             <div className="md:col-span-1">
               <label className={`text-xs font-bold flex items-center gap-1.5 mb-1 ${labelText}`}><Settings2 size={14}/> SLA (Días) <span className="text-rose-500">*</span></label>
-              <Select options={opcionesSLA} value={cabecera.sla} onChange={(s) => setCabecera({...cabecera, sla: s})} placeholder="Selecciona SLA..." styles={selectStyles} className="text-sm" />
+              <Select options={tipoOS === 'calificacion' ? opcionesSLA_calificacion : opcionesSLA_calibracion} value={cabecera.sla} onChange={(s) => setCabecera({...cabecera, sla: s})} placeholder="Selecciona SLA..." styles={selectStyles} className="text-sm" />
             </div>
           </div>
 

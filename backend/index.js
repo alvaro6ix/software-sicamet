@@ -2137,12 +2137,17 @@ function iniciarBot(sesionLimpia = false) {
             try {
                 const media = await msg.downloadMedia();
                 if (media) {
-                    const ext = media.mimetype.split('/')[1].split(';')[0];
+                    const ext = (media.mimetype.split('/')[1] || 'bin').split(';')[0];
                     const filename = `media_${Date.now()}.${ext}`;
                     const fullPath = path.join(__dirname, 'uploads', 'bot', filename);
                     fs.writeFileSync(fullPath, Buffer.from(media.data, 'base64'));
                     mediaUrl = `/uploads/bot/${filename}`;
-                    tipoMsg = media.mimetype.startsWith('image/') ? 'imagen' : 'archivo';
+                    // Stickers se guardan como imagen para visualizarse en el CRM
+                    if (msg.type === 'sticker') {
+                        tipoMsg = 'sticker';
+                    } else {
+                        tipoMsg = media.mimetype.startsWith('image/') ? 'imagen' : 'archivo';
+                    }
                 }
             } catch (e) { console.error('Error descargando media:', e.message); }
         }
@@ -2156,10 +2161,11 @@ function iniciarBot(sesionLimpia = false) {
         const esPropio = msg.fromMe;
         const direccion = esPropio ? 'saliente' : 'entrante';
         const idParaWhatsApp = esPropio ? msg.to : idWhatsApp;
-        const numeroParaRegistro = limpiarID(idParaWhatsApp);
+        const numeroParaRegistro = esPropio ? limpiarID(msg.to) : numeroUser;
 
-        // Registrar entrada/propio
-        const contenidoLimpio = textoRecibido || (msg.hasMedia ? '[Media]' : (msg.type !== 'chat' ? `[${msg.type}]` : ''));
+        // Registrar entrada/propio — NUNCA guardar base64 crudo como cuerpo
+        const etiquetaMedia = tipoMsg === 'sticker' ? '[Sticker]' : '[Media]';
+        const contenidoLimpio = textoRecibido || (msg.hasMedia ? etiquetaMedia : (msg.type !== 'chat' ? `[${msg.type}]` : ''));
         if (!contenidoLimpio) return;
 
         await registrarMensajeEnCRM(numeroParaRegistro, contenidoLimpio, tipoMsg, direccion, mediaUrl);
@@ -2636,6 +2642,80 @@ app.delete('/api/cotizaciones-bot/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── CALIFICACIONES BOT ───────────────────────────────────────────────────────
+app.get('/api/calificaciones-bot', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM calificaciones_bot ORDER BY created_at DESC LIMIT 100');
+        res.json(await adjuntarTelefonoVisible(rows, 'cliente_whatsapp'));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/calificaciones-bot/:id/estatus', async (req, res) => {
+    try {
+        const { estatus } = req.body;
+        await db.query('UPDATE calificaciones_bot SET estatus = ? WHERE id = ?', [estatus, req.params.id]);
+        if (global.io) global.io.emit('actualizacion_calificacion', { id: req.params.id, estatus });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/calificaciones-bot/:id', async (req, res) => {
+    try {
+        await db.query('DELETE FROM calificaciones_bot WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── VERIFICENTROS BOT ────────────────────────────────────────────────────────
+app.get('/api/verificentros-bot', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM verificentros_bot ORDER BY created_at DESC LIMIT 100');
+        res.json(await adjuntarTelefonoVisible(rows, 'cliente_whatsapp'));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/verificentros-bot/:id/estatus', async (req, res) => {
+    try {
+        const { estatus } = req.body;
+        await db.query('UPDATE verificentros_bot SET estatus = ? WHERE id = ?', [estatus, req.params.id]);
+        if (global.io) global.io.emit('actualizacion_verificentro', { id: req.params.id, estatus });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/verificentros-bot/:id', async (req, res) => {
+    try {
+        await db.query('DELETE FROM verificentros_bot WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── VENTAS BOT ───────────────────────────────────────────────────────────────
+app.get('/api/ventas-bot', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM ventas_bot ORDER BY created_at DESC LIMIT 100');
+        res.json(await adjuntarTelefonoVisible(rows, 'cliente_whatsapp'));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/ventas-bot/:id/estatus', async (req, res) => {
+    try {
+        const { estatus } = req.body;
+        await db.query('UPDATE ventas_bot SET estatus = ? WHERE id = ?', [estatus, req.params.id]);
+        if (global.io) global.io.emit('actualizacion_venta', { id: req.params.id, estatus });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/ventas-bot/:id', async (req, res) => {
+    try {
+        await db.query('DELETE FROM ventas_bot WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
+
 // Escalados a agente humano
 app.get('/api/escalados', async (req, res) => {
     try {
@@ -2681,15 +2761,16 @@ app.get('/api/bot/stats', async (req, res) => {
         const [[cots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE DATE(created_at) = CURDATE()");
         const [[pendientes]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'");
         const [[escalados]] = await db.query("SELECT COUNT(*) as total FROM escalados WHERE estatus = 'pendiente'");
+        const [[califNuevas]] = await db.query("SELECT COUNT(*) as total FROM calificaciones_bot WHERE estatus = 'nueva'");
+        const [[verifNuevas]] = await db.query("SELECT COUNT(*) as total FROM verificentros_bot WHERE estatus = 'nueva'");
+        const [[ventasNuevas]] = await db.query("SELECT COUNT(*) as total FROM ventas_bot WHERE estatus = 'nueva'");
 
-        // --- MÉTRICAS OPERATIVAS (Para Badges) ---
         const [[listos]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Listo'");
         const [[validacion]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Aseguramiento'");
         const [[sinCert]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual IN ('Listo', 'Entregado') AND (no_certificado IS NULL OR no_certificado = '')`);
         const [[feedbackNuevos]] = await db.query("SELECT COUNT(*) as total FROM feedback_bot WHERE leido_admin = 0");
         const [metrologiaAreas] = await db.query("SELECT area_laboratorio, COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Laboratorio' AND area_laboratorio IS NOT NULL GROUP BY area_laboratorio");
 
-        // Convertir metrología a objeto { 'NombreArea': conteo }
         const metroMap = {};
         metrologiaAreas.forEach(a => { metroMap[a.area_laboratorio] = a.total; });
 
@@ -2697,7 +2778,9 @@ app.get('/api/bot/stats', async (req, res) => {
             cotizacionesHoy: cots.total || 0,
             pendientesCotizacion: pendientes.total || 0,
             escaladosPendientes: escalados.total || 0,
-            // Nuevas métricas operativas
+            calificacionesNuevas: califNuevas.total || 0,
+            verificentrosNuevos: verifNuevas.total || 0,
+            ventasNuevas: ventasNuevas.total || 0,
             listosEntrega: listos.total || 0,
             pendientesValidacion: validacion.total || 0,
             metrologiaAreaCounts: metroMap,
