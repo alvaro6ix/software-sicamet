@@ -248,7 +248,7 @@ const Entregas = ({ darkMode, usuario }) => {
                       <div className="flex items-center gap-4">
                         {ins.certificado_url ? (
                            <a 
-                            href={`http://localhost:3001${ins.certificado_url}`} 
+                            href={ins.certificado_url} 
                             target="_blank" 
                             rel="noreferrer"
                             className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all shadow-sm ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b] shadow-[#C9EA63]/10' : 'bg-[#008a5e] text-white hover:bg-[#007b55] shadow-[#008a5e]/20'}`}

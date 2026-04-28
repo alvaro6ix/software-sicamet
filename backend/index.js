@@ -2076,9 +2076,9 @@ function iniciarBot(sesionLimpia = false) {
                 '--disable-web-security'
             ],
             handleSIGINT: false,
-            executablePath: fs.existsSync('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe') 
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || (fs.existsSync('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe') 
                 ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' 
-                : undefined
+                : undefined)
         }
     });
 

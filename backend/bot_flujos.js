@@ -360,6 +360,14 @@ async function responderNodo(wa, id, sesion) {
         return await responderMenuPrincipal(wa, { ...sesion, datos: datosMenu });
     }
 
+    // ====== INTERCEPTAR NODO DE REGISTRO DE EQUIPOS SI YA ESTÁ IDENTIFICADO ======
+    if (nodo.accion === 'registrar_equipo' && sesion.datos && sesion.datos.nombre_empresa) {
+        await guardarSesion(wa, id, { ...sesion.datos, paso: 2, empresa: sesion.datos.nombre_empresa });
+        const texto = `📅 *Registro de Instrumentos*\n✅ Empresa confirmada: *${sesion.datos.nombre_empresa}*\n\n¿Cuál es el nombre del instrumento?\n\n_Ej: Termómetro digital, Manómetro Bourdon, Balanza analítica_\n\n_Escribe *0* para menú o *Finalizar* para salir._`;
+        await guardarEnHistorial(wa, 'bot', texto);
+        return { text: texto };
+    }
+
     let texto = nodo.mensaje || '';
     // Reemplazar variables de plantilla
     texto = texto
@@ -1459,7 +1467,7 @@ async function flujosRegistroEquipoLogic(wa, texto, sesion) {
                 });
             }
             await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoRegEq({ ...datos, paso: 2, empresa: tm }));
-            return { text: `✅ *${tm}*\n\n¿Cuál es el nombre del instrumento?\n\n_Ej: Termómetro digital, Manómetro Bourdon, Balanza analítica_` };
+            return { text: `✅ *${tm}*\n\n¿Cuál es el nombre del instrumento?\n\n_Ej: Termómetro digital, Manómetro Bourdon, Balanza analítica_\n\n_Escribe *0* para menú o *Finalizar* para salir._` };
         case 2:
             if (!tm) {
                 return await manejarFalloIntento(wa, sesion, {
@@ -1470,7 +1478,7 @@ async function flujosRegistroEquipoLogic(wa, texto, sesion) {
                 });
             }
             await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoRegEq({ ...datos, paso: 3, nombreEquipo: tm }));
-            return { text: `✅ *${tm}*\n\n¿Cuál es la marca y modelo? (escribe "no sé" si no lo tienes)` };
+            return { text: `✅ *${tm}*\n\n¿Cuál es la marca y modelo? (escribe "no sé" si no lo tienes)\n\n_Escribe *0* para menú o *Finalizar* para salir._` };
         case 3:
             if (!tm) {
                 return await manejarFalloIntento(wa, sesion, {
@@ -1481,7 +1489,7 @@ async function flujosRegistroEquipoLogic(wa, texto, sesion) {
                 });
             }
             await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoRegEq({ ...datos, paso: 4, marcaModelo: tm }));
-            return { text: `✅ *${tm}*\n\n¿Cuándo fue su última calibración?\n\n_Escribe la fecha en formato DD/MM/AAAA_\n_Ej: 15/03/2024 — Escribe "no sé" si no tienes el dato_` };
+            return { text: `✅ *${tm}*\n\n¿Cuándo fue su última calibración?\n\n_Escribe la fecha en formato DD/MM/AAAA_\n_Ej: 15/03/2024 — Escribe "no sé" si no tienes el dato_\n\n_Escribe *0* para menú o *Finalizar* para salir._` };
         case 4: {
             let f = null;
             const t = texto.trim().toLowerCase();
@@ -1500,12 +1508,16 @@ async function flujosRegistroEquipoLogic(wa, texto, sesion) {
             }
             await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoRegEq({ ...datos, paso: 5, fechaUltima: f }));
             return {
-                text: `✅ Fecha registrada\n\n¿Con qué frecuencia se calibra este equipo?\n\n*1️⃣* Cada 6 meses\n*2️⃣* Cada 1 año (recomendado)\n*3️⃣* Cada 2 años`
+                text: `✅ Fecha registrada\n\n¿Con qué frecuencia se calibra este equipo?\n\n*1️⃣* Cada 6 meses\n*2️⃣* Cada 1 año (recomendado)\n*3️⃣* Cada 2 años\n\n_Escribe *0* para menú o *Finalizar* para salir._`
             };
         }
         case 5: {
-            const periodos = { '1': 6, '2': 12, '3': 24 };
-            const ms = periodos[texto.trim()];
+            const txt = texto.trim().toLowerCase();
+            let ms = null;
+            if (txt === '1' || txt.includes('6') || txt.includes('seis')) ms = 6;
+            else if (txt === '3' || txt.includes('2 a') || txt.includes('dos a')) ms = 24;
+            else if (txt === '2' || txt.includes('1') || txt.includes('un') || txt.includes('año') || txt.includes('ano')) ms = 12;
+
             if (!ms) {
                 return await manejarFalloIntento(wa, sesion, {
                     reintento: `${MSG_COTIZ_REINTENTO}\n\n_Elige *1*, *2* o *3*._`,
@@ -1515,11 +1527,9 @@ async function flujosRegistroEquipoLogic(wa, texto, sesion) {
                 });
             }
             let prox = null;
-            if (datos.fechaUltima) {
-                const u = new Date(datos.fechaUltima);
-                u.setMonth(u.getMonth() + ms);
-                prox = u.toISOString().split('T')[0];
-            }
+            const fechaBase = datos.fechaUltima ? new Date(datos.fechaUltima) : new Date(); // Si no sabe, usamos hoy
+            fechaBase.setMonth(fechaBase.getMonth() + ms);
+            prox = fechaBase.toISOString().split('T')[0];
             await db.query(
                 'INSERT INTO equipos_cliente (cliente_whatsapp, nombre_empresa, nombre_equipo, marca, ultima_calibracion, periodicidad_meses, proxima_calibracion) VALUES (?,?,?,?,?,?,?)',
                 [wa, datos.empresa, datos.nombreEquipo, datos.marcaModelo, datos.fechaUltima, ms, prox]

@@ -2,10 +2,10 @@ const mysql = require('mysql2/promise');
 
 // Crear el "pool" de conexiones
 const pool = mysql.createPool({
-    host: 'localhost',      // El servidor local de tu computadora
-    user: 'root',           // El usuario administrador por defecto
-    password: 'sicamet', // Reemplaza esto con tu contraseña real
-    database: 'sicamet_crm',// La base de datos que creaste en Workbench
+    host: process.env.DB_HOST || 'localhost',      // En Docker será 'db'
+    user: process.env.DB_USER || 'root',           
+    password: process.env.DB_PASS || '***REDACTED***', 
+    database: process.env.DB_NAME || 'sicamet_crm',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0

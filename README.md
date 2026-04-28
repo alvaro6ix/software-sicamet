@@ -69,7 +69,7 @@
 |-------------|-----------|
 | **MySQL 8.0** | Base de datos principal |
 | **Hostinger VPS KVM 1** | Servidor de producción (4 GB RAM, 50 GB NVMe) |
-| **Docker** | Contenedores para producción (en progreso) |
+| **Docker** | Orquestación de contenedores (Base de Datos, Backend y Frontend) |
 | **GitHub** | Control de versiones y repositorio |
 
 ---
@@ -159,7 +159,8 @@ cd backend
 # Copiar el archivo de ejemplo de entorno
 cp .env.example .env
 
-# Editar el archivo .env con tus credenciales MySQL
+# Editar el archivo .env con tus credenciales MySQL (o dejar las de Docker por defecto)
+# OJO: En entorno Docker, DB_HOST debe ser 'db'.
 nano .env  # o utiliza tu editor de preferencia
 
 # Instalar dependencias
@@ -273,40 +274,23 @@ npm run dev
 - **Ancho de Banda:** 4 TB/mes
 - **OS recomendado:** Ubuntu 22.04 LTS
 
-### Pasos de Despliegue (sin Docker)
+### Despliegue con Docker (Nuevo Estándar)
+
+El sistema ahora está completamente preparado para correr bajo **Docker**.
 
 ```bash
-# 1. Instalar dependencias del sistema
-sudo apt update && sudo apt install -y nodejs npm mysql-server python3 python3-pip git
+# 1. Clonar el repositorio
+git clone https://github.com/alvaro6ix/CRM_BOT_SICAMET.git
+cd CRM_BOT_SICAMET
 
-# 2. Instalar pdfplumber
-pip3 install pdfplumber
+# 2. Levantar la arquitectura completa
+docker compose up --build -d
 
-# 3. Clonar el repositorio
-git clone https://github.com/alvaro6ix/CRM_BOT_SICAMET.git /var/www/sicamet
-
-# 4. Configurar la base de datos
-mysql -u root -p < /var/www/sicamet/sicamet.sql
-
-# 5. Instalar PM2 (gestor de procesos)
-npm install -g pm2
-
-# 6. Levantar el backend con PM2
-cd /var/www/sicamet/backend
-cp .env.example .env && nano .env  # Editar con credenciales reales
-npm install
-pm2 start index.js --name "sicamet-api"
-
-# 7. Compilar el frontend y servir estático
-cd /var/www/sicamet/frontend
-npm install && npm run build
-# Servir /dist con Nginx o PM2
-
-# 8. Guardar el estado de PM2 para reinicio automático
-pm2 save && pm2 startup
+# 3. Restaurar la base de datos la primera vez
+# Importar archivo respaldo_sicamet.sql en el host db por el puerto 3306.
 ```
 
-> **🐳 Docker** (próximamente): Se está preparando un `docker-compose.yml` para despliegue contenedorizado del backend, frontend y MySQL.
+Los contenedores aislarán el frontend (Vite en puerto 5173), el backend (Express/Bot en puerto 3001) y la Base de datos (MySQL). El bot de WhatsApp funcionará automáticamente instalando su propio Chromium interno vía Dockerfile.
 
 ---
 
@@ -351,8 +335,8 @@ Cliente envía mensaje
 - [x] Reset de sesión WhatsApp desde la UI
 - [x] Pipeline Kanban de ventas
 - [x] Lector inteligente de PDFs
-- [ ] Autenticación JWT y roles de usuario
-- [ ] Despliegue Docker con docker-compose
+- [x] Autenticación JWT y roles de usuario
+- [x] Despliegue Docker con docker-compose
 - [ ] Integración bot ↔ estado real de instrumentos (consulta automática)
 - [ ] Envío masivo de notificaciones WhatsApp
 - [ ] Módulo responsive completo para móviles

@@ -1,0 +1,42 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: sicamet_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: sicamet
+      MYSQL_DATABASE: sicamet_crm
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql_data:/var/lib/mysql
+
+  backend:
+    build: ./backend
+    container_name: sicamet_backend
+    restart: always
+    ports:
+      - "3001:3001"
+    depends_on:
+      - db
+    environment:
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASS=***REDACTED***
+      - DB_NAME=sicamet_crm
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  frontend:
+    build: ./frontend
+    container_name: sicamet_frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    environment:
+      - VITE_BACKEND_URL=http://backend:3001
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
