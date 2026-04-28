@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
+# Instalar pdfplumber para el parser de IA (en Debian 12 requiere break-system-packages)
+RUN pip3 install pdfplumber --break-system-packages
+
 # Configurar variables de entorno para que el bot encuentre Chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
