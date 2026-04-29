@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { Activity, CheckCircle, Clock, AlertTriangle, Eye, Edit, Trash2, X, FileText, Save, Search, Zap, Package, Plus, Trash, Settings2, MapPin, Layers, Edit3, List, RefreshCw, User, AlertCircle } from 'lucide-react';
@@ -21,8 +21,9 @@ const opcionesServicio = [
 
 const ListaEquipos = ({ darkMode }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [equipos, setEquipos] = useState([]);
-  const [busqueda, setBusqueda] = useState('');
+  const [busqueda, setBusqueda] = useState(location.state?.busquedaInicial || '');
   
   // Estados para el Modal de VER
   const [equipoSeleccionado, setEquipoSeleccionado] = useState(null);
@@ -590,7 +591,7 @@ const ListaEquipos = ({ darkMode }) => {
                              {eq.folio_rastreo || eq.orden_cotizacion}
                              <button 
                                 onClick={(e) => { e.stopPropagation(); seleccionarOC(eq.orden_cotizacion || eq.folio_rastreo); }}
-                                className={`text-[8px] font-black border px-1.5 py-0.5 rounded transition-all ${darkMode ? 'border-indigo-500 text-indigo-400 hover:bg-indigo-500 hover:text-[#141f0b]' : 'border-indigo-400 text-indigo-600 hover:bg-indigo-600 hover:text-white'}`}
+                                className={`text-[8px] font-black border px-1.5 py-0.5 rounded transition-all ${darkMode ? 'border-sky-500 text-sky-400 hover:bg-sky-500 hover:text-[#141f0b]' : 'border-sky-400 text-sky-600 hover:bg-sky-600 hover:text-white'}`}
                                 title="Seleccionar todos de esta orden"
                              >
                                 MASIVO
@@ -791,11 +792,11 @@ const ListaEquipos = ({ darkMode }) => {
                   {(equipoSeleccionado.cotizacion_referencia || equipoSeleccionado.fecha_recepcion || equipoSeleccionado.servicio_solicitado) && (
                     <section>
                       <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos de la Orden</h4>
-                      <div className={`p-5 rounded-3xl border grid grid-cols-3 gap-3 ${darkMode ? 'bg-[#1b2b10]/60 border-[#C9EA63]/15' : 'bg-indigo-50 border-indigo-200'}`}>
+                      <div className={`p-5 rounded-3xl border grid grid-cols-3 gap-3 ${darkMode ? 'bg-[#1b2b10]/60 border-[#C9EA63]/15' : 'bg-sky-50 border-sky-200'}`}>
                         {equipoSeleccionado.cotizacion_referencia && (
                           <div className="space-y-1">
                             <p className="text-[9px] font-black uppercase opacity-40">Cotización Ref.</p>
-                            <p className={`text-sm font-black font-mono ${darkMode ? 'text-[#C9EA63]' : 'text-indigo-700'}`}>{equipoSeleccionado.cotizacion_referencia}</p>
+                            <p className={`text-sm font-black font-mono ${darkMode ? 'text-[#C9EA63]' : 'text-sky-700'}`}>{equipoSeleccionado.cotizacion_referencia}</p>
                           </div>
                         )}
                         {equipoSeleccionado.fecha_recepcion && (

@@ -54,9 +54,9 @@ const GestionGrupo = ({ darkMode, usuario }) => {
     const textMain = darkMode ? 'text-[#F2F6F0]' : 'text-slate-800';
 
     // Permisos por Rol
-    const esSoloLectura = ['aseguramiento', 'validacion'].includes(usuario?.rol);
-    const puedeEditarTotal = ['admin', 'recepcionista'].includes(usuario?.rol);
-    const puedeMoverEstatus = ['admin', 'recepcionista', 'metrologo', 'operador'].includes(usuario?.rol);
+    const esSoloLectura = ['aseguramiento', 'validacion'].includes(usuario?.rol?.toLowerCase());
+    const puedeEditarTotal = ['admin', 'recepcionista'].includes(usuario?.rol?.toLowerCase());
+    const puedeMoverEstatus = ['admin', 'recepcionista', 'metrologo', 'operador'].includes(usuario?.rol?.toLowerCase());
 
     const selectStyles = {
         control: (base, state) => ({
@@ -140,13 +140,66 @@ const GestionGrupo = ({ darkMode, usuario }) => {
         fetchData();
     }, [oc]);
 
+    const handleSeleccionar = (id) => {
+        setSeleccionados(prev => 
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const handleSeleccionarTodo = () => {
+        if (seleccionados.length === equipos.length) {
+            setSeleccionados([]);
+        } else {
+            setSeleccionados(equipos.map(e => e.id));
+        }
+    };
+
+    const handleEnviarMasivo = async () => {
+        const total = equipos.length;
+        const seleccionadosCount = seleccionados.length;
+        const restantes = total - seleccionadosCount;
+        
+        const estadosRestantes = {};
+        equipos.forEach(e => {
+            if (!seleccionados.includes(e.id)) {
+                estadosRestantes[e.estatus_actual] = (estadosRestantes[e.estatus_actual] || 0) + 1;
+            }
+        });
+
+        const resumenRestantes = Object.entries(estadosRestantes)
+            .map(([est, cant]) => `${cant} en ${est}`)
+            .join(', ');
+
+        const confirmacion = window.confirm(
+            `CONFIRMACIÓN DE ENVÍO A QA\n\n` +
+            `Vas a enviar ${seleccionadosCount} de ${total} equipos a Aseguramiento.\n\n` +
+            `Quedarán ${restantes} equipos en esta orden (${resumenRestantes || 'ninguno'}).\n\n` +
+            `¿Deseas continuar?`
+        );
+
+        if (confirmacion) {
+            try {
+                await axios.post('/api/instrumentos/bulk-status', {
+                    ids: seleccionados,
+                    estatus: 'Aseguramiento',
+                    comentario: 'Enviado a Aseguramiento desde Gestión de Grupo (Masivo)'
+                });
+                toast.success(`${seleccionadosCount} equipos enviados a Aseguramiento`);
+                setSeleccionados([]);
+                fetchData();
+            } catch (error) {
+                toast.error("Error al enviar equipos");
+            }
+        }
+    };
+
     const handleMoverEstatus = async (equipoId, nuevoEstatus) => {
         try {
             await axios.put(`/api/instrumentos/${equipoId}/estatus`, { estatus: nuevoEstatus });
-            toast.success("Estatus actualizado");
+            toast.success(`Estatus actualizado a ${nuevoEstatus}`);
             fetchData();
         } catch (error) {
-            toast.error("Error al actualizar estatus");
+            toast.error("Error al mover estatus");
         }
     };
 
@@ -183,13 +236,25 @@ const GestionGrupo = ({ darkMode, usuario }) => {
     const crearInstrumento = async (e) => {
         if(e) e.preventDefault();
         try {
+            const baseInfo = equipos[0] || {};
             const payload = {
-                ...nuevoEquipo,
-                orden_cotizacion: oc,
-                folio_rastreo: oc,
-                metrologos_asignados: nuevoEquipo.metrologos_asignados?.map(m => m.value)
+                instrumentos: [{
+                    ...nuevoEquipo,
+                    orden_cotizacion: oc,
+                    folio_rastreo: oc,
+                    empresa: baseInfo.empresa,
+                    persona: baseInfo.persona,
+                    direccion: baseInfo.direccion,
+                    contacto_email: baseInfo.contacto_email,
+                    servicio_solicitado: baseInfo.servicio_solicitado,
+                    tipo_servicio: baseInfo.tipo_servicio,
+                    nombre_certificados: baseInfo.nombre_certificados,
+                    fecha_recepcion: baseInfo.fecha_recepcion,
+                    cotizacion_referencia: baseInfo.cotizacion_referencia
+                }],
+                metrologos_ids: nuevoEquipo.metrologos_asignados?.map(m => m.value)
             };
-            await axios.post('/api/instrumentos', payload);
+            await axios.post('/api/instrumentos-multiple', payload);
             toast.success("Equipo agregado al lote");
             setModalAgregar(false);
             setNuevoEquipo({
@@ -199,6 +264,7 @@ const GestionGrupo = ({ darkMode, usuario }) => {
             });
             fetchData();
         } catch (error) {
+            console.error(error);
             toast.error("Error al crear equipo");
         }
     };
@@ -236,8 +302,52 @@ const GestionGrupo = ({ darkMode, usuario }) => {
         }
     };
 
+    const handleFinalizarMetrologo = async (id) => {
+        try {
+            await axios.post(`/api/instrumentos/${id}/finalizar_metrologo`, {});
+            toast.success("Equipo finalizado y enviado a Aseguramiento");
+            fetchData();
+            setModalDetalle(false);
+        } catch (error) {
+            console.error(error);
+            toast.error("Error al finalizar metrología");
+        }
+    };
+
+    const handleAprobarAseguramiento = async (id) => {
+        try {
+            await axios.post('/api/instrumentos/bulk-status', {
+                ids: [id],
+                estatus: 'Certificación',
+                comentario: 'Aprobado en Aseguramiento (Gestión Grupo)'
+            });
+            toast.success("Equipo aprobado y movido a Certificación");
+            fetchData();
+            setModalDetalle(false);
+        } catch (error) {
+            toast.error("Error al aprobar");
+        }
+    };
+
+    const handleRechazarAseguramiento = async (id) => {
+        const motivo = window.prompt("Indica el motivo del rechazo para devolver a Laboratorio:");
+        if (!motivo) return;
+        try {
+            await axios.post('/api/instrumentos/bulk-status', {
+                ids: [id],
+                estatus: 'Laboratorio',
+                comentario: `RECHAZO ASEGURAMIENTO: ${motivo}`
+            });
+            toast.warn("Equipo devuelto a Laboratorio para corrección");
+            fetchData();
+            setModalDetalle(false);
+        } catch (error) {
+            toast.error("Error al rechazar");
+        }
+    };
+
     const ColumnasKanban = [
-        { id: 'Recepción', icono: Package, color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
+        { id: 'Recepción', icono: Package, color: 'text-sky-500', bg: 'bg-sky-500/10' },
         { id: 'Laboratorio', icono: Clock, color: 'text-amber-500', bg: 'bg-amber-500/10' },
         { id: 'Aseguramiento', icono: AlertTriangle, color: 'text-blue-500', bg: 'bg-blue-500/10' },
         { id: 'Certificación', icono: FileText, color: 'text-purple-500', bg: 'bg-purple-500/10' },
@@ -327,12 +437,20 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                         </div>
 
                         {puedeEditarTotal && (
-                            <button 
-                                onClick={abrirModalOrden}
-                                className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md hover:scale-105 active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
-                            >
-                                <Settings2 size={16} /> Gestionar Orden
-                            </button>
+                            <>
+                                <button 
+                                    onClick={() => setModalAgregar(true)}
+                                    className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md hover:scale-105 active:scale-95 ${darkMode ? 'bg-white text-black hover:bg-white/90' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
+                                >
+                                    <Plus size={16} /> Agregar Equipo
+                                </button>
+                                <button 
+                                    onClick={abrirModalOrden}
+                                    className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md hover:scale-105 active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
+                                >
+                                    <Settings2 size={16} /> Gestionar Orden
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>
@@ -371,9 +489,15 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                     {itemsCol.map(eq => (
                                         <div 
                                             key={eq.id}
-                                            className={`p-3 rounded-2xl border transition-all cursor-pointer group relative overflow-hidden ${darkMode ? 'bg-white/[0.02] border-white/5 hover:bg-white/[0.08] hover:border-[#C9EA63]/40 shadow-inner' : 'bg-white border-slate-100 hover:bg-emerald-50/30 hover:border-emerald-500/30 hover:shadow-xl shadow-sm'}`}
+                                            className={`p-3 rounded-2xl border transition-all cursor-pointer group relative overflow-hidden ${seleccionados.includes(eq.id) ? (darkMode ? 'bg-[#C9EA63]/10 border-[#C9EA63]' : 'bg-emerald-50 border-emerald-500') : (darkMode ? 'bg-white/[0.02] border-white/5 hover:bg-white/[0.08] hover:border-[#C9EA63]/40 shadow-inner' : 'bg-white border-slate-100 hover:bg-emerald-50/30 hover:border-emerald-500/30 hover:shadow-xl shadow-sm')}`}
                                             onClick={() => { setEquipoDetalle(eq); setModalDetalle(true); }}
                                         >
+                                            <div 
+                                                className={`absolute top-2 right-2 z-10 p-1.5 rounded-lg transition-all ${seleccionados.includes(eq.id) ? 'bg-[#C9EA63] text-black' : 'bg-white/10 text-white opacity-0 group-hover:opacity-100'}`}
+                                                onClick={(e) => { e.stopPropagation(); handleSeleccionar(eq.id); }}
+                                            >
+                                                {seleccionados.includes(eq.id) ? <CheckSquare size={14} /> : <Square size={14} />}
+                                            </div>
                                             <div className={`absolute top-0 left-0 w-1 h-full ${col.bg.replace('/10', '')} opacity-40`} />
                                             
                                             <div className="flex justify-between items-start gap-2 mb-2">
@@ -381,11 +505,28 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                                     {eq.nombre_instrumento}
                                                 </h4>
                                                 <div className="flex gap-1">
+                                                    {eq.estatus_actual === 'Laboratorio' && (
+                                                        <button 
+                                                            className={`p-1.5 rounded-lg transition-all ${darkMode ? 'hover:bg-emerald-500/20 text-emerald-400' : 'hover:bg-emerald-500/10 text-emerald-600'}`} 
+                                                            onClick={(e) => { e.stopPropagation(); handleFinalizarMetrologo(eq.id); }}
+                                                            title="Finalizar y Enviar a QA"
+                                                        >
+                                                            <CheckCircle size={12} />
+                                                        </button>
+                                                    )}
                                                     <button 
                                                         className={`p-1.5 rounded-lg transition-all ${darkMode ? 'hover:bg-[#C9EA63]/20 text-[#C9EA63]' : 'hover:bg-emerald-500/10 text-emerald-600'}`} 
                                                         onClick={(e) => { e.stopPropagation(); setEquipoEditando(eq); setModalEditar(true); }}
+                                                        title="Editar"
                                                     >
                                                         <Edit3 size={12} />
+                                                    </button>
+                                                    <button 
+                                                        className={`p-1.5 rounded-lg transition-all ${darkMode ? 'hover:bg-rose-500/20 text-rose-400' : 'hover:bg-rose-500/10 text-rose-600'}`} 
+                                                        onClick={(e) => { e.stopPropagation(); eliminarInstrumento(eq.id); }}
+                                                        title="Eliminar"
+                                                    >
+                                                        <Trash2 size={12} />
                                                     </button>
                                                 </div>
                                             </div>
@@ -450,6 +591,11 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className={`text-[10px] font-black uppercase tracking-widest ${darkMode ? 'bg-white/5 text-white/40' : 'bg-slate-50 text-slate-500'}`}>
+                                <th className="p-4 text-center">
+                                    <button onClick={handleSeleccionarTodo} className="opacity-40 hover:opacity-100 transition-all">
+                                        {seleccionados.length === equipos.length ? <CheckSquare size={16} /> : <Square size={16} />}
+                                    </button>
+                                </th>
                                 <th className="p-4">Identificación / Serie</th>
                                 <th className="p-4">Instrumento / Marca</th>
                                 <th className="p-4">Área / Metrólogos</th>
@@ -463,6 +609,14 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                 e.no_serie?.toLowerCase().includes(busqueda.toLowerCase())
                             ).map(eq => (
                                 <tr key={eq.id} className={`group transition-all ${darkMode ? 'hover:bg-white/5' : 'hover:bg-emerald-50/50'}`}>
+                                    <td className="p-6 text-center">
+                                        <button 
+                                            onClick={() => handleSeleccionar(eq.id)} 
+                                            className={`transition-all ${seleccionados.includes(eq.id) ? 'text-[#C9EA63]' : 'opacity-20 hover:opacity-100'}`}
+                                        >
+                                            {seleccionados.includes(eq.id) ? <CheckSquare size={18} /> : <Square size={18} />}
+                                        </button>
+                                    </td>
                                     <td className="p-6">
                                         <div className="flex flex-col gap-1">
                                             <span className={`text-[11px] font-black uppercase ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>{eq.identificacion || 'SIN ID'}</span>
@@ -488,22 +642,21 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                         </div>
                                     </td>
                                     <td className="p-6">
-                                        {puedeMoverEstatus ? (
-                                            <select 
-                                                value={eq.estatus_actual}
-                                                onChange={(e) => handleMoverEstatus(eq.id, e.target.value)}
-                                                className={`text-[10px] font-black uppercase px-4 py-1.5 rounded-full border outline-none cursor-pointer transition-all ${darkMode ? 'bg-[#141f0b] border-white/10 text-white hover:border-[#C9EA63]' : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-500'}`}
-                                            >
-                                                {ColumnasKanban.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
-                                            </select>
-                                        ) : (
-                                            <span className={`text-[10px] font-black uppercase px-4 py-1.5 rounded-full border ${darkMode ? 'bg-white/5 border-white/10 text-white/40' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
-                                                {eq.estatus_actual}
-                                            </span>
-                                        )}
+                                        <span className={`text-[10px] font-black uppercase px-4 py-1.5 rounded-full border ${darkMode ? 'bg-white/5 border-white/10 text-white/40' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                                            {eq.estatus_actual}
+                                        </span>
                                     </td>
                                     <td className="p-6">
                                         <div className="flex justify-center gap-2">
+                                            {eq.estatus_actual === 'Laboratorio' && (
+                                                <button 
+                                                    onClick={() => handleFinalizarMetrologo(eq.id)}
+                                                    className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                                                    title="Finalizar y Enviar a QA"
+                                                >
+                                                    <CheckCircle size={16} />
+                                                </button>
+                                            )}
                                             <button 
                                                 onClick={() => { setEquipoDetalle(eq); setModalDetalle(true); }}
                                                 className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-white/5 text-white/40 hover:text-[#C9EA63]' : 'bg-slate-100 text-slate-400 hover:text-emerald-600'}`}
@@ -512,24 +665,20 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                                 <Eye size={16} />
                                             </button>
                                             
-                                            {puedeEditarTotal && (
-                                                <>
-                                                    <button 
-                                                        onClick={() => { setEquipoEditando(eq); setModalEditar(true); }}
-                                                        className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-white/5 text-white/40 hover:text-emerald-400' : 'bg-slate-100 text-slate-400 hover:text-emerald-500'}`}
-                                                        title="Editar"
-                                                    >
-                                                        <Edit3 size={16} />
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => eliminarInstrumento(eq.id)}
-                                                        className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-white/5 text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10' : 'bg-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50'}`}
-                                                        title="Eliminar"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                </>
-                                            )}
+                                            <button 
+                                                onClick={() => { setEquipoEditando(eq); setModalEditar(true); }}
+                                                className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-white/5 text-white/40 hover:text-emerald-400' : 'bg-slate-100 text-slate-400 hover:text-emerald-500'}`}
+                                                title="Editar"
+                                            >
+                                                <Edit3 size={16} />
+                                            </button>
+                                            <button 
+                                                onClick={() => eliminarInstrumento(eq.id)}
+                                                className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-white/5 text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10' : 'bg-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50'}`}
+                                                title="Eliminar"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -653,16 +802,34 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                                 </div>
                                             </div>
 
+                                            {/* Acciones de Flujo Operativo */}
                                             <div className="pt-8 border-t border-dashed border-emerald-200/30">
-                                                <p className="text-[9px] font-black uppercase opacity-40 mb-4 text-center">Cambiar Estado Operativo</p>
-                                                <div className="grid grid-cols-1 gap-2">
-                                                    <select 
-                                                        value={equipoDetalle.estatus_actual}
-                                                        onChange={(e) => handleMoverEstatus(equipoDetalle.id, e.target.value)}
-                                                        className={`w-full p-4 rounded-2xl text-[11px] font-black uppercase tracking-widest text-center border outline-none transition-all shadow-lg ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20 text-[#C9EA63] hover:border-[#C9EA63]' : 'bg-white border-emerald-200 text-[#008a5e] hover:border-emerald-500'}`}
-                                                    >
-                                                        {ColumnasKanban.map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
-                                                    </select>
+                                                <div className="space-y-4">
+                                                    {(usuario?.rol?.toLowerCase() === 'metrologo' || usuario?.rol?.toLowerCase() === 'operador' || usuario?.rol?.toLowerCase() === 'admin') && equipoDetalle.estatus_actual === 'Laboratorio' && (
+                                                        <button 
+                                                            onClick={() => handleFinalizarMetrologo(equipoDetalle.id)}
+                                                            className={`w-full flex items-center justify-center gap-2 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-lg bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b] active:scale-95`}
+                                                        >
+                                                            <CheckCircle size={18} /> Finalizar y Enviar a Aseguramiento
+                                                        </button>
+                                                    )}
+
+                                                    {(usuario?.rol?.toLowerCase() === 'aseguramiento' || usuario?.rol?.toLowerCase() === 'validacion' || usuario?.rol?.toLowerCase() === 'admin') && equipoDetalle.estatus_actual === 'Aseguramiento' && (
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <button 
+                                                                onClick={() => handleAprobarAseguramiento(equipoDetalle.id)}
+                                                                className={`flex items-center justify-center gap-2 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b] active:scale-95`}
+                                                            >
+                                                                <CheckCircle size={16} /> Aprobar QA
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleRechazarAseguramiento(equipoDetalle.id)}
+                                                                className={`flex items-center justify-center gap-2 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg bg-rose-600 text-white hover:bg-rose-700 active:scale-95`}
+                                                            >
+                                                                <X size={16} /> Rechazar
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -1172,6 +1339,34 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                             <button onClick={() => setModalAgregar(false)} className="px-6 md:px-8 py-3 md:py-4 text-[10px] font-black uppercase opacity-40 hover:opacity-100 transition-all tracking-widest">Cancelar</button>
                             <button onClick={crearInstrumento} className={`px-10 md:px-12 py-4 md:py-5 rounded-[1.5rem] md:rounded-[2rem] text-[10px] font-black uppercase tracking-widest shadow-xl transition-all hover:scale-105 active:scale-95 ${darkMode ? 'bg-white text-black' : 'bg-slate-900 text-white shadow-slate-900/20'}`}>
                                 <Activity size={16} className="inline mr-2" /> Vincular al Lote
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Panel de Acciones Masivas */}
+            {seleccionados.length > 0 && (
+                <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[500] animate-in slide-in-from-bottom-10 duration-500">
+                    <div className={`px-8 py-5 rounded-[2rem] border shadow-2xl flex items-center gap-8 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/40' : 'bg-white border-emerald-200'}`}>
+                        <div className="flex flex-col">
+                            <span className={`text-[10px] font-black uppercase tracking-widest opacity-40 ${textMain}`}>Seleccionados</span>
+                            <span className={`text-lg font-black ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>{seleccionados.length} Equipos</span>
+                        </div>
+                        
+                        <div className="h-10 w-px bg-current opacity-10" />
+                        
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={handleEnviarMasivo}
+                                className={`px-6 py-3 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all hover:scale-105 active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-[#008a5e] text-white'}`}
+                            >
+                                Enviar a Aseguramiento
+                            </button>
+                            <button 
+                                onClick={() => setSeleccionados([])}
+                                className={`px-4 py-3 rounded-xl font-black text-[11px] uppercase tracking-widest opacity-40 hover:opacity-100 transition-all ${textMain}`}
+                            >
+                                Cancelar
                             </button>
                         </div>
                     </div>

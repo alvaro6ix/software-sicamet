@@ -10,6 +10,7 @@ services:
       - "3306:3306"
     volumes:
       - ./mysql_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
 
   backend:
     build: ./backend
@@ -24,9 +25,11 @@ services:
       - DB_USER=root
       - DB_PASS=***REDACTED***
       - DB_NAME=sicamet_crm
+      - NODE_ENV=development
     volumes:
       - ./backend:/app
       - /app/node_modules
+      - /app/.wwebjs_auth
 
   frontend:
     build: ./frontend
@@ -36,7 +39,8 @@ services:
     depends_on:
       - backend
     environment:
-      - VITE_BACKEND_URL=http://backend:3001
+      - VITE_BACKEND_URL=http://localhost:3001
     volumes:
       - ./frontend:/app
       - /app/node_modules
+

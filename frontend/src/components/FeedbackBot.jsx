@@ -93,7 +93,7 @@ const FeedbackBot = ({ darkMode }) => {
                                     )}
                                     <span className={`text-xs ${darkMode ? 'text-white/30' : 'text-slate-400'}`}>{new Date(f.fecha).toLocaleString('es-MX')}</span>
                                     {f.implementado === 1 && (
-                                        <span className={`px-2 py-0.5 ml-2 rounded text-[10px] font-black uppercase flex items-center gap-1 ${darkMode ? 'bg-indigo-900/40 text-indigo-300 border border-indigo-500/20' : 'bg-indigo-50 text-indigo-600 border border-indigo-200'}`}>
+                                        <span className={`px-2 py-0.5 ml-2 rounded text-[10px] font-black uppercase flex items-center gap-1 ${darkMode ? 'bg-sky-900/40 text-sky-300 border border-sky-500/20' : 'bg-sky-50 text-sky-600 border border-sky-200'}`}>
                                             <Award size={10}/> Implementado
                                         </span>
                                     )}
@@ -102,7 +102,7 @@ const FeedbackBot = ({ darkMode }) => {
                             </div>
                             <div className="flex gap-2 shrink-0">
                                 {!f.implementado && (
-                                    <button onClick={() => marcarImplementado(f.id)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${darkMode ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`} title="Marcar como mejora aplicada al sistema">
+                                    <button onClick={() => marcarImplementado(f.id)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${darkMode ? 'bg-sky-900/30 text-sky-400 hover:bg-sky-900/50' : 'bg-sky-50 text-sky-700 hover:bg-sky-100'}`} title="Marcar como mejora aplicada al sistema">
                                         <Award size={14}/> Implementar
                                     </button>
                                 )}

@@ -8,6 +8,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  build: {
+    cssMinify: 'esbuild',
+  },
   server: {
     allowedHosts: true,
     proxy: {

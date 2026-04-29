@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { AlertTriangle, Eye, X, MessageSquare, Package, ThumbsUp } from 'lucide-react';
+import { AlertTriangle, Eye, X, MessageSquare, ThumbsUp, CheckCircle, Send, Paperclip } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 const CorreccionesMetrologia = ({ darkMode, usuario }) => {
@@ -10,13 +10,24 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
     const [equipoDetalle, setEquipoDetalle] = useState(null);
     const [rechazosDetalle, setRechazosDetalle] = useState([]);
 
+    // Two-step correction flow: Set of IDs marked as "corrected" locally
+    const [corregidos, setCorregidos] = useState(new Set());
+
+    // Chat state
+    const [chatActivo, setChatActivo] = useState(null); // instrumento_id
+    const [listaComentarios, setListaComentarios] = useState([]);
+    const [nuevoMensaje, setNuevoMensaje] = useState('');
+    const [enviandoChat, setEnviandoChat] = useState(false);
+    const chatEndRef = useRef(null);
+
     const fetchData = async () => {
         try {
             setCargando(true);
             const res = await axios.get('/api/metrologia/correcciones');
-            setEquipos(res.data);
+            setEquipos(Array.isArray(res.data) ? res.data : []);
         } catch (error) {
-            console.error(error);
+            console.error('Error al cargar correcciones:', error);
+            setEquipos([]);
         } finally {
             setCargando(false);
         }
@@ -28,142 +39,346 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
         return () => window.removeEventListener('crm:refresh', fetchData);
     }, []);
 
+    useEffect(() => {
+        if (chatEndRef.current) {
+            chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [listaComentarios]);
+
+    // ── Detail modal ──────────────────────────────────────────────────────────
     const abrirDetalle = async (eq) => {
         setEquipoDetalle(eq);
         setModalDetalle(true);
         try {
             const res = await axios.get(`/api/instrumentos/${eq.id}/rechazos`);
-            setRechazosDetalle(res.data);
+            setRechazosDetalle(Array.isArray(res.data) ? res.data : []);
         } catch (err) { console.error(err); }
+    };
+
+    // ── Chat ──────────────────────────────────────────────────────────────────
+    const abrirChat = async (id) => {
+        try {
+            setChatActivo(id);
+            const res = await axios.get(`/api/instrumentos/${id}/comentarios`);
+            setListaComentarios(Array.isArray(res.data) ? res.data : []);
+        } catch (err) { console.error(err); }
+    };
+
+    const enviarMensaje = async (e) => {
+        if (e) e.preventDefault();
+        if (!nuevoMensaje.trim() || !chatActivo || enviandoChat) return;
+        setEnviandoChat(true);
+        try {
+            await axios.post(`/api/instrumentos/${chatActivo}/comentarios`, { mensaje: nuevoMensaje });
+            setNuevoMensaje('');
+            const res = await axios.get(`/api/instrumentos/${chatActivo}/comentarios`);
+            setListaComentarios(Array.isArray(res.data) ? res.data : []);
+        } catch (err) { console.error(err); } finally {
+            setEnviandoChat(false);
+        }
+    };
+
+    // ── Two-step correction flow ──────────────────────────────────────────────
+    const marcarCorregido = (id) => {
+        setCorregidos(prev => new Set([...prev, id]));
+        toast.info('Marcado como corregido. Presiona "Enviar a Revisión" cuando estés listo.');
+    };
+
+    const desmarcarCorregido = (id) => {
+        setCorregidos(prev => { const next = new Set(prev); next.delete(id); return next; });
     };
 
     const finalizarCorreccion = async (id) => {
         try {
-            await axios.post(`/api/instrumentos/${id}/finalizar_metrologo`, { enviar_a_aseguramiento: true });
-            toast.success('Corrección finalizada. Enviado a Aseguramiento.');
+            await axios.post(`/api/instrumentos/${id}/finalizar_metrologo`, {});
+            toast.success('✅ Corrección enviada a Aseguramiento para re-inspección.');
+            setCorregidos(prev => { const next = new Set(prev); next.delete(id); return next; });
             setModalDetalle(false);
             fetchData();
         } catch (err) {
-            toast.error('Error al finalizar corrección');
+            toast.error('Error al enviar corrección.');
         }
     };
 
+    // ── Styles ────────────────────────────────────────────────────────────────
+    const cardBg = darkMode
+        ? 'bg-[#1b2b10] border-[#C9EA63]/20 hover:border-[#C9EA63]/50'
+        : 'bg-white border-slate-200 hover:border-emerald-300';
+
     return (
-        <div className="w-full animate-in fade-in">
+        <div className="w-full animate-in fade-in space-y-6">
             {/* Header */}
-            <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-6 mb-6 ${darkMode ? 'border-[#C9EA63]/20' : 'border-[#008a5e]/20'}`}>
+            <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'}`}>
                 <div>
-                    <h2 className={`text-2xl md:text-3xl font-bold flex items-center gap-3 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                    <h2 className={`text-2xl md:text-3xl font-black flex items-center gap-3 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
                         <AlertTriangle className="text-orange-500" size={32} />
                         Correcciones Pendientes
                     </h2>
-                    <p className={`mt-1 md:mt-2 text-xs md:text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
-                        Equipos que Aseguramiento rechazó y requieren correcciones. Revisa los motivos y trabaja las correcciones.
+                    <p className={`mt-1 text-sm ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
+                        Equipos rechazados por Aseguramiento que requieren tu corrección técnica.
                     </p>
                 </div>
-                <div className={`px-4 py-2 rounded-xl text-sm font-black ${darkMode ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-orange-50 text-orange-700 border border-orange-200'}`}>
-                    {equipos.length} equipo(s) con corrección
+                <div className={`px-4 py-2 rounded-2xl text-sm font-black flex items-center gap-2 ${darkMode ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-orange-50 text-orange-700 border border-orange-200'}`}>
+                    <AlertTriangle size={16} />
+                    {equipos.length} pendiente{equipos.length !== 1 ? 's' : ''}
                 </div>
             </div>
 
-            {/* Listado */}
+            {/* Content */}
             {cargando ? (
-                <div className={`p-12 text-center ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>
-                    <div className="inline-block w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" />
+                <div className={`p-16 text-center ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>
+                    <div className="inline-block w-10 h-10 border-4 border-t-transparent rounded-full animate-spin border-current" />
+                    <p className="mt-4 text-sm font-bold">Cargando correcciones...</p>
                 </div>
             ) : equipos.length === 0 ? (
-                <div className={`p-12 text-center rounded-2xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10 text-[#F2F6F0]/40' : 'bg-white border-slate-200 text-slate-400'}`}>
-                    <AlertTriangle size={48} className="mx-auto mb-4 opacity-30" />
-                    <p className="font-bold">No hay correcciones pendientes</p>
-                    <p className="text-xs mt-1 opacity-60">¡Buen trabajo! No hay equipos rechazados.</p>
+                <div className={`p-16 text-center rounded-3xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10 text-[#F2F6F0]/40' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                    <CheckCircle size={56} className="mx-auto mb-4 opacity-30 text-emerald-500" />
+                    <p className="font-black text-lg">¡Todo en orden!</p>
+                    <p className="text-sm mt-1 opacity-60">No tienes equipos rechazados pendientes de corrección.</p>
                 </div>
             ) : (
-                <div className={`border rounded-2xl overflow-hidden divide-y ${darkMode ? 'border-[#C9EA63]/20 divide-[#C9EA63]/5' : 'border-slate-200 divide-slate-100'}`}>
-                    {equipos.map(eq => (
-                        <div key={eq.id} onClick={() => abrirDetalle(eq)} className={`p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 cursor-pointer transition-colors ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <span className={`text-[10px] font-black ${darkMode ? 'text-white/30' : 'text-slate-400'}`}>{eq.orden_cotizacion}</span>
-                                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-500 text-white flex items-center gap-1">
-                                            <AlertTriangle size={10}/> RECHAZO #{eq.rechazos_aseguramiento || eq.total_rechazos || 1}
-                                        </span>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {equipos.map(eq => {
+                        const estaCorregido = corregidos.has(eq.id);
+                        return (
+                            <div
+                                key={eq.id}
+                                className={`flex flex-col rounded-3xl border transition-all duration-300 overflow-hidden shadow-sm hover:shadow-lg ${cardBg}`}
+                            >
+                                {/* Top accent bar */}
+                                <div className={`h-1.5 w-full ${estaCorregido ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+
+                                <div className="p-6 flex flex-col h-full">
+                                    {/* Header row */}
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="flex flex-col gap-1.5">
+                                            <span className={`text-[11px] font-black tracking-[0.15em] uppercase opacity-50 ${darkMode ? 'text-white' : 'text-slate-700'}`}>
+                                                {eq.orden_cotizacion}
+                                            </span>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                {estaCorregido ? (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 animate-pulse">
+                                                        <CheckCircle size={11} /> CORREGIDO
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-600 text-white shadow-lg shadow-rose-600/20">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse inline-block" />
+                                                        RECHAZO #{eq.rechazos_aseguramiento || 1}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => abrirDetalle(eq)}
+                                            className={`p-2.5 rounded-2xl transition-all ${darkMode ? 'bg-white/5 hover:bg-white/10 text-[#C9EA63]' : 'bg-slate-50 hover:bg-slate-100 text-slate-500'}`}
+                                        >
+                                            <Eye size={18} />
+                                        </button>
                                     </div>
-                                    <h4 className={`font-black text-base mt-1 truncate ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{eq.nombre_instrumento}</h4>
-                                    <p className={`text-xs ${darkMode ? 'text-white/50' : 'text-slate-500'}`}>{eq.empresa}</p>
+
+                                    {/* Instrument info */}
+                                    <h4 className={`font-black text-lg leading-tight mb-1 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                                        {eq.nombre_instrumento}
+                                    </h4>
+                                    <p className={`text-xs font-semibold mb-6 truncate opacity-60 ${darkMode ? 'text-white' : 'text-slate-500'}`}>
+                                        {eq.empresa}
+                                    </p>
+
+                                    {/* Action buttons */}
+                                    <div className="flex flex-col gap-3 mt-auto">
+                                        {/* Chat button */}
+                                        <button
+                                            onClick={() => abrirChat(eq.id)}
+                                            className={`flex items-center justify-between p-4 rounded-2xl text-sm font-black transition-all ${darkMode ? 'bg-[#253916] text-[#C9EA63] border border-[#C9EA63]/20 hover:bg-[#314a1c]' : 'bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100'}`}
+                                        >
+                                            <div className="flex items-center gap-2.5">
+                                                <MessageSquare size={18} />
+                                                <span>VER CHAT Y MOTIVO</span>
+                                            </div>
+                                            {(eq.comentarios_count > 0) && (
+                                                <span className="bg-rose-600 text-white text-[10px] min-w-[24px] h-6 px-1.5 flex items-center justify-center rounded-full font-black shadow-lg border-2 border-white">
+                                                    {eq.comentarios_count}
+                                                </span>
+                                            )}
+                                        </button>
+
+                                        {/* Two-step correction button */}
+                                        {estaCorregido ? (
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => desmarcarCorregido(eq.id)}
+                                                    className={`p-4 rounded-2xl text-sm font-black transition-all border ${darkMode ? 'border-white/10 text-white/40 hover:bg-white/5' : 'border-slate-200 text-slate-400 hover:bg-slate-50'}`}
+                                                >
+                                                    <X size={18} />
+                                                </button>
+                                                <button
+                                                    onClick={() => finalizarCorreccion(eq.id)}
+                                                    className="flex-1 flex items-center justify-center gap-2.5 p-4 rounded-2xl text-sm font-black transition-all shadow-xl active:scale-95 bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/20"
+                                                >
+                                                    <Send size={18} />
+                                                    ENVIAR A REVISIÓN
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={() => marcarCorregido(eq.id)}
+                                                className={`flex items-center justify-center gap-2.5 p-4 rounded-2xl text-sm font-black transition-all shadow-xl active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b] shadow-[#C9EA63]/10' : 'bg-[#008a5e] text-white hover:bg-[#007b55] shadow-emerald-500/20'}`}
+                                            >
+                                                <ThumbsUp size={18} />
+                                                MARCAR COMO CORREGIDO
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-3">
-                                <div className={`px-3 py-2 rounded-xl text-xs max-w-xs ${darkMode ? 'bg-orange-500/10 text-orange-300 border border-orange-500/20' : 'bg-orange-50 text-orange-700 border border-orange-100'}`}>
-                                    <p className="font-bold mb-0.5">Motivo:</p>
-                                    <p className="line-clamp-2 italic">{eq.ultimo_motivo || 'Sin motivo registrado'}</p>
-                                </div>
-                                <button className={`p-2 rounded-xl transition-all ${darkMode ? 'hover:bg-[#253916] text-[#C9EA63]' : 'hover:bg-slate-100 text-slate-500'}`}>
-                                    <Eye size={18} />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
 
-            {/* Modal Detalle con Historial de Rechazos */}
+            {/* Detail Modal */}
             {modalDetalle && equipoDetalle && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in">
-                    <div className={`w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
-                        <div className={`p-5 flex justify-between items-center border-b ${darkMode ? 'bg-[#253916] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
+                    <div className={`w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
+                        <div className={`p-5 flex justify-between items-center border-b sticky top-0 z-10 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
                             <div className="flex items-center gap-3">
-                                <div className={`p-2 rounded-xl bg-orange-500/20 text-orange-400`}><AlertTriangle size={20}/></div>
+                                <div className="p-2 rounded-xl bg-orange-500/20 text-orange-400">
+                                    <AlertTriangle size={20} />
+                                </div>
                                 <div>
-                                    <h2 className={`text-lg font-black ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>Corrección - {equipoDetalle.nombre_instrumento}</h2>
-                                    <p className={`text-[10px] font-bold uppercase ${darkMode ? 'text-[#C9EA63]/70' : 'text-emerald-600'}`}>{equipoDetalle.orden_cotizacion} | Rechazos: {equipoDetalle.rechazos_aseguramiento || equipoDetalle.total_rechazos || 1}</p>
+                                    <h2 className={`text-base font-black ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                                        {equipoDetalle.nombre_instrumento}
+                                    </h2>
+                                    <p className={`text-[11px] font-bold uppercase tracking-wider ${darkMode ? 'text-[#C9EA63]/70' : 'text-emerald-600'}`}>
+                                        {equipoDetalle.orden_cotizacion} · {equipoDetalle.rechazos_aseguramiento || rechazosDetalle.length || 1} rechazo(s)
+                                    </p>
                                 </div>
                             </div>
-                            <button onClick={() => setModalDetalle(false)} className={`p-2 rounded-xl ${darkMode ? 'hover:bg-[#141f0b] text-white/60' : 'hover:bg-slate-200 text-slate-400'}`}><X size={24}/></button>
+                            <button
+                                onClick={() => setModalDetalle(false)}
+                                className={`p-2 rounded-xl ${darkMode ? 'hover:bg-[#253916] text-white/60' : 'hover:bg-slate-200 text-slate-400'}`}
+                            >
+                                <X size={22} />
+                            </button>
                         </div>
 
-                        {/* Motivo actual */}
-                        <div className={`m-5 p-4 rounded-xl border ${darkMode ? 'bg-orange-500/10 border-orange-500/30' : 'bg-orange-50 border-orange-200'}`}>
-                            <h4 className={`text-sm font-bold flex items-center gap-2 mb-2 ${darkMode ? 'text-orange-300' : 'text-orange-700'}`}>
-                                <MessageSquare size={16}/> Motivo del último rechazo
-                            </h4>
-                            <p className={`text-sm ${darkMode ? 'text-orange-200' : 'text-orange-800'}`}>{equipoDetalle.ultimo_motivo || 'Sin motivo registrado'}</p>
-                            {equipoDetalle.fecha_rechazo && (
-                                <p className={`text-xs mt-2 ${darkMode ? 'text-orange-400/60' : 'text-orange-600/60'}`}>Fecha: {new Date(equipoDetalle.fecha_rechazo).toLocaleString('es-MX')}</p>
+                        <div className="p-5 space-y-4">
+                            {rechazosDetalle.length === 0 ? (
+                                <p className="text-sm opacity-50 italic text-center py-6">Abre el chat para ver el motivo del rechazo.</p>
+                            ) : (
+                                rechazosDetalle.map((r, i) => (
+                                    <div key={r.id} className={`p-4 rounded-2xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-200'}`}>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <span className={`text-[10px] font-black uppercase ${darkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+                                                Rechazo #{rechazosDetalle.length - i}
+                                            </span>
+                                            <span className={`text-[10px] ${darkMode ? 'text-white/30' : 'text-slate-400'}`}>
+                                                {new Date(r.fecha_rechazo).toLocaleString('es-MX')}
+                                            </span>
+                                        </div>
+                                        <p className={`text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{r.motivo}</p>
+                                        {r.rechaza_nombre && (
+                                            <p className={`text-[11px] mt-1.5 font-semibold ${darkMode ? 'text-white/40' : 'text-slate-400'}`}>
+                                                Por: {r.rechaza_nombre}
+                                            </p>
+                                        )}
+                                    </div>
+                                ))
                             )}
                         </div>
 
-                        {/* Historial de rechazos */}
-                        {rechazosDetalle.length > 0 && (
-                            <div className="px-5 pb-5">
-                                <h4 className={`text-sm font-bold mb-3 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>📋 Historial Completo de Rechazos</h4>
-                                <div className="space-y-2">
-                                    {rechazosDetalle.map((r, i) => (
-                                        <div key={r.id} className={`p-3 rounded-xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-200'}`}>
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <span className={`text-[10px] font-black uppercase ${darkMode ? 'text-rose-400' : 'text-rose-600'}`}>Rechazo #{rechazosDetalle.length - i}</span>
-                                                    <p className={`text-xs mt-1 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{r.motivo}</p>
-                                                    <p className={`text-[10px] mt-1 ${darkMode ? 'text-white/40' : 'text-slate-400'}`}>
-                                                        Por: {r.rechaza_nombre || 'N/A'} {r.destino_nombre ? `→ Para: ${r.destino_nombre}` : ''}
-                                                    </p>
-                                                </div>
-                                                <span className={`text-[10px] ${darkMode ? 'text-white/30' : 'text-slate-400'}`}>{new Date(r.fecha_rechazo).toLocaleString('es-MX')}</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Acciones */}
-                        <div className={`p-5 border-t flex gap-3 ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-100'}`}>
-                            <button onClick={() => setModalDetalle(false)} className={`flex-1 py-3 font-bold rounded-xl ${darkMode ? 'bg-[#253916] text-white hover:bg-[#314a1c]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Cerrar</button>
-                            <button onClick={() => finalizarCorreccion(equipoDetalle.id)} className={`flex-[2] flex justify-center items-center gap-2 font-black py-3 rounded-xl shadow-lg ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}>
-                                ¡Corrección Terminada! <ThumbsUp size={18} />
+                        <div className={`p-5 border-t flex flex-wrap gap-3 ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-100'}`}>
+                            <button
+                                onClick={() => { setModalDetalle(false); abrirChat(equipoDetalle.id); }}
+                                className={`flex-1 flex justify-center items-center gap-2 py-3 font-bold rounded-2xl border transition-all ${darkMode ? 'border-[#C9EA63]/30 text-[#C9EA63] hover:bg-[#C9EA63]/10' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                            >
+                                <MessageSquare size={18} /> Ver Chat
+                            </button>
+                            <button
+                                onClick={() => setModalDetalle(false)}
+                                className={`flex-1 py-3 font-bold rounded-2xl ${darkMode ? 'bg-[#253916] text-white hover:bg-[#314a1c]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            >
+                                Cerrar
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* WhatsApp-style Chat Modal */}
+            {chatActivo && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex justify-end">
+                    <div className={`w-full md:w-[420px] h-full shadow-2xl flex flex-col border-l animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-[#0b141a] border-[#C9EA63]/20' : 'bg-[#efeae2] border-slate-200'}`}>
+                        {/* Chat header */}
+                        <div className={`p-4 border-b flex justify-between items-center flex-shrink-0 ${darkMode ? 'bg-[#202c33] border-slate-700' : 'bg-[#008a5e] border-transparent'}`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white/20 text-white'}`}>
+                                    QA
+                                </div>
+                                <div>
+                                    <h3 className={`font-black text-sm ${darkMode ? 'text-[#e9edef]' : 'text-white'}`}>Chat de Corrección</h3>
+                                    <p className={`text-[10px] ${darkMode ? 'text-[#8696a0]' : 'text-white/70'}`}>
+                                        {equipos.find(e => e.id === chatActivo)?.nombre_instrumento || `Instrumento #${chatActivo}`}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setChatActivo(null)}
+                                className={`p-2 rounded-full ${darkMode ? 'hover:bg-white/10 text-[#8696a0]' : 'hover:bg-white/20 text-white'}`}
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Messages */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                            {listaComentarios.length === 0 ? (
+                                <div className="flex justify-center mt-8">
+                                    <div className={`px-4 py-2 rounded-lg text-xs shadow-sm ${darkMode ? 'bg-[#182229] text-[#8696a0]' : 'bg-[#ffeecd] text-[#54656f]'}`}>
+                                        El chat está vacío. El motivo de rechazo aparecerá aquí.
+                                    </div>
+                                </div>
+                            ) : (
+                                listaComentarios.map(c => {
+                                    const soyYo = c.usuario_id === usuario?.id;
+                                    return (
+                                        <div key={c.id} className={`flex flex-col ${soyYo ? 'items-end' : 'items-start'}`}>
+                                            <div className={`max-w-[85%] px-3 py-2 rounded-lg shadow-sm text-sm ${soyYo ? (darkMode ? 'bg-[#005c4b] text-[#e9edef]' : 'bg-[#d9fdd3] text-[#111b21]') : (darkMode ? 'bg-[#202c33] text-[#e9edef]' : 'bg-white text-[#111b21]')}`}>
+                                                {!soyYo && (
+                                                    <p className={`text-[10px] font-black mb-1 ${darkMode ? 'text-[#53bdeb]' : 'text-[#1fa855]'}`}>
+                                                        {c.usuario_nombre || 'Sistema'}
+                                                    </p>
+                                                )}
+                                                <p className="whitespace-pre-wrap break-words">{c.mensaje}</p>
+                                                <p className="text-[10px] opacity-40 text-right mt-1">
+                                                    {new Date(c.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                            <div ref={chatEndRef} />
+                        </div>
+
+                        {/* Input */}
+                        <form onSubmit={enviarMensaje} className={`p-3 flex items-end gap-2 flex-shrink-0 border-t ${darkMode ? 'bg-[#202c33] border-slate-700' : 'bg-[#f0f2f5] border-slate-200'}`}>
+                            <textarea
+                                value={nuevoMensaje}
+                                onChange={e => setNuevoMensaje(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarMensaje(); } }}
+                                placeholder="Escribe una respuesta..."
+                                rows={1}
+                                className={`flex-1 p-3 rounded-2xl text-sm outline-none resize-none max-h-28 overflow-y-auto ${darkMode ? 'bg-[#2a3942] text-[#e9edef] placeholder:text-[#8696a0]' : 'bg-white text-[#111b21] placeholder:text-[#8696a0]'}`}
+                            />
+                            <button
+                                type="submit"
+                                disabled={!nuevoMensaje.trim() || enviandoChat}
+                                className="w-11 h-11 flex items-center justify-center rounded-full bg-[#008a5e] text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:bg-[#007b55] active:scale-95 flex-shrink-0"
+                            >
+                                <Send size={18} />
+                            </button>
+                        </form>
                     </div>
                 </div>
             )}

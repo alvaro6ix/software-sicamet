@@ -21,7 +21,7 @@ const GestionUsuarios = ({ darkMode }) => {
 
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
-  const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'recepcionista', area: '', permisos: [] });
+  const [form, setForm] = useState({ nombre: '', email: '', password: '', rol: 'recepcionista', area: '', permisos: [], es_lider_area: false });
   const [rolPersonalizado, setRolPersonalizado] = useState(false);
   const [rolesBase, setRolesBase] = useState(['admin', 'recepcionista', 'metrologo', 'aseguramiento']);
 
@@ -32,7 +32,9 @@ const GestionUsuarios = ({ darkMode }) => {
     { id: '/equipos', nombre: 'Lista Gral. Equipos' },
     { id: '/entregas', nombre: 'Entregas' },
     { id: '/kanban', nombre: 'Pipeline Kanban' },
+    { id: '/mi-bandeja', nombre: 'Mi Bandeja' },
     { id: '/metrologia', nombre: 'Centro Metrología' },
+    { id: '/correcciones-metrologia', nombre: 'Correcciones' },
     { id: '/validacion', nombre: 'Gestión Operativa (Aseg.)' },
     { id: '/certificacion-agil', nombre: 'Certificación Ágil' },
     { id: '/clientes', nombre: 'Clientes' },
@@ -92,7 +94,7 @@ const GestionUsuarios = ({ darkMode }) => {
       }
       setModalAbierto(false);
       setEditandoId(null);
-      setForm({ nombre: '', email: '', password: '', rol: 'recepcionista', area: '', permisos: [] });
+      setForm({ nombre: '', email: '', password: '', rol: 'recepcionista', area: '', permisos: [], es_lider_area: false });
       fetchUsuarios();
     } catch (err) {
       alert(err.response?.data?.error || "Error al procesar usuario");
@@ -121,7 +123,7 @@ const GestionUsuarios = ({ darkMode }) => {
     try {
         if (u.permisos) permisosParsed = typeof u.permisos === 'string' ? JSON.parse(u.permisos) : u.permisos;
     } catch(e) {}
-    setForm({ nombre: u.nombre, email: u.email, password: '', rol: u.rol || 'recepcionista', area: u.area || '', permisos: permisosParsed });
+    setForm({ nombre: u.nombre, email: u.email, password: '', rol: u.rol || 'recepcionista', area: u.area || '', permisos: permisosParsed, es_lider_area: !!u.es_lider_area });
     setModalAbierto(true);
   };
 
@@ -598,6 +600,31 @@ const GestionUsuarios = ({ darkMode }) => {
                               </button>
                           );
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Líder de Área toggle — solo para metrólogos/operadores */}
+                {['metrologo', 'operador'].includes(form.rol) && (
+                  <div className={`flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer ${
+                    form.es_lider_area
+                      ? (darkMode ? 'bg-[#C9EA63]/15 border-[#C9EA63]/50' : 'bg-emerald-50 border-emerald-300')
+                      : (darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/15' : 'bg-slate-50 border-slate-200')
+                  }`}
+                    onClick={() => setForm({ ...form, es_lider_area: !form.es_lider_area })}
+                  >
+                    <div>
+                      <p className={`text-xs font-black ${darkMode ? (form.es_lider_area ? 'text-[#C9EA63]' : 'text-white') : (form.es_lider_area ? 'text-emerald-700' : 'text-slate-700')}`}>
+                        ⭐ Líder de Área
+                      </p>
+                      <p className={`text-[10px] mt-0.5 ${darkMode ? 'text-white/40' : 'text-slate-400'}`}>
+                        Puede ver todos los equipos de su área en el Dashboard de Metrología.
+                      </p>
+                    </div>
+                    <div className={`w-11 h-6 rounded-full transition-all flex-shrink-0 flex items-center px-0.5 ${
+                      form.es_lider_area ? 'bg-emerald-500 justify-end' : (darkMode ? 'bg-white/10 justify-start' : 'bg-slate-200 justify-start')
+                    }`}>
+                      <div className="w-5 h-5 rounded-full bg-white shadow-sm" />
                     </div>
                   </div>
                 )}

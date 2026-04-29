@@ -141,6 +141,13 @@ const AseguramientoCertificados = ({ darkMode }) => {
     ));
   };
 
+  const toggleNoRequiere = async (instId, actual) => {
+    try {
+      await axios.put(`/api/instrumentos/${instId}/config`, { no_requiere_certificado: !actual });
+      buscarOrden();
+    } catch (err) { alert("Error al actualizar configuración"); }
+  };
+
   const handlesSubmitFinal = async () => {
     const vinculaciones = certificadosProcesados
       .filter(c => c.instrumento_id)
@@ -150,15 +157,33 @@ const AseguramientoCertificados = ({ darkMode }) => {
         certificado_url: c.url
       }));
 
-    if (vinculaciones.length === 0) {
-      return alert("No hay vinculaciones válidas para guardar.");
+    const pendientesReales = instrumentosOS.filter(i => !i.certificado_url && !i.no_requiere_certificado);
+    const vinculadosAhoraIds = vinculaciones.map(v => v.id);
+    const faltanAun = pendientesReales.filter(p => !vinculadosAhoraIds.includes(p.id));
+
+    if (faltanAun.length > 0) {
+      if (!window.confirm(`⚠️ Oye, faltan ${faltanAun.length} equipo(s) por certificado. ¿Estás seguro de que deseas avanzar sin ellos? Aseguramiento recibirá una alerta.`)) {
+        return;
+      }
+    }
+
+    if (vinculaciones.length === 0 && faltanAun.length === 0) {
+      return alert("No hay cambios pendientes.");
     }
 
     setGuardando(true);
     try {
-      await axios.post('/api/instrumentos-multiple-certificados', { vinculaciones });
-      alert(`¡Éxito! Se vincularon ${vinculaciones.length} certificados correctamente.`);
-      // Limpiar o refrescar
+      if (vinculaciones.length > 0) {
+        await axios.post('/api/instrumentos-multiple-certificados', { vinculaciones });
+      }
+      
+      // Marcar como listos los que ya tienen certificado o no lo requieren
+      const aFinalizar = instrumentosOS.filter(i => i.certificado_url || i.no_requiere_certificado || vinculadosAhoraIds.includes(i.id)).map(i => i.id);
+      if (aFinalizar.length > 0) {
+        await axios.post('/api/instrumentos-multiple-finalizar', { ids: aFinalizar });
+      }
+
+      alert(`¡Éxito! Se procesaron los equipos de la orden correctamente.`);
       buscarOrden();
       setCertificadosProcesados([]);
     } catch (err) {
@@ -394,6 +419,55 @@ const AseguramientoCertificados = ({ darkMode }) => {
                   <p className="text-xs">Usa el botón de arriba para leer tus archivos PDF con IA</p>
                </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* 3. LISTA DE INSTRUMENTOS DE LA ORDEN */}
+      {instrumentosOS.length > 0 && (
+        <div className={`p-8 rounded-2xl border transition-all ${boxBg} mt-8`}>
+          <h3 className={`text-xl font-black mb-6 flex items-center gap-2 ${textTitle}`}>
+            <ClipboardList className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} />
+            Estado de Equipos en la Orden
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {instrumentosOS.map(inst => {
+              const tieneCert = inst.certificado_url || certificadosProcesados.some(c => c.instrumento_id === inst.id);
+              const noReq = inst.no_requiere_certificado;
+              const pendiente = !tieneCert && !noReq;
+
+              return (
+                <div key={inst.id} className={`p-4 rounded-xl border flex flex-col justify-between transition-all ${
+                  pendiente ? (darkMode ? 'bg-rose-500/10 border-rose-500/30' : 'bg-rose-50 border-rose-200') : 
+                  (darkMode ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200')
+                }`}>
+                  <div>
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] font-black opacity-40 font-mono">{inst.no_serie || 'S/N'}</span>
+                      {pendiente && <span className="flex items-center gap-1 text-[9px] font-black text-rose-500 uppercase"><AlertTriangle size={10}/> Sin Certificado</span>}
+                      {noReq && <span className="text-[9px] font-black text-blue-500 uppercase">Certificado Opcional</span>}
+                      {tieneCert && <span className="text-[9px] font-black text-emerald-500 uppercase">✓ Certificado OK</span>}
+                    </div>
+                    <h4 className="font-bold text-sm leading-tight">{inst.nombre_instrumento}</h4>
+                    <p className="text-[10px] opacity-60 mt-1">{inst.identificacion}</p>
+                  </div>
+                  
+                  <div className="mt-4 pt-4 border-t border-black/5 flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={!!noReq} 
+                        onChange={() => toggleNoRequiere(inst.id, noReq)}
+                        className="rounded border-gray-300 text-[#008a5e] focus:ring-[#008a5e]" 
+                      />
+                      <span className="text-[10px] font-bold opacity-70">No requiere cert.</span>
+                    </label>
+                    {inst.certificado_url && (
+                      <a href={inst.certificado_url} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline text-[10px] font-bold">Ver PDF</a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

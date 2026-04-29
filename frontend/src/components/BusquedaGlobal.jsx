@@ -151,10 +151,15 @@ const BusquedaGlobal = ({ darkMode }) => {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const irA = (ruta, params) => {
-    // Attempt rudimentary passing. Better to just route to the global table and the user types again, 
-    // unless we had time to rewrite those pages to parse ?q=. 
-    // Wait, the easiest way is to push it as state or query.
+  const irAEquipo = (eq) => {
+    navigate('/equipos', { state: { busquedaInicial: eq.orden_cotizacion || '' } });
+    setQuery('');
+    setResultados(null);
+    setAbierto(false);
+    setMovilAbierto(false);
+  };
+
+  const irA = (ruta) => {
     navigate(ruta);
     setQuery('');
     setResultados(null);
@@ -186,8 +191,7 @@ const BusquedaGlobal = ({ darkMode }) => {
         <p className="p-8 text-sm opacity-40 text-center italic">Sin resultados para "{query}"</p>
         )}
 
-        {/* Equipos */}
-        {resultados?.equipos?.length > 0 && (
+            {resultados?.equipos?.length > 0 && (
         <div>
             <p className={`sticky top-0 z-10 px-4 py-2 text-[10px] font-black uppercase tracking-widest ${sectionBg}`}>
             🔧 Equipos ({resultados.equipos.length})
@@ -197,7 +201,7 @@ const BusquedaGlobal = ({ darkMode }) => {
             return (
                 <button
                 key={eq.id}
-                onMouseDown={() => irA('/equipos')}
+                onMouseDown={() => irAEquipo(eq)}
                 className={`w-full text-left px-4 py-3 flex items-center gap-3 text-sm transition-colors border-b last:border-0 ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-100'} ${rowHover}`}
                 >
                 <Activity size={16} className={darkMode ? 'text-[#C9EA63] flex-shrink-0' : 'text-[#008a5e] flex-shrink-0'} />

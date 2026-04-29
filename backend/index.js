@@ -252,6 +252,7 @@ async function ensureWhatsappChatsColumns() {
         "ALTER TABLE instrumentos_estatus ADD COLUMN area_laboratorio VARCHAR(100) NULL AFTER sla",
         "ALTER TABLE instrumentos_estatus ADD COLUMN metrologo_asignado_id INT NULL AFTER area_laboratorio",
         "ALTER TABLE instrumentos_estatus ADD COLUMN numero_informe VARCHAR(100) NULL AFTER no_serie",
+        "ALTER TABLE usuarios ADD COLUMN es_lider_area TINYINT(1) DEFAULT 0 AFTER area",
         `CREATE TABLE IF NOT EXISTS laboratorio_areas (id INT AUTO_INCREMENT PRIMARY KEY, nombre VARCHAR(100) NOT NULL UNIQUE, descripcion TEXT NULL, activa TINYINT DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`,
         `CREATE TABLE IF NOT EXISTS instrumento_metrologos (
             id INT AUTO_INCREMENT PRIMARY KEY, 
@@ -531,10 +532,14 @@ app.get('/api/kpis_negocio', async (req, res) => {
         const [listosSinNotificar] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Listo'`);
         const [esperando] = await db.query(`SELECT COUNT(*) as total FROM whatsapp_chats WHERE bot_desactivado = 1`);
         const [[botCots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'");
+        const [[botCalif]] = await db.query("SELECT COUNT(*) as total FROM calificaciones_bot WHERE estatus = 'nueva'");
+        const [[botVerif]] = await db.query("SELECT COUNT(*) as total FROM verificentros_bot WHERE estatus = 'nueva'");
+        const [[botVentas]] = await db.query("SELECT COUNT(*) as total FROM ventas_bot WHERE estatus = 'nueva'");
+        const totalBotLeads = botCots.total + botCalif.total + botVerif.total + botVentas.total;
         
         // Obtener últimos escalados formateados para la lista
-        const [lastEsc] = await db.query("SELECT id, cliente_whatsapp, motivo, created_at FROM escalados WHERE estatus = 'pendiente' ORDER BY id DESC LIMIT 5");
-        const formattedEsc = lastEsc.map(e => ({
+        const [lastEsc] = await db.query("SELECT id, cliente_whatsapp, motivo, created_at FROM escalados WHERE estatus = 'pendiente' ORDER BY id DESC");
+        const formattedEsc = lastEsc.slice(0, 5).map(e => ({
             ...e,
             id_profesional: `ESC-${String(e.id).padStart(4, '0')}`,
             cliente_whatsapp: limpiarID(e.cliente_whatsapp)
@@ -554,14 +559,14 @@ app.get('/api/kpis_negocio', async (req, res) => {
         }
 
         res.json({
-            clientes_esperando: esperando[0].total || 0,
-            nuevos_leads: leads[0].total || 0,
-            detenidos_laboratorio: detenidos[0].total || 0,
+            clientes_esperando: lastEsc.length,
+            nuevos_leads: totalBotLeads,
+            detenidos_laboratorio: qLab[0].total || 0,
             listos_sin_notificar: listosSinNotificar[0].total || 0,
             cotizaciones_bot_pendientes: botCots.total || 0,
             escalados_bot: formattedEsc, // Lista profesional
-            escalados_bot_pendientes: formattedEsc.length,
-            escalados_count: formattedEsc.length,
+            escalados_bot_pendientes: lastEsc.length,
+            escalados_count: lastEsc.length,
             conversaciones_activas: esperando[0].total || 0,
             tiempo_promedio_min: avgMin,
             pipeline: {
@@ -591,13 +596,48 @@ app.get('/api/kpis_aseguramiento', async (req, res) => {
 
         const [[sinPdf]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual IN ('Certificación', 'Listo', 'Entregado') AND certificado_url IS NULL`);
         
+        const [enCorreccion] = await db.query(`
+            SELECT 
+                ie.id, 
+                ie.orden_cotizacion, 
+                ie.nombre_instrumento, 
+                ie.empresa,
+                ie.rechazos_aseguramiento,
+                (SELECT MAX(fecha_rechazo) FROM rechazos_aseguramiento WHERE instrumento_id = ie.id) as fecha_rechazo,
+                (SELECT motivo FROM rechazos_aseguramiento WHERE instrumento_id = ie.id ORDER BY id DESC LIMIT 1) as motivo,
+                (SELECT estatus FROM instrumento_metrologos WHERE instrumento_id = ie.id ORDER BY id DESC LIMIT 1) as metrologo_estatus,
+                (SELECT COUNT(*) FROM instrumentos_comentarios WHERE instrumento_id = ie.id) as msg_count
+            FROM instrumentos_estatus ie
+            WHERE ie.estatus_actual = 'Laboratorio'
+              AND EXISTS (SELECT 1 FROM rechazos_aseguramiento r WHERE r.instrumento_id = ie.id AND r.estatus = 'pendiente')
+            ORDER BY fecha_rechazo DESC
+            LIMIT 50
+        `);
+
+        const [corregidos] = await db.query(`
+            SELECT 
+                ie.id, 
+                ie.orden_cotizacion, 
+                ie.nombre_instrumento, 
+                ie.empresa,
+                r.fecha_rechazo,
+                r.motivo as motivo_rechazo,
+                r.fecha_correccion
+            FROM instrumentos_estatus ie
+            JOIN rechazos_aseguramiento r ON r.instrumento_id = ie.id
+            WHERE r.estatus = 'corregido'
+            ORDER BY r.fecha_correccion DESC
+            LIMIT 50
+        `);
+        
         res.json({
             pendientes_aseguramiento: qAseg.total || 0,
             en_certificacion: qCert.total || 0,
-            listos_hoy: qListos.total || 0, // Fallback a total listos si no hay updated_at
+            listos_hoy: qListos.total || 0,
             sla_critico: criticos,
             sin_pdf: sinPdf.total || 0,
-            distribucion_area: []
+            en_correccion: enCorreccion,
+            corregidos: corregidos
         });
     } catch(err) { 
         console.error("Error en KPI Aseguramiento:", err.message);
@@ -739,15 +779,17 @@ app.get('/api/instrumentos', verificarToken(), async (req, res) => {
             query += " AND ie.estatus_actual IN ('Aseguramiento','Certificación','Listo','Entregado') ORDER BY ie.fecha_ingreso DESC";
         } else if (rol === 'metrologo' || rol === 'operador') {
             if (area) {
-                const [userRow] = await db.query('SELECT permisos FROM usuarios WHERE id = ?', [userId]);
+                const [userRow] = await db.query('SELECT permisos, es_lider_area FROM usuarios WHERE id = ?', [userId]);
                 let permisos = [];
                 try { permisos = JSON.parse(userRow[0]?.permisos || '[]'); } catch(_) {}
+                const esLider = !!(userRow[0]?.es_lider_area);
                 
-                if (permisos.includes('supervisor_area')) {
+                if (permisos.includes('supervisor_area') || esLider) {
+                    // Líder de área: ve todos los equipos de su área
                     query += " AND ie.area_laboratorio = ? ORDER BY ie.fecha_ingreso DESC";
                     params.push(area);
                 } else {
-                    // Ver si está asignado en la nueva tabla O en la columna legacy O es de su área
+                    // Metrología normal: solo sus equipos asignados
                     query += ` 
                         AND ie.area_laboratorio = ? 
                         AND (
@@ -935,12 +977,23 @@ app.post('/api/instrumentos/:id/finalizar_metrologo', verificarToken(), async (r
                     'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo, comentario) VALUES (?, ?, ?, ?, ?)',
                     [id, userId, 'Laboratorio', 'Aseguramiento', 'Todos los metrólogos terminaron su parte.']
                 );
+                // Marcar como corregido en la tabla de rechazos si aplica
+                await db.query(
+                    "UPDATE rechazos_aseguramiento SET estatus = 'corregido', fecha_correccion = NOW() WHERE instrumento_id = ? AND estatus = 'pendiente'",
+                    [id]
+                );
             } else {
                 // Envio individual: este metrologo terminó pero otros aún trabajan
                 await db.query('UPDATE instrumentos_estatus SET estatus_actual = "Aseguramiento" WHERE id = ?', [id]);
                 await db.query(
                     'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo, comentario) VALUES (?, ?, ?, ?, ?)',
                     [id, userId, 'Laboratorio', 'Aseguramiento', `Metrólogo ${req.usuario.nombre} finalizó su parte. Aún hay metrologos pendientes.`]
+                );
+
+                // Marcar como corregido en la tabla de rechazos si aplica
+                await db.query(
+                    "UPDATE rechazos_aseguramiento SET estatus = 'corregido', fecha_correccion = NOW() WHERE instrumento_id = ? AND estatus = 'pendiente'",
+                    [id]
                 );
 
                 // Notificar a los metrologos pendientes (opcional, puede fallar sin romper el flujo)
@@ -1012,23 +1065,48 @@ app.post('/api/instrumentos/:id/solicitar_correccion', verificarToken(), async (
     try {
         const { id } = req.params;
         const { usuario_destino_id, motivo } = req.body;
+        const userId = req.usuario.id;
+
+        // 1. Obtener info previa
+        const [info] = await db.query('SELECT estatus_actual, orden_cotizacion, nombre_instrumento FROM instrumentos_estatus WHERE id = ?', [id]);
         
+        // 2. Registrar rechazo oficial para que aparezca en reportes y Dashboard
         await db.query(
-            'UPDATE instrumento_metrologos SET estatus = "correccion", fecha_fin = NULL WHERE instrumento_id = ? AND usuario_id = ?',
-            [id, usuario_destino_id]
+            `INSERT INTO rechazos_aseguramiento (instrumento_id, usuario_rechaza_id, usuario_destino_id, motivo, estatus_previo) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [id, userId, usuario_destino_id || null, motivo, info[0]?.estatus_actual || 'Laboratorio']
         );
 
-        // Regresar a Laboratorio si ya estaba en Aseguramiento/Validación
+        // 3. Incrementar contador
+        await db.query('UPDATE instrumentos_estatus SET rechazos_aseguramiento = rechazos_aseguramiento + 1 WHERE id = ?', [id]);
+
+        // 4. Regresar a Laboratorio en la tabla de metrólogos
+        if (usuario_destino_id) {
+            await db.query(
+                'UPDATE instrumento_metrologos SET estatus = "correccion", fecha_fin = NULL WHERE instrumento_id = ? AND usuario_id = ?',
+                [id, usuario_destino_id]
+            );
+        } else {
+            // Si no hay destino, marcar todos como corrección
+            await db.query(
+                'UPDATE instrumento_metrologos SET estatus = "correccion", fecha_fin = NULL WHERE instrumento_id = ?',
+                [id]
+            );
+        }
+
+        // 5. Regresar estatus global
         await db.query('UPDATE instrumentos_estatus SET estatus_actual = "Laboratorio" WHERE id = ?', [id]);
 
+        // 6. Historial
         await db.query(
             'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo, comentario) VALUES (?, ?, ?, ?, ?)',
-            [id, req.usuario.id, 'Retroceso', 'Laboratorio', `Corrección solicitada: ${motivo}`]
+            [id, userId, info[0]?.estatus_actual || 'Desconocido', 'Laboratorio', `Corrección: ${motivo}`]
         );
 
+        // 7. Notificación
         await crearNotificacionGlobal({
             titulo: 'Corrección solicitada',
-            detalle: `Un compañero ha solicitado correcciones en el equipo: ${motivo}`,
+            detalle: `Se requiere corregir el equipo: ${info[0]?.nombre_instrumento}. Motivo: ${motivo}`,
             tipo: 'correccion',
             ruta: '/metrologia',
             urgencia: 'alta',
@@ -1038,7 +1116,10 @@ app.post('/api/instrumentos/:id/solicitar_correccion', verificarToken(), async (
 
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'correccion_solicitada', id });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        console.error("Error en solicitar_correccion:", err);
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -1326,13 +1407,20 @@ app.get('/api/metrologia/correcciones', verificarToken(), async (req, res) => {
     try {
         const userId = req.usuario.id;
         const [equipos] = await db.query(
-            `SELECT ie.*, im.estatus as mi_estatus, r.motivo as ultimo_motivo, r.fecha_rechazo,
-                    ie.rechazos_aseguramiento
+            `SELECT ie.*, im.estatus as mi_estatus, 
+                    COALESCE(r.motivo, 'Revisar chat de corrección') as ultimo_motivo, 
+                    r.fecha_rechazo,
+                    ie.rechazos_aseguramiento,
+                    (SELECT COUNT(*) FROM instrumentos_comentarios ic WHERE ic.instrumento_id = ie.id) as comentarios_count
              FROM instrumentos_estatus ie
              JOIN instrumento_metrologos im ON im.instrumento_id = ie.id
-             LEFT JOIN rechazos_aseguramiento r ON r.instrumento_id = ie.id
+             LEFT JOIN (
+                 SELECT instrumento_id, motivo, fecha_rechazo
+                 FROM rechazos_aseguramiento
+                 WHERE id IN (SELECT MAX(id) FROM rechazos_aseguramiento GROUP BY instrumento_id)
+             ) r ON r.instrumento_id = ie.id
              WHERE im.usuario_id = ? AND im.estatus = 'correccion' AND ie.estatus_actual = 'Laboratorio'
-             ORDER BY r.fecha_rechazo DESC`,
+             ORDER BY ie.fecha_ingreso DESC`,
             [userId]
         );
 
@@ -1627,7 +1715,17 @@ app.put('/api/instrumentos/:id/estatus', verificarToken(), async (req, res) => {
         if (estatus === 'Laboratorio') {
             await db.query(`UPDATE instrumento_metrologos SET estatus = 'correccion', fecha_fin = NULL WHERE instrumento_id = ?`, [id]);
             
-            // Garantizar que si hay un metrologo legado, tenga su registro en la tabla de asignación múltiple
+            // Loguear rechazo oficial para trazabilidad
+            if (comentario || oldStatus !== 'Laboratorio') {
+                await db.query(
+                    `INSERT INTO rechazos_aseguramiento (instrumento_id, usuario_rechaza_id, motivo, estatus_previo) 
+                     VALUES (?, ?, ?, ?)`,
+                    [id, req.usuario?.id || null, comentario || 'Cambio manual a Laboratorio', oldStatus]
+                );
+                await db.query('UPDATE instrumentos_estatus SET rechazos_aseguramiento = rechazos_aseguramiento + 1 WHERE id = ?', [id]);
+            }
+
+            // Garantizar que si hay un metrologo legado...
             const [eqInfo] = await db.query('SELECT metrologo_asignado_id, orden_cotizacion, nombre_instrumento FROM instrumentos_estatus WHERE id = ?', [id]);
             if (eqInfo.length > 0 && eqInfo[0].metrologo_asignado_id) {
                 const [exists] = await db.query('SELECT id FROM instrumento_metrologos WHERE instrumento_id = ? AND usuario_id = ?', [id, eqInfo[0].metrologo_asignado_id]);
@@ -1657,7 +1755,7 @@ app.put('/api/instrumentos/:id/estatus', verificarToken(), async (req, res) => {
         if (comentario) {
             await db.query(
                 `INSERT INTO instrumentos_comentarios (instrumento_id, usuario_id, mensaje, tipo) VALUES (?, ?, ?, ?)`,
-                [id, req.usuario?.id || null, comentario, 'cambio_estatus']
+                [id, req.usuario?.id || null, comentario, 'chat']
             );
         }
         
@@ -1696,7 +1794,7 @@ app.post('/api/instrumentos/bulk-status', verificarToken(), async (req, res) => 
             if (comentario) {
                 await db.query(
                     `INSERT INTO instrumentos_comentarios (instrumento_id, usuario_id, mensaje, tipo) VALUES (?, ?, ?, ?)`,
-                    [id, req.usuario?.id || null, comentario, 'cambio_estatus_masivo']
+                    [id, req.usuario?.id || null, comentario, 'chat']
                 );
             }
 
@@ -1704,6 +1802,14 @@ app.post('/api/instrumentos/bulk-status', verificarToken(), async (req, res) => 
             if (estatus === 'Laboratorio') {
                 await db.query('UPDATE instrumento_metrologos SET estatus = "correccion", fecha_fin = NULL WHERE instrumento_id = ?', [id]);
                 
+                // Loguear rechazo oficial
+                await db.query(
+                    `INSERT INTO rechazos_aseguramiento (instrumento_id, usuario_rechaza_id, motivo, estatus_previo) 
+                     VALUES (?, ?, ?, ?)`,
+                    [id, req.usuario?.id || null, comentario || 'Rechazo masivo', oldStatus]
+                );
+                await db.query('UPDATE instrumentos_estatus SET rechazos_aseguramiento = rechazos_aseguramiento + 1 WHERE id = ?', [id]);
+
                 // Fallback legado
                 const [fallback] = await db.query('SELECT metrologo_asignado_id FROM instrumentos_estatus WHERE id = ?', [id]);
                 if (fallback.length > 0 && fallback[0].metrologo_asignado_id) {
@@ -2774,6 +2880,8 @@ app.get('/api/bot/stats', async (req, res) => {
         const metroMap = {};
         metrologiaAreas.forEach(a => { metroMap[a.area_laboratorio] = a.total; });
 
+        const [[correccionesTotal]] = await db.query("SELECT COUNT(*) as total FROM instrumento_metrologos im JOIN instrumentos_estatus ie ON ie.id = im.instrumento_id WHERE im.estatus = 'correccion' AND ie.estatus_actual = 'Laboratorio'");
+
         res.json({
             cotizacionesHoy: cots.total || 0,
             pendientesCotizacion: pendientes.total || 0,
@@ -2785,7 +2893,8 @@ app.get('/api/bot/stats', async (req, res) => {
             pendientesValidacion: validacion.total || 0,
             metrologiaAreaCounts: metroMap,
             sin_certificado: sinCert.total || 0,
-            feedback_nuevos: feedbackNuevos.total || 0
+            feedback_nuevos: feedbackNuevos.total || 0,
+            correccionesTotal: correccionesTotal.total || 0
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2945,7 +3054,7 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
                 notifs.push({
                     tipo: 'sla',
                     id: `sla_${e.id}`,
-                    titulo: vencido ? `⏰ SLA VENCIDO: ${e.nombre_instrumento}` : `⚠️ SLA crítico (${e.sla_restante}d): ${e.nombre_instrumento}`,
+                    titulo: vencido ? `SLA VENCIDO: ${e.nombre_instrumento}` : `SLA crítico (${e.sla_restante}d): ${e.nombre_instrumento}`,
                     detalle: `OC ${e.orden_cotizacion || '—'} · ${e.empresa || '—'} · Etapa: ${e.estatus_actual}`,
                     ruta: '/equipos',
                     urgencia: vencido ? 'alta' : 'media',
@@ -2954,17 +3063,69 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
             });
         }
 
-        // 3. Cotizaciones bot pendientes sin atender
+        // 3. Flujos bot pendientes sin atender
         if (esAdmin || rol === 'recepcionista' || rol === 'ventas') {
             const [[cots]] = await db.query(`SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'`);
             if (cots.total > 0) {
                 notifs.push({
                     tipo: 'cotizacion',
                     id: 'cots_pendientes',
-                    titulo: `📋 ${cots.total} cotización${cots.total > 1 ? 'es' : ''} sin atender`,
-                    detalle: 'Solicitudes recibidas por WhatsApp esperando respuesta del equipo',
+                    titulo: `${cots.total} cotización${cots.total > 1 ? 'es' : ''} de calibración sin atender`,
+                    detalle: 'Solicitudes de calibración por WhatsApp esperando respuesta',
                     ruta: '/flujos-whatsapp',
                     urgencia: 'media',
+                    ts: new Date().toISOString()
+                });
+            }
+            
+            const [[calif]] = await db.query(`SELECT COUNT(*) as total FROM calificaciones_bot WHERE estatus = 'nueva'`);
+            if (calif.total > 0) {
+                notifs.push({
+                    tipo: 'cotizacion',
+                    id: 'calif_pendientes',
+                    titulo: `${calif.total} cotización${calif.total > 1 ? 'es' : ''} de calificación sin atender`,
+                    detalle: 'Solicitudes de calificación por WhatsApp esperando respuesta',
+                    ruta: '/flujos-whatsapp',
+                    urgencia: 'media',
+                    ts: new Date().toISOString()
+                });
+            }
+            
+            const [[verif]] = await db.query(`SELECT COUNT(*) as total FROM verificentros_bot WHERE estatus = 'nueva'`);
+            if (verif.total > 0) {
+                notifs.push({
+                    tipo: 'cotizacion',
+                    id: 'verif_pendientes',
+                    titulo: `${verif.total} cotización${verif.total > 1 ? 'es' : ''} de verificentros sin atender`,
+                    detalle: 'Solicitudes de verificentros por WhatsApp esperando respuesta',
+                    ruta: '/flujos-whatsapp',
+                    urgencia: 'media',
+                    ts: new Date().toISOString()
+                });
+            }
+
+            const [[ventas]] = await db.query(`SELECT COUNT(*) as total FROM ventas_bot WHERE estatus = 'nueva'`);
+            if (ventas.total > 0) {
+                notifs.push({
+                    tipo: 'cotizacion',
+                    id: 'ventas_pendientes',
+                    titulo: `${ventas.total} solicitud${ventas.total > 1 ? 'es' : ''} de ventas sin atender`,
+                    detalle: 'Solicitudes de venta de instrumentos esperando respuesta',
+                    ruta: '/flujos-whatsapp',
+                    urgencia: 'media',
+                    ts: new Date().toISOString()
+                });
+            }
+            
+            const [[asesores]] = await db.query(`SELECT COUNT(*) as total FROM escalados WHERE estatus = 'pendiente'`);
+            if (asesores.total > 0) {
+                notifs.push({
+                    tipo: 'asesor',
+                    id: 'asesores_pendientes',
+                    titulo: `${asesores.total} cliente${asesores.total > 1 ? 's' : ''} esperando asesor`,
+                    detalle: 'Escalamientos a humano desde WhatsApp sin atender',
+                    ruta: '/conversaciones',
+                    urgencia: 'alta',
                     ts: new Date().toISOString()
                 });
             }
@@ -2985,7 +3146,7 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
                     notifs.push({
                         tipo: 'rechazo',
                         id: `rechazo_${r.instrumento_id}_${new Date(r.created_at).getTime()}`,
-                        titulo: `🔁 Equipo rechazado en Aseguramiento`,
+                        titulo: `Equipo rechazado en Aseguramiento`,
                         detalle: `${r.nombre_instrumento} · OC ${r.orden_cotizacion || '—'} · Regresó a Laboratorio`,
                         ruta: '/metrologia',
                         urgencia: 'media',
@@ -3004,13 +3165,34 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
 // ─── CRON: Recordatorios diarios (cada día a las 9:00 AM) ────────────────────
 app.post('/api/notificaciones/:id/marcar_visto', verificarToken(), async (req, res) => {
     try {
-        const nid = req.params.id;
         const userId = req.usuario.id;
+        // Support both 'global_123' format and plain numeric IDs
+        const rawId = req.params.id;
+        const nid = rawId.startsWith('global_') ? rawId.replace('global_', '') : rawId;
         await db.query(
             'INSERT INTO notificaciones_leidas (notificacion_id, usuario_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE leido_at = NOW()',
             [nid, userId]
         );
         res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/notificaciones/marcar-todas', verificarToken(), async (req, res) => {
+    try {
+        const userId = req.usuario.id;
+        // Get all global notification IDs not yet read by this user
+        const [pendientes] = await db.query(`
+            SELECT ng.id FROM notificaciones_globales ng
+            LEFT JOIN notificaciones_leidas nl ON nl.notificacion_id = ng.id AND nl.usuario_id = ?
+            WHERE nl.id IS NULL
+        `, [userId]);
+        for (const p of pendientes) {
+            await db.query(
+                'INSERT INTO notificaciones_leidas (notificacion_id, usuario_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE leido_at = NOW()',
+                [p.id, userId]
+            );
+        }
+        res.json({ success: true, marcadas: pendientes.length });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -3121,20 +3303,20 @@ app.get('/api/auth/me', verificarToken(), async (req, res) => {
 // Gestión de usuarios (solo admin)
 app.get('/api/usuarios', verificarToken(['admin']), async (req, res) => {
     try {
-        const [rows] = await db.query('SELECT id, nombre, email, rol, area, activo, permisos, created_at FROM usuarios ORDER BY created_at DESC');
+        const [rows] = await db.query('SELECT id, nombre, email, rol, area, es_lider_area, activo, permisos, created_at FROM usuarios ORDER BY created_at DESC');
         res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/usuarios', verificarToken(['admin']), async (req, res) => {
     try {
-        const { nombre, email, password, rol, area, permisos } = req.body;
+        const { nombre, email, password, rol, area, permisos, es_lider_area } = req.body;
         if (!nombre || !email || !password) return res.status(400).json({ error: 'Faltan datos' });
         const bcrypt = require('bcryptjs');
         const hash = await bcrypt.hash(password, 12);
         const [r] = await db.query(
-            'INSERT INTO usuarios (nombre, email, password_hash, rol, area, permisos) VALUES (?, ?, ?, ?, ?, ?)',
-            [nombre, email.toLowerCase(), hash, rol || 'recepcionista', area || null, permisos ? JSON.stringify(permisos) : null]
+            'INSERT INTO usuarios (nombre, email, password_hash, rol, area, es_lider_area, permisos) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [nombre, email.toLowerCase(), hash, rol || 'recepcionista', area || null, es_lider_area ? 1 : 0, permisos ? JSON.stringify(permisos) : null]
         );
         res.json({ success: true, id: r.insertId });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -3142,11 +3324,11 @@ app.post('/api/usuarios', verificarToken(['admin']), async (req, res) => {
 
 app.put('/api/usuarios/:id', verificarToken(['admin']), async (req, res) => {
     try {
-        const { nombre, email, password, rol, area, permisos } = req.body;
+        const { nombre, email, password, rol, area, permisos, es_lider_area } = req.body;
         const id = req.params.id;
 
-        let query = 'UPDATE usuarios SET nombre = ?, email = ?, rol = ?, area = ?, permisos = ?';
-        let params = [nombre, email.toLowerCase(), rol, area || null, permisos ? JSON.stringify(permisos) : null];
+        let query = 'UPDATE usuarios SET nombre = ?, email = ?, rol = ?, area = ?, es_lider_area = ?, permisos = ?';
+        let params = [nombre, email.toLowerCase(), rol, area || null, es_lider_area ? 1 : 0, permisos ? JSON.stringify(permisos) : null];
 
         if (password && password.trim() !== "") {
             const bcrypt = require('bcryptjs');

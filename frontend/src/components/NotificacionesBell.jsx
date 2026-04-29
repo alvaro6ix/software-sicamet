@@ -20,8 +20,6 @@ const NotificacionesBell = ({ darkMode }) => {
   const [notifs, setNotifs] = useState([]);
   const [abierto, setAbierto] = useState(false);
   const [cargando, setCargando] = useState(false);
-  const [leidas, setLeidas] = useState(new Set());
-  const [vistos, setVistos] = useState(new Set());
   const panelRef = useRef(null);
   const navigate = useNavigate();
 
@@ -62,25 +60,24 @@ const NotificacionesBell = ({ darkMode }) => {
     return () => { document.body.style.overflow = ''; };
   }, [abierto]);
 
-  const noLeidas = notifs.filter(n => !leidas.has(n.id));
+  // Count unread = notifications without 'visto_por_mi' from backend
+  const noLeidas = notifs.filter(n => !n.visto_por_mi);
 
-  const marcarLeida = (id) => {
-    const nls = new Set([...leidas, id]);
-    setLeidas(nls);
-  };
-
-  const marcarEntendido = async (e, id) => {
-    e.stopPropagation();
+  const marcarLeida = async (id) => {
+    // id can be like 'global_123' or 'sla_456'
+    if (!id.startsWith('global_')) return; // Only global ones persist to DB
     try {
-        await axios.post(`/api/notificaciones/${id}/visto`, { id_usuario: 1 }); // ID estático o de auth
-        setVistos(new Set([...vistos, id]));
-        fetchNotifs();
-    } catch(err) { console.error("Error al marcar visto"); }
+      await axios.post(`/api/notificaciones/${id}/marcar_visto`);
+      // Optimistic update
+      setNotifs(prev => prev.map(n => n.id === id ? { ...n, visto_por_mi: true } : n));
+    } catch(err) { console.error('Error al marcar notif leída', err); }
   };
 
-  const marcarTodas = () => {
-    const todosIds = notifs.map(n => n.id);
-    setLeidas(new Set([...leidas, ...todosIds]));
+  const marcarTodas = async () => {
+    try {
+      await axios.post('/api/notificaciones/marcar-todas');
+      setNotifs(prev => prev.map(n => ({ ...n, visto_por_mi: true })));
+    } catch(err) { console.error('Error al marcar todas', err); }
   };
 
   // Metadata visual por tipo + urgencia
@@ -121,12 +118,12 @@ const NotificacionesBell = ({ darkMode }) => {
   ) : (
     <>
       {notifs.map(n => {
-        const leida = leidas.has(n.id);
+        const leida = !!n.visto_por_mi;
         const meta = getMeta(n);
         return (
           <div
             key={n.id}
-            onClick={() => { marcarLeida(n.id); navigate(n.ruta); setAbierto(false); }}
+            onClick={() => { marcarLeida(n.id); navigate(n.ruta || '/equipos'); setAbierto(false); }}
             className={`
               group flex items-start gap-3 px-4 py-3.5 border-b cursor-pointer transition-all
               ${divider} ${rowHover} ${meta.rowExtra}
@@ -140,18 +137,18 @@ const NotificacionesBell = ({ darkMode }) => {
               <p className="text-[10px] mt-1 opacity-35">{tiempoRelativo(n.ts)}</p>
             </div>
             <div className="flex flex-col items-end gap-1.5 flex-shrink-0 self-center">
-              {n.tipo === 'global' && !n.visto_por_mi ? (
-                  <button 
-                    onClick={(e) => marcarEntendido(e, n.id)} 
-                    className={`px-3 py-1 rounded-full text-[10px] font-black transition-all ${darkMode ? 'bg-[#C9EA63] text-black hover:bg-white' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
-                  >
-                    ENTERADO
-                  </button>
+              {n.tipo === 'global' && !leida ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); marcarLeida(n.id); }}
+                  className={`px-3 py-1 rounded-full text-[10px] font-black transition-all ${darkMode ? 'bg-[#C9EA63] text-black hover:bg-white' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                >
+                  ENTERADO
+                </button>
               ) : (
-                  <>
-                    {!leida && <span className={`w-2 h-2 rounded-full ${meta.badge}`} />}
-                    <ChevronRight size={12} className="opacity-0 group-hover:opacity-40 transition-opacity" />
-                  </>
+                <>
+                  {!leida && <span className={`w-2 h-2 rounded-full ${meta.badge}`} />}
+                  <ChevronRight size={12} className="opacity-0 group-hover:opacity-40 transition-opacity" />
+                </>
               )}
             </div>
           </div>
@@ -302,3 +299,4 @@ const NotificacionesBell = ({ darkMode }) => {
 };
 
 export default NotificacionesBell;
+

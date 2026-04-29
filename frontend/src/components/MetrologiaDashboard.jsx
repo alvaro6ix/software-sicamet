@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Package, Clock, AlertTriangle, AlertCircle, CheckCircle, Search, MessageSquare, ChevronDown, ChevronUp, CheckSquare, Square, ThumbsUp, HelpCircle, X, Paperclip, Tag, BookOpen, Hash, User, Calendar, FileText, FileCheck, Image as ImageIcon, Eye, ArrowRight } from 'lucide-react';
+import { Package, Clock, AlertTriangle, AlertCircle, CheckCircle, Search, MessageSquare, ChevronDown, ChevronUp, CheckSquare, Square, ThumbsUp, HelpCircle, X, Paperclip, Tag, BookOpen, Hash, User, Calendar, FileText, FileCheck, Image as ImageIcon, Eye, ArrowRight, Camera, Send } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 const getOsaColor = (osStr, isDark) => {
@@ -20,6 +20,7 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
     const [tabActual, setTabActual] = useState('Laboratorio');
     const [cargando, setCargando] = useState(true);
     const [busqueda, setBusqueda] = useState('');
+    const [prioridadFiltro, setPrioridadFiltro] = useState(null);
     
     // Selección de equipos (IDs)
     const [seleccionados, setSeleccionados] = useState([]);
@@ -101,6 +102,10 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
         equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Laboratorio' && e.slaRestante <= 0);
     }
 
+    if (tabActual === 'Laboratorio' && prioridadFiltro) {
+        equiposFiltroTab = equiposFiltroTab.filter(e => e.prioridad === prioridadFiltro);
+    }
+
     const filtrados = equiposFiltroTab.filter(e => 
         (e.orden_cotizacion || '').toLowerCase().includes(busqueda.toLowerCase()) ||
         (e.empresa || '').toLowerCase().includes(busqueda.toLowerCase()) ||
@@ -178,30 +183,27 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
     };
 
     const prepararEnvio = () => {
-        // Verificar integridad
-        const ocsAfectadas = [...new Set(equiposConSLA.filter(e => seleccionados.includes(e.id)).map(e => e.orden_cotizacion))];
-        let alertasLocales = [];
+        const selEquipos = equiposConSLA.filter(e => seleccionados.includes(e.id));
+        const ocs = [...new Set(selEquipos.map(e => e.orden_cotizacion))];
         
-        for (const oc of ocsAfectadas) {
-            const totalesDoc = equiposGlobales.filter(e => e.orden_cotizacion === oc);
-            const mandadosDoc = equiposConSLA.filter(e => e.orden_cotizacion === oc && seleccionados.includes(e.id));
-            if (mandadosDoc.length < totalesDoc.length) {
-                const estatusList = totalesDoc.map(e => e.estatus_actual);
-                const enRec = estatusList.filter(s => s === 'Recepción').length;
-                const enVal = estatusList.filter(s => s === 'Validación').length;
-                const enLabNoSel = totalesDoc.filter(e => e.estatus_actual === 'Laboratorio' && !seleccionados.includes(e.id)).length;
+        let alerts = [];
+        ocs.forEach(oc => {
+            const totalOC = equiposGlobales.filter(e => e.orden_cotizacion === oc);
+            const enLote = selEquipos.filter(e => e.orden_cotizacion === oc);
+            
+            if (enLote.length < totalOC.length) {
+                const rest = totalOC.filter(e => !seleccionados.includes(e.id));
+                const statusMap = {};
+                rest.forEach(r => { statusMap[r.estatus_actual] = (statusMap[r.estatus_actual] || 0) + 1; });
+                const statusDesc = Object.entries(statusMap).map(([s, n]) => `${n} en ${s}`).join(', ');
                 
-                let d = [];
-                if (enRec) d.push(`${enRec} en Recepción`);
-                if (enVal) d.push(`${enVal} en Validación`);
-                if (enLabNoSel) d.push(`${enLabNoSel} sin marcar en Lab`);
-                const rest = d.length > 0 ? ` Faltan: ${d.join(', ')}.` : '';
-                
-                alertasLocales.push(`OC ${oc}: Estás enviando ${mandadosDoc.length} de ${totalesDoc.length} equipos totales.${rest}`);
+                alerts.push(`OC ${oc}: Estás enviando ${enLote.length} de ${totalOC.length} equipos totales. Los restantes (${totalOC.length - enLote.length}) están: ${statusDesc}.`);
+            } else {
+                alerts.push(`OC ${oc}: Enviando el lote completo (${enLote.length} de ${totalOC.length}).`);
             }
-        }
-
-        setAlertasConf(alertasLocales);
+        });
+        
+        setAlertasConf(alerts);
         setModalConf(true);
     };
 
@@ -214,6 +216,17 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
             toast.success(`Se ha finalizado el registro técnico de ${seleccionados.length} equipos.`);
             setSeleccionados([]);
             setModalConf(false);
+            fetchData();
+        } catch (err) {
+            toast.error('Error al finalizar metrología');
+        }
+    };
+
+    const confirmarEnvioIndividual = async (id) => {
+        if (!window.confirm("¿Confirmas que has terminado el trabajo técnico de este equipo?")) return;
+        try {
+            await axios.post(`/api/instrumentos/${id}/finalizar_metrologo`, {});
+            toast.success(`Equipo finalizado y enviado a Aseguramiento.`);
             fetchData();
         } catch (err) {
             toast.error('Error al finalizar metrología');
@@ -280,20 +293,44 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                 </div>
             </div>
             <div className="mb-6">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className={`p-4 rounded-xl border flex flex-col ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div 
+                        onClick={() => { setTabActual('Laboratorio'); setPrioridadFiltro(null); }}
+                        className={`p-4 rounded-xl border flex flex-col cursor-pointer transition-all hover:scale-105 active:scale-95 ${prioridadFiltro === null && tabActual === 'Laboratorio' ? 'ring-2 ring-slate-400' : ''} ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}
+                    >
                         <div className="text-[10px] uppercase font-bold opacity-60 mb-2 flex items-center gap-1"><Package size={14}/> En Laboratorio</div>
                         <div className="text-3xl font-black">{countTotal}</div>
                     </div>
-                    <div className={`p-4 rounded-xl border flex flex-col ${darkMode ? 'bg-rose-950/20 border-rose-900/50 text-rose-400' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
+                    <div 
+                        onClick={() => { setTabActual('Laboratorio'); setPrioridadFiltro('Rojo'); }}
+                        className={`p-4 rounded-xl border flex flex-col cursor-pointer transition-all hover:scale-105 active:scale-95 ${prioridadFiltro === 'Rojo' ? 'ring-2 ring-rose-500' : ''} ${darkMode ? 'bg-rose-950/20 border-rose-900/50 text-rose-400' : 'bg-rose-50 border-rose-200 text-rose-700'}`}
+                    >
                         <div className="text-[10px] uppercase font-bold opacity-80 mb-2 flex items-center gap-1"><AlertTriangle size={14}/> Urgentes (&lt; 24h)</div>
                         <div className="text-3xl font-black">{countRojo}</div>
                     </div>
-                    <div className={`p-4 rounded-xl border flex flex-col ${darkMode ? 'bg-[#C9EA63]/10 border-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-50 border-emerald-200 text-[#008a5e]'}`}>
+                    <div 
+                        onClick={() => navigate('/correcciones-metrologia')}
+                        className={`p-4 rounded-xl border flex flex-col cursor-pointer transition-all hover:scale-105 active:scale-95 ${darkMode ? 'bg-rose-600 border-rose-700 text-white animate-pulse shadow-lg' : 'bg-rose-600 text-white shadow-md'}`}
+                    >
+                        <div className="text-[10px] uppercase font-bold opacity-90 mb-2 flex items-center gap-1"><AlertTriangle size={14}/> Correcciones</div>
+                        <div className="text-3xl font-black">{
+                            equiposGlobales.filter(e => 
+                                e.estatus_actual === 'Laboratorio' && 
+                                e.metrologos_asignados?.some(m => Number(m.id) === Number(usuario?.id) && m.estatus === 'correccion')
+                            ).length
+                        }</div>
+                    </div>
+                    <div 
+                        onClick={() => { setTabActual('Laboratorio'); setPrioridadFiltro('Amarillo'); }}
+                        className={`p-4 rounded-xl border flex flex-col cursor-pointer transition-all hover:scale-105 active:scale-95 ${prioridadFiltro === 'Amarillo' ? 'ring-2 ring-amber-500' : ''} ${darkMode ? 'bg-[#C9EA63]/10 border-[#C9EA63]/20 text-[#C9EA63]' : 'bg-amber-50 border-amber-200 text-amber-600'}`}
+                    >
                         <div className="text-[10px] uppercase font-bold opacity-80 mb-2 flex items-center gap-1"><AlertCircle size={14}/> Medio (2-3 días)</div>
                         <div className="text-3xl font-black text-inherit">{countAmarillo}</div>
                     </div>
-                    <div className={`p-4 rounded-xl border flex flex-col ${darkMode ? 'bg-emerald-950/20 border-emerald-900/50 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-[#008a5e]'}`}>
+                    <div 
+                        onClick={() => { setTabActual('Laboratorio'); setPrioridadFiltro('Verde'); }}
+                        className={`p-4 rounded-xl border flex flex-col cursor-pointer transition-all hover:scale-105 active:scale-95 ${prioridadFiltro === 'Verde' ? 'ring-2 ring-emerald-500' : ''} ${darkMode ? 'bg-emerald-950/20 border-emerald-900/50 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-[#008a5e]'}`}
+                    >
                         <div className="text-[10px] uppercase font-bold opacity-80 mb-2 flex items-center gap-1"><CheckCircle size={14}/> Normal (&gt; 3 días)</div>
                         <div className="text-3xl font-black">{countVerde}</div>
                     </div>
@@ -409,9 +446,16 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                                     <span className={`text-[10px] font-black tracking-widest ${darkMode ? 'text-white/30' : 'text-slate-400'}`}>{eq.orden_cotizacion}</span>
                                                     <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${darkMode ? 'bg-[#C9EA63]/10 text-[#C9EA63]' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>Área: {eq.area_laboratorio || 'N/A'}</span>
                                                 </div>
-                                                <span className={`font-black text-lg mt-1 truncate`} title={eq.nombre_instrumento}>
-                                                    {eq.nombre_instrumento}
-                                                </span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`font-black text-lg mt-1 truncate`} title={eq.nombre_instrumento}>
+                                                        {eq.nombre_instrumento}
+                                                    </span>
+                                                    {(eq.rechazos_aseguramiento > 0 || eq.total_rechazos > 0) && (
+                                                        <span className="animate-pulse px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-600 text-white flex items-center gap-1 mt-1">
+                                                            <AlertTriangle size={10}/> RECHAZADO
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
                                                     <span className="text-xs font-bold opacity-60">{eq.empresa}</span>
                                                     <span className="text-xs opacity-40 font-mono">ID: {eq.identificacion || eq.no_serie || 'S/N'}</span>
@@ -447,9 +491,18 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                                     <MessageSquare size={20} />
                                                 </button>
                                                 {tabActual === 'Laboratorio' && (
-                                                    <button onClick={(e) => { e.stopPropagation(); toggleSeleccion(eq.id); }} className={`p-3 rounded-2xl border transition-all ${sel ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-[#008a5e] text-white') : (darkMode ? 'border-[#C9EA63]/30 text-[#C9EA63]' : 'border-slate-300 text-slate-700')}`}>
-                                                        {sel ? <CheckSquare size={20} /> : <Square size={20} />}
-                                                    </button>
+                                                    <div className="flex items-center gap-2">
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); confirmarEnvioIndividual(eq.id); }}
+                                                            className={`p-3 rounded-2xl border transition-all ${darkMode ? 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20' : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}
+                                                            title="Finalizar este equipo"
+                                                        >
+                                                            <CheckCircle size={20} />
+                                                        </button>
+                                                        <button onClick={(e) => { e.stopPropagation(); toggleSeleccion(eq.id); }} className={`p-3 rounded-2xl border transition-all ${sel ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-[#008a5e] text-white') : (darkMode ? 'border-[#C9EA63]/30 text-[#C9EA63]' : 'border-slate-300 text-slate-700')}`}>
+                                                            {sel ? <CheckSquare size={20} /> : <Square size={20} />}
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>
@@ -551,9 +604,9 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                     </div>
                                 ) : (
                                     listaComentarios.slice().reverse().map((c, i, arr) => {
-                                        const soyYo = c.usuario_id === usuario?.id;
+                                        const soyYo = Number(c.usuario_id) === Number(usuario?.id);
                                         const nextMsg = arr[i + 1];
-                                        const sameUserNext = nextMsg && nextMsg.usuario_id === c.usuario_id;
+                                        const sameUserNext = nextMsg && Number(nextMsg.usuario_id) === Number(c.usuario_id);
                                         const msgBg = soyYo 
                                             ? (darkMode ? 'bg-[#005c4b] text-[#e9edef]' : 'bg-[#d9fdd3] text-[#111b21]') 
                                             : (darkMode ? 'bg-[#202c33] text-[#e9edef]' : 'bg-white text-[#111b21]');
@@ -617,10 +670,16 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                 )}
                                 
                                 <div className={`flex items-end rounded-2xl md:rounded-full px-2 min-h-[44px] ${darkMode ? 'bg-[#2a3942]' : 'bg-white'}`}>
-                                    <label className={`p-3 shrink-0 cursor-pointer rounded-full transition-colors ${darkMode ? 'text-[#8696a0] hover:text-[#e9edef]' : 'text-[#54656f] hover:text-[#111b21]'}`}>
-                                        <Paperclip size={20} />
-                                        <input type="file" className="hidden" onChange={e => { e.target.files[0] && setArchivoChat(e.target.files[0]); e.target.value = null; }} />
-                                    </label>
+                                    <div className="flex items-center">
+                                        <label className={`p-3 shrink-0 cursor-pointer rounded-full transition-colors ${darkMode ? 'text-[#8696a0] hover:text-[#e9edef]' : 'text-[#54656f] hover:text-[#111b21]'}`}>
+                                            <Paperclip size={20} />
+                                            <input type="file" className="hidden" onChange={e => { e.target.files[0] && setArchivoChat(e.target.files[0]); e.target.value = null; }} />
+                                        </label>
+                                        <label className={`p-3 shrink-0 cursor-pointer rounded-full transition-colors ${darkMode ? 'text-[#8696a0] hover:text-[#e9edef]' : 'text-[#54656f] hover:text-[#111b21]'}`}>
+                                            <Camera size={20} />
+                                            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { e.target.files[0] && setArchivoChat(e.target.files[0]); e.target.value = null; }} />
+                                        </label>
+                                    </div>
                                     <textarea 
                                         value={nuevoComentario} onChange={e => setNuevoComentario(e.target.value)} required
                                         placeholder="Escribe un mensaje"
@@ -744,6 +803,20 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                     </section>
 
                                     <section>
+                                        {(equipoDetalle.rechazos_aseguramiento > 0 || equipoDetalle.ultimo_motivo) && (
+                                            <div className={`mb-6 p-5 rounded-3xl border-2 border-dashed animate-in zoom-in duration-300 ${darkMode ? 'bg-rose-500/10 border-rose-500/40 text-rose-200' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <AlertTriangle size={18} className="text-rose-500" />
+                                                    <p className="text-xs font-black uppercase tracking-widest">Atención: Corrección Requerida</p>
+                                                </div>
+                                                <p className="text-sm font-bold italic mb-1">Motivo del rechazo:</p>
+                                                <p className="text-sm opacity-90">{equipoDetalle.ultimo_motivo || 'Revisar bitácora para detalles.'}</p>
+                                                {equipoDetalle.fecha_rechazo && (
+                                                    <p className="text-[10px] mt-2 opacity-50">Fecha de devolución: {new Date(equipoDetalle.fecha_rechazo).toLocaleString('es-MX')}</p>
+                                                )}
+                                            </div>
+                                        )}
+
                                         <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Requerimientos & Puntos</h4>
                                         <div className="space-y-4">
                                             <div className={`p-4 rounded-xl border text-sm ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10 text-[#F2F6F0]' : 'bg-slate-50 border-slate-100'}`}>
@@ -800,7 +873,7 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                                     {(equipoDetalle.cotizacion_referencia || equipoDetalle.fecha_recepcion || equipoDetalle.servicio_solicitado) && (
                                         <section>
                                             <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos de la Orden</h4>
-                                            <div className={`p-4 rounded-xl border grid grid-cols-2 gap-3 ${darkMode ? 'bg-indigo-950/20 border-indigo-500/20' : 'bg-indigo-50 border-indigo-200'}`}>
+                                            <div className={`p-4 rounded-xl border grid grid-cols-2 gap-3 ${darkMode ? 'bg-sky-950/20 border-sky-500/20' : 'bg-sky-50 border-sky-200'}`}>
                                                 {equipoDetalle.cotizacion_referencia && (
                                                     <div>
                                                         <p className="text-[9px] font-black uppercase opacity-40">Cotización Ref.</p>
@@ -857,3 +930,4 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
 };
 
 export default MetrologiaDashboard;
+

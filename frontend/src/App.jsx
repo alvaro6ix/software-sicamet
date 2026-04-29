@@ -189,6 +189,11 @@ const Sidebar = ({ darkMode, toggleDarkMode, mobileOpen, setMobileOpen, usuario,
                   ) : null;
                 })()
               )}
+              {item.name === 'Correcciones' && counts.correcciones > 0 && (
+                <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg border border-white/20 animate-pulse">
+                  {counts.correcciones}
+                </span>
+              )}
               {item.name === 'Sin Certificado' && counts.sin_certificado > 0 && (
                 <span className="bg-amber-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-lg border border-white/20 animate-pulse">
                   {counts.sin_certificado}
@@ -355,7 +360,8 @@ const Layout = () => {
         pendientesValidacion: res.data.pendientesValidacion || 0,
         metrologiaAreaCounts: res.data.metrologiaAreaCounts || {},
         sin_certificado: res.data.sin_certificado || 0,
-        feedback_nuevos: res.data.feedback_nuevos || 0
+        feedback_nuevos: res.data.feedback_nuevos || 0,
+        correcciones: res.data.correccionesTotal || 0
       });
     } catch (e) { console.error("Error global stats", e); }
   };
@@ -444,7 +450,7 @@ const Layout = () => {
               <Route path="/certificacion-agil" element={<AseguramientoCertificados darkMode={darkMode} />} />
               <Route path="/equipos" element={<ListaEquipos darkMode={darkMode} />} />
               <Route path="/kanban" element={<TableroKanban darkMode={darkMode} />} />
-              <Route path="/equipos/grupo/:oc" element={<GestionGrupo darkMode={darkMode} />} />
+              <Route path="/equipos/grupo/:oc" element={<GestionGrupo darkMode={darkMode} usuario={usuario} />} />
               <Route path="/metrologia" element={<MetrologiaDashboard darkMode={darkMode} usuario={usuario} />} />
               <Route path="/mi-bandeja" element={<MiBandeja darkMode={darkMode} usuario={usuario} />} />
               <Route path="/correcciones-metrologia" element={<CorreccionesMetrologia darkMode={darkMode} usuario={usuario} />} />

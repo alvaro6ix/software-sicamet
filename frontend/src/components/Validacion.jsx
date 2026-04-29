@@ -71,7 +71,7 @@ const InstrumentoRow = ({ eq, darkMode, tabActual, abrirDetalles, abrirComentari
                         {eq.certificado_url && (
                             <button 
                                 onClick={(e) => { e.stopPropagation(); finalizarCertificacion([eq.id]); }}
-                                className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-indigo-900/40 text-indigo-400' : 'hover:bg-indigo-100 text-indigo-600'}`}
+                                className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-emerald-900/40 text-emerald-400' : 'hover:bg-emerald-100 text-emerald-600'}`}
                                 title="Liberar este equipo individualmente"
                             >
                                 <CheckCircle size={24} />
@@ -355,7 +355,7 @@ const Validacion = ({ darkMode, usuario }) => {
                     <div className="text-[10px] uppercase font-bold opacity-80 mb-2 flex items-center gap-1"><AlertTriangle size={14}/> SLA Urgente</div>
                     <div className="text-3xl font-black">{countUrgentes}</div>
                 </div>
-                <div className={`p-4 rounded-xl border flex flex-col ${darkMode ? 'bg-indigo-950/20 border-indigo-900/50 text-indigo-400' : 'bg-indigo-50 border-indigo-200 text-indigo-700'}`}>
+                <div className={`p-4 rounded-xl border flex flex-col ${darkMode ? 'bg-emerald-950/20 border-emerald-900/50 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
                     <div className="text-[10px] uppercase font-bold opacity-80 mb-2 flex items-center gap-1"><FileCheck size={14}/> En Certificación</div>
                     <div className="text-3xl font-black">{countCert} <span className="text-xs opacity-60 font-medium">({countCertSinDoc} sin PDF)</span></div>
                 </div>
@@ -375,7 +375,7 @@ const Validacion = ({ darkMode, usuario }) => {
                 </button>
                 <button 
                     onClick={() => setTabActual('Certificacion')}
-                    className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Certificacion' ? (darkMode ? 'border-indigo-500 text-indigo-400' : 'border-indigo-600 text-indigo-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
+                    className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Certificacion' ? (darkMode ? 'border-emerald-500 text-emerald-400' : 'border-emerald-600 text-emerald-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
                 >
                     En Certificación
                 </button>
@@ -765,7 +765,7 @@ const Validacion = ({ darkMode, usuario }) => {
                                     {(equipoDetalle.cotizacion_referencia || equipoDetalle.fecha_recepcion || equipoDetalle.servicio_solicitado) && (
                                         <section>
                                             <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos de la Orden</h4>
-                                            <div className={`p-4 rounded-xl border grid grid-cols-2 gap-3 ${darkMode ? 'bg-indigo-950/20 border-indigo-500/20' : 'bg-indigo-50 border-indigo-200'}`}>
+                                            <div className={`p-4 rounded-xl border grid grid-cols-2 gap-3 ${darkMode ? 'bg-emerald-950/20 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'}`}>
                                                 {equipoDetalle.cotizacion_referencia && (<div><p className="text-[9px] font-black uppercase opacity-40">Cotización Ref.</p><p className="text-sm font-black font-mono">{equipoDetalle.cotizacion_referencia}</p></div>)}
                                                 {equipoDetalle.fecha_recepcion && (<div><p className="text-[9px] font-black uppercase opacity-40">Fecha Recepción</p><p className="text-sm font-bold">{equipoDetalle.fecha_recepcion}</p></div>)}
                                                 {equipoDetalle.servicio_solicitado && (<div><p className="text-[9px] font-black uppercase opacity-40">Servicio</p><p className="text-sm font-bold">{equipoDetalle.servicio_solicitado}</p></div>)}
@@ -811,7 +811,7 @@ const Validacion = ({ darkMode, usuario }) => {
             {confirmModal.open && (
                 <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex justify-center items-center z-[200] p-4 animate-in fade-in duration-200">
                     <div className={`w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 border animate-in zoom-in-95 duration-200 ${darkMode ? 'bg-[#141f0b] border-amber-900/40 text-[#F2F6F0]' : 'bg-white border-slate-200 text-slate-800'}`}>
-                        <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 mx-auto ${confirmModal.type === 'success' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-indigo-500/20 text-indigo-500'}`}>
+                        <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 mx-auto ${confirmModal.type === 'success' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-emerald-500/20 text-emerald-600'}`}>
                             {confirmModal.type === 'success' ? <CheckCircle size={32} /> : <HelpCircle size={32} />}
                         </div>
                         <h2 className="text-2xl font-black text-center mb-3 tracking-tight">{confirmModal.title}</h2>
@@ -827,7 +827,7 @@ const Validacion = ({ darkMode, usuario }) => {
                             </button>
                             <button 
                                 onClick={confirmModal.onConfirm}
-                                className={`flex-[2] py-4 font-black rounded-2xl transition-all shadow-xl active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : (confirmModal.type === 'success' ? 'bg-[#008a5e] hover:bg-[#007b55]' : 'bg-indigo-600 hover:bg-indigo-700')} text-white hover:brightness-110`}
+                                className={`flex-[2] py-4 font-black rounded-2xl transition-all shadow-xl active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : (confirmModal.type === 'success' ? 'bg-[#008a5e] hover:bg-[#007b55]' : 'bg-emerald-600 hover:bg-emerald-700')} text-white hover:brightness-110`}
                             >
                                 Confirmar Acción
                             </button>
