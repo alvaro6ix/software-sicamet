@@ -96,7 +96,7 @@ async function ensureBasicSchema() {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 nombre VARCHAR(150) NOT NULL,
                 email VARCHAR(150) NOT NULL UNIQUE,
-                password VARCHAR(255) NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
                 rol ENUM('admin', 'recepcionista', 'metrologo', 'aseguramiento') DEFAULT 'recepcionista',
                 area VARCHAR(100) NULL,
                 notif_wa TINYINT DEFAULT 0,
@@ -111,7 +111,7 @@ async function ensureBasicSchema() {
         if (users.length === 0) {
             const bcrypt = require('bcryptjs');
             const hashed = await bcrypt.hash('sicamet', 12);
-            await db.query('INSERT INTO usuarios (nombre, email, password, rol) VALUES (?, ?, ?, ?)', 
+            await db.query('INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)', 
                 ['Administrador', 'admin@sicamet.mx', hashed, 'admin']);
             console.log("✅ Usuario administrador creado por defecto (pass: sicamet)");
         }
