@@ -109,7 +109,7 @@ async function ensureBasicSchema() {
         // Insertar admin por defecto si no hay usuarios (solo si la tabla está vacía)
         const [users] = await db.query('SELECT id FROM usuarios LIMIT 1');
         if (users.length === 0) {
-            const bcrypt = require('bcrypt');
+            const bcrypt = require('bcryptjs');
             const hashed = await bcrypt.hash('sicamet', 12);
             await db.query('INSERT INTO usuarios (nombre, email, password, rol) VALUES (?, ?, ?, ?)', 
                 ['Administrador', 'admin@sicamet.mx', hashed, 'admin']);
