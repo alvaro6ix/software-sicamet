@@ -50,7 +50,18 @@ const replacements = [
     { from: /elctrica/g, to: 'electrica' },
     { from: /ptica/g, to: 'optica' },
     { from: /presin/g, to: 'presion' },
-    { from: /Recepcinista/gi, to: 'recepcionista' }
+    { from: /Recepcinista/gi, to: 'recepcionista' },
+    { from: /뿯½/g, to: '' },
+    { from: /ï¿½/g, to: '' },
+    { from: /Ã¡/g, to: 'a' },
+    { from: /Ã©/g, to: 'e' },
+    { from: /Ã\xed/g, to: 'i' },
+    { from: /Ã³/g, to: 'o' },
+    { from: /Ãº/g, to: 'u' },
+    { from: /Ã±/g, to: 'ñ' },
+    { from: /¿/g, to: '¿' },
+    { from: /¡/g, to: '¡' }
+
 ];
 
 replacements.forEach(r => {
