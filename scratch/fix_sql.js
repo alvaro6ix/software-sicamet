@@ -3,7 +3,32 @@ const path = require('path');
 
 // Ajustamos la ruta para que busque en la raíz del proyecto
 const filePath = path.join(__dirname, '..', 'database', 'init_fijo.sql');
-let content = fs.readFileSync(filePath, 'utf8');
+
+// Detectar si el archivo es UTF-16LE
+const buffer = fs.readFileSync(filePath);
+let content;
+
+// Comprobar BOM o presencia de bytes nulos (característico de UTF-16)
+const hasBOM = buffer[0] === 0xff && buffer[1] === 0xfe;
+const hasNullBytes = buffer.slice(0, 100).includes(0x00);
+
+if (hasBOM || hasNullBytes) {
+    console.log('📦 Detectado formato UTF-16 (o con nulos). Convirtiendo a UTF-8...');
+    // Si tiene el BOM erróneo (EF BF BD), lo saltamos
+    let startOffset = 0;
+    if (buffer[0] === 0xef && buffer[1] === 0xbf && buffer[2] === 0xbd) {
+        // En este caso el archivo tiene "" (REPLACEMENT CHARACTER) al inicio
+        // Probablemente por una conversión fallida previa.
+        // Intentamos encontrar dónde empieza el contenido real.
+        console.log('⚠️ Detectados bytes de reemplazo al inicio. Intentando recuperar...');
+    }
+    
+    // Forzamos la lectura como UTF-16LE y eliminamos los caracteres nulos si quedan
+    content = buffer.toString('utf16le').replace(/\0/g, '');
+} else {
+    content = buffer.toString('utf8');
+}
+
 
 // Reemplazos específicos para corregir la corrupción
 const replacements = [
@@ -32,5 +57,7 @@ replacements.forEach(r => {
     content = content.replace(r.from, r.to);
 });
 
+// Escribir como UTF-8 sin BOM
 fs.writeFileSync(filePath, content, 'utf8');
-console.log('✅ Archivo init_fijo.sql limpiado con éxito');
+console.log('✅ Archivo init_fijo.sql convertido y limpiado con éxito');
+
