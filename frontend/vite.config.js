@@ -15,16 +15,19 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:3001',
+        target: 'http://backend:3001',
         changeOrigin: true,
+        secure: false,
       },
       '/uploads': {
-        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:3001',
+        target: 'http://backend:3001',
         changeOrigin: true,
+        secure: false,
       },
       '/socket.io': {
-        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:3001',
+        target: 'http://backend:3001',
         ws: true,
+        changeOrigin: true,
       }
     }
   }

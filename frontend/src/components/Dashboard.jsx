@@ -99,9 +99,12 @@ const Dashboard = ({ darkMode }) => {
         <div onClick={() => navigate('/conversaciones')} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg border-rose-500 ${boxBg}`}>
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black tracking-widest uppercase text-rose-500 flex items-center gap-1"><MessageCircle size={10} /> Esperando Respuesta</p>
+                <div className="text-[10px] font-black tracking-widest uppercase text-rose-500 flex items-center gap-1">
+                  <MessageCircle size={10} />
+                  <span>Esperando Respuesta</span>
+                </div>
                 <div className="flex items-end gap-2 mt-1">
-                    <h2 className={`text-3xl font-black ${textValue}`}>{stats.kpis.clientes_esperando || 0}</h2>
+                    <h2 className={`text-3xl font-black ${textValue}`}>{stats?.kpis?.clientes_esperando ?? 0}</h2>
                     <span className="text-xs font-medium text-rose-500 mb-1">chats</span>
                 </div>
               </div>
@@ -113,7 +116,7 @@ const Dashboard = ({ darkMode }) => {
         <div onClick={() => navigate('/flujos-whatsapp')} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg border-amber-500 ${boxBg}`}>
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-[10px] font-black tracking-widest uppercase text-amber-500 flex items-center gap-1"><FileText size={10} /> Cotizaciones por Atender</p>
+                <div className="text-[10px] font-black tracking-widest uppercase text-amber-500 flex items-center gap-1"><FileText size={10} /> Cotizaciones por Atender</div>
                 <div className="flex items-end gap-2 mt-1">
                     <h2 className={`text-3xl font-black ${textValue}`}>{stats.kpis.nuevos_leads || 0}</h2>
                     <span className="text-xs font-medium text-amber-500 mb-1">leads</span>
@@ -127,7 +130,7 @@ const Dashboard = ({ darkMode }) => {
         <div onClick={() => navigate('/kanban')} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg ${darkMode ? 'border-[#C9EA63]' : 'border-[#008a5e]'} ${boxBg}`}>
             <div className="flex justify-between items-start">
               <div>
-                <p className={`text-[10px] font-black tracking-widest uppercase flex items-center gap-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}><Clock size={10} /> Detenidos en Lab</p>
+                <div className={`text-[10px] font-black tracking-widest uppercase flex items-center gap-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}><Clock size={10} /> Detenidos en Lab</div>
                 <div className="flex items-end gap-2 mt-1">
                     <h2 className={`text-3xl font-black ${textValue}`}>{stats.kpis.detenidos_laboratorio || 0}</h2>
                     <span className={`text-xs font-medium mb-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>equipos &gt; 2 días</span>
@@ -141,7 +144,7 @@ const Dashboard = ({ darkMode }) => {
         <div onClick={() => navigate('/kanban')} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg ${darkMode ? 'border-[#C9EA63]' : 'border-[#008a5e]'} ${boxBg}`}>
             <div className="flex justify-between items-start">
               <div>
-                <p className={`text-[10px] font-black tracking-widest uppercase flex items-center gap-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}><CheckCircle size={10} /> Listos Sin Notificar</p>
+                <div className={`text-[10px] font-black tracking-widest uppercase flex items-center gap-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}><CheckCircle size={10} /> Listos Sin Notificar</div>
                 <div className="flex items-end gap-2 mt-1">
                     <h2 className={`text-3xl font-black ${textValue}`}>{stats.kpis.listos_sin_notificar || 0}</h2>
                     <span className={`text-xs font-medium mb-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}>equipos listos</span>
@@ -163,7 +166,11 @@ const Dashboard = ({ darkMode }) => {
                 {stats.kpis.clientes_esperando > 4 && (
                 <div className={`p-3 rounded-lg text-sm font-medium flex items-start gap-2 ${darkMode ? 'bg-rose-900/30 text-rose-300' : 'bg-rose-50 text-rose-700'}`}>
                     <AlertTriangle size={16} className="mt-0.5" />
-                    <p>Atención: Hay congestión ({stats.kpis.clientes_esperando} chats esperando). Sugiero activar modo IA automatizado.</p>
+                    <div>
+                        <span>Atención: Hay congestión (</span>
+                        <b>{stats.kpis.clientes_esperando || 0}</b>
+                        <span> chats esperando). Sugiero activar modo IA automatizado.</span>
+                    </div>
                 </div>
                 )}
                 {stats.kpis.cotizaciones_bot_pendientes > 0 && (
@@ -172,7 +179,11 @@ const Dashboard = ({ darkMode }) => {
                   className={`p-3 rounded-lg text-sm font-bold flex items-start gap-2 shadow-sm cursor-pointer transition-all hover:scale-[1.02] ${darkMode ? 'bg-amber-900/30 text-amber-300 border border-amber-500/20' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}
                 >
                     <Bot size={16} className="mt-0.5 animate-bounce" />
-                    <p>Tienes {stats.kpis.cotizaciones_bot_pendientes} cotización(es) de WhatsApp pendientes por despachar.</p>
+                    <div>
+                        <span>Tienes </span>
+                        <b>{stats.kpis.cotizaciones_bot_pendientes || 0}</b>
+                        <span> cotización(es) de WhatsApp pendientes por despachar.</span>
+                    </div>
                 </div>
                 )}
                 {stats.kpis.clientes_esperando > 0 && (
@@ -181,18 +192,30 @@ const Dashboard = ({ darkMode }) => {
                   className={`p-3 rounded-lg text-sm font-bold flex items-start gap-2 shadow-sm cursor-pointer transition-all hover:scale-[1.02] ${darkMode ? 'bg-rose-900/30 text-rose-300 border border-rose-500/20' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}
                 >
                     <Users size={16} className="mt-0.5 animate-pulse" />
-                    <p>Hay {stats.kpis.clientes_esperando} cliente(s) esperando atención de un asesor humano.</p>
+                    <div>
+                        <span>Hay </span>
+                        <b>{stats.kpis.clientes_esperando || 0}</b>
+                        <span> cliente(s) esperando atención de un asesor humano.</span>
+                    </div>
                 </div>
                 )}
                 {stats.kpis.listos_sin_notificar > 0 && (
                 <div className={`p-3 rounded-lg text-sm flex items-start gap-2 shadow-sm cursor-pointer transition-all hover:scale-[1.02] ${darkMode ? 'bg-emerald-900/30 text-emerald-300 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`} onClick={() => navigate('/kanban')}>
                     <Activity size={16} className="mt-0.5" />
-                    <p>Tienes {stats.kpis.listos_sin_notificar} equipo(s) listo(s). Recuerda notificar a los clientes.</p>
+                    <div>
+                        <span>Tienes </span>
+                        <b>{stats.kpis.listos_sin_notificar || 0}</b>
+                        <span> equipo(s) listo(s). Recuerda notificar a los clientes.</span>
+                    </div>
                 </div>
                 )}
                 <div className={`p-3 rounded-lg text-sm flex items-start gap-2 ${darkMode ? 'bg-[#1b2b10] text-[#C9EA63]' : 'bg-emerald-50 text-emerald-700'}`}>
                     <Clock size={16} className="mt-0.5" />
-                    <p>Tu tiempo de respuesta humano es de {stats.kpis.tiempo_promedio_min} minutos en promedio.</p>
+                    <div className="flex items-center gap-1">
+                        <span>Tu tiempo de respuesta humano es de </span>
+                        <b>{Number(stats?.kpis?.tiempo_promedio_min || 0)}</b>
+                        <span> minutos en promedio.</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -202,7 +225,7 @@ const Dashboard = ({ darkMode }) => {
             <div className="flex justify-between items-end mb-6">
                 <div>
                     <h3 className={`text-lg font-black ${textValue}`}>Pipeline Operativo</h3>
-                    <p className={`text-xs ${textBody}`}>Volumen de equipos por fase</p>
+                    <div className={`text-xs ${textBody}`}>Volumen de equipos por fase</div>
                 </div>
                 <button onClick={() => navigate('/kanban')} className={`text-xs font-bold px-3 py-1 flex items-center gap-1 transition-colors rounded-full ${darkMode ? 'bg-[#1b2b10] text-[#F2F6F0] hover:bg-[#C9EA63] hover:text-[#141f0b]' : 'bg-slate-100 text-slate-700 hover:bg-[#008a5e] hover:text-white'}`}>
                     Ver Tablero Kanban <ArrowRight size={12}/>
@@ -236,7 +259,7 @@ const Dashboard = ({ darkMode }) => {
         {/* Heat Map de Días vs Horas */}
         <div className={`p-6 rounded-2xl border overflow-x-auto ${boxBg}`}>
             <h3 className={`text-lg font-black mb-1 ${textValue}`}>Mapa de Calor de Mensajes</h3>
-            <p className={`text-xs mb-6 ${textBody}`}>Días vs Horas de Operación (identifica saturación)</p>
+            <div className={`text-xs mb-6 ${textBody}`}>Días vs Horas de Operación (identifica saturación)</div>
             
             <div className="min-w-[500px]">
                 <div className="flex gap-2 mb-2">
@@ -258,6 +281,7 @@ const Dashboard = ({ darkMode }) => {
                     </div>
                 ))}
                 
+
                 {/* Leyenda Heatmap */}
                 <div className="flex justify-end gap-3 mt-4">
                     <div className="flex items-center gap-1 text-[10px]"><div className={`w-3 h-3 rounded-full ${darkMode ? 'bg-[#1b2b10]' : 'bg-slate-100'}`}></div> Bajo</div>
@@ -267,32 +291,32 @@ const Dashboard = ({ darkMode }) => {
             </div>
         </div>
 
-        {/* Gráfico 7-day trend optimizado */}
+        {/* Gráfico 7-day trend optimizado (Comentado temporalmente por diagnóstico) */}
         <div className={`p-6 rounded-2xl border ${boxBg}`}>
             <h3 className={`text-lg font-black mb-1 ${textValue}`}>Tendencia de Operación (7 días)</h3>
-            <p className={`text-xs mb-6 ${textBody}`}>Equipos recibidos y entregados</p>
+            <div className={`text-xs mb-6 ${textBody}`}>Equipos recibidos y entregados</div>
             <div className="h-64 w-full mt-4">
-                <ResponsiveContainer width="100%" height={250}>
-                    <AreaChart data={stats.chartData} margin={{ top: 5, right: 0, bottom: 0, left: -20 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={stats.chartData || []}>
                         <defs>
-                            <linearGradient id="colorIngresos" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor={darkMode ? "#C9EA63" : "#008a5e"} stopOpacity={0.3}/>
-                                <stop offset="95%" stopColor={darkMode ? "#C9EA63" : "#008a5e"} stopOpacity={0}/>
-                            </linearGradient>
-                            <linearGradient id="colorEntregas" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
-                                <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                            <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={darkMode ? '#C9EA63' : '#008a5e'} stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor={darkMode ? '#C9EA63' : '#008a5e'} stopOpacity={0}/>
                             </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? 'rgba(201, 234, 99, 0.1)' : '#e2e8f0'} />
-                        <XAxis dataKey="name" tick={{fill: darkMode ? '#F2F6F0' : '#64748b', fontSize: 10}} axisLine={false} tickLine={false} />
-                        <YAxis tick={{fill: darkMode ? '#F2F6F0' : '#64748b', fontSize: 10}} axisLine={false} tickLine={false} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#ffffff10' : '#00000005'} vertical={false} />
+                        <XAxis dataKey="fecha" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: darkMode ? '#ffffff60' : '#00000040'}} />
+                        <YAxis hide />
                         <RechartsTooltip 
-                            contentStyle={{ backgroundColor: darkMode ? '#141f0b' : '#fff', borderRadius: '12px', border: 'none' }}
-                            itemStyle={{ color: darkMode ? '#F2F6F0' : '#333', fontSize: '12px' }}
+                            contentStyle={{ 
+                                backgroundColor: darkMode ? '#141f0b' : '#fff', 
+                                borderRadius: '12px', 
+                                border: 'none', 
+                                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' 
+                            }} 
                         />
-                        <Area type="monotone" dataKey="ingresos" stroke={darkMode ? "#C9EA63" : "#008a5e"} fillOpacity={1} fill="url(#colorIngresos)" />
-                        <Area type="monotone" dataKey="entregados" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorEntregas)" />
+                        <Area type="monotone" dataKey="recibidos" stroke={darkMode ? '#C9EA63' : '#008a5e'} strokeWidth={3} fillOpacity={1} fill="url(#colorTrend)" />
+                        <Area type="monotone" dataKey="entregados" stroke="#3b82f6" strokeWidth={3} fillOpacity={0} />
                     </AreaChart>
                 </ResponsiveContainer>
             </div>

@@ -34,3 +34,5 @@ frontend/.vite/
 .idea/
 *.swp
 *.swo
+
+mysql_data/

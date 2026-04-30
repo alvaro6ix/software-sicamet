@@ -182,7 +182,7 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
                         <TrendingUp size={20} className="opacity-30" />
                     </div>
                     <div className="h-64 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                             <BarChart data={chartData}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? '#ffffff10' : '#00000010'} />
                                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: darkMode ? '#F2F6F060' : '#64748b' }} />

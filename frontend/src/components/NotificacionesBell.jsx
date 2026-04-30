@@ -112,8 +112,8 @@ const NotificacionesBell = ({ darkMode }) => {
   const Lista = () => notifs.length === 0 ? (
     <div className="py-12 px-6 text-center">
       <Bell size={36} className="mx-auto mb-3 opacity-10" />
-      <p className="text-sm font-semibold opacity-40">Sin alertas activas</p>
-      <p className="text-xs opacity-25 mt-1">No hay notificaciones pendientes en este momento.</p>
+      <div className="text-sm font-semibold opacity-40">Sin alertas activas</div>
+      <div className="text-xs opacity-25 mt-1">No hay notificaciones pendientes en este momento.</div>
     </div>
   ) : (
     <>
@@ -132,9 +132,9 @@ const NotificacionesBell = ({ darkMode }) => {
           >
             <div className="mt-0.5">{meta.icon}</div>
             <div className="flex-1 min-w-0">
-              <p className={`text-xs font-bold leading-snug ${n.urgencia === 'alta' && !leida ? 'text-red-500' : ''}`}>{n.titulo}</p>
-              <p className="text-[11px] mt-0.5 leading-relaxed opacity-55">{n.detalle}</p>
-              <p className="text-[10px] mt-1 opacity-35">{tiempoRelativo(n.ts)}</p>
+              <div className={`text-xs font-bold leading-snug ${n.urgencia === 'alta' && !leida ? 'text-red-500' : ''}`}>{n.titulo}</div>
+              <div className="text-[11px] mt-0.5 leading-relaxed opacity-55">{n.detalle}</div>
+              <div className="text-[10px] mt-1 opacity-35">{tiempoRelativo(n.ts)}</div>
             </div>
             <div className="flex flex-col items-end gap-1.5 flex-shrink-0 self-center">
               {n.tipo === 'global' && !leida ? (

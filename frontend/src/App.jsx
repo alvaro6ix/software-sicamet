@@ -218,8 +218,8 @@ const Sidebar = ({ darkMode, toggleDarkMode, mobileOpen, setMobileOpen, usuario,
             {usuario?.nombre?.charAt(0) || 'U'}
           </div>
           <div className="min-w-0">
-            <p className={`text-xs font-semibold truncate ${darkMode ? 'text-[#F2F6F0]' : 'text-[#253916]'}`}>{usuario?.nombre}</p>
-            <p className={`text-xs truncate ${darkMode ? 'text-[#F2F6F0]/40' : 'text-[#253916]/50'}`}>{usuario?.email}</p>
+            <div className={`text-xs font-semibold truncate ${darkMode ? 'text-[#F2F6F0]' : 'text-[#253916]'}`}>{usuario?.nombre}</div>
+            <div className={`text-xs truncate ${darkMode ? 'text-[#F2F6F0]/40' : 'text-[#253916]/50'}`}>{usuario?.email}</div>
           </div>
         </div>
 
@@ -385,7 +385,7 @@ const Layout = () => {
   return (
     <Router>
       <ToastContainer position="bottom-right" autoClose={3000} theme="colored" />
-      <div className={`flex h-screen overflow-hidden transition-all duration-300 ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]' : 'bg-slate-50 text-[#253916]'}`}>
+      <div translate="no" className={`flex h-screen overflow-hidden transition-all duration-300 ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]' : 'bg-slate-50 text-[#253916]'}`}>
         
         {/* Botón Flotante para reabrir Sidebar */}
         {sidebarOculta && (

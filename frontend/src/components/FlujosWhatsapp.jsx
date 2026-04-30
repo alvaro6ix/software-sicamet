@@ -128,7 +128,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
   };
   const fetchBotNodos = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('crm_token');
       const { data } = await axios.get(`${API}/api/bot/nodo-raiz`, { headers: { Authorization: `Bearer ${token}` } });
       setMensajeBienvenida(data.mensaje_bienvenida);
       setBotNodos(data.nodos || []);
@@ -149,7 +149,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
   };
   const guardarNodoRaiz = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('crm_token');
       await axios.put(`${API}/api/bot/nodo-raiz`, { mensaje_bienvenida: editandoBienvenidaTexto }, { headers: { Authorization: `Bearer ${token}` } });
       setMensajeBienvenida(editandoBienvenidaTexto);
       setEditandoBienvenida(false);
@@ -159,7 +159,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
 
   const guardarNodo = async (nodo) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('crm_token');
       const config = { headers: { Authorization: `Bearer ${token}` } };
       if (nodo.id !== undefined && nodo.id !== null && !nodo.isNew) {
         await axios.put(`${API}/api/bot/nodos/${nodo.id}`, nodo, config);
@@ -180,7 +180,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     const formData = new FormData();
     formData.append('archivo', file);
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('crm_token');
       const { data } = await axios.post(`${API}/api/bot/upload-media`, formData, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
       });
@@ -196,7 +196,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     if (id === 0) return alert('No puedes eliminar el menú principal');
     if (!confirm('¿Eliminar este paso del flujo? Esto borrará sus opciones asociadas.')) return;
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('crm_token');
       await axios.delete(`${API}/api/bot/nodos/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       fetchBotNodos();
     } catch { alert('Error al eliminar'); }
@@ -204,7 +204,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
 
   const guardarOpciones = async (nodoId, opciones) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('crm_token');
       await axios.post(`${API}/api/bot/nodos/${nodoId}/opciones`, { opciones }, { headers: { Authorization: `Bearer ${token}` } });
       fetchBotNodos();
       alert('Ramificaciones actualizadas');
@@ -311,7 +311,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     setCargandoBot(true);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('crm_token');
       const { data } = await axios.post(`${API}/api/bot/chat`,
         { wa: waSimulado, texto: userMsg },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -346,7 +346,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
     setTimeout(() => {
       setMensajes([]);
       setCargandoBot(true);
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('crm_token');
       axios.post(`${API}/api/bot/chat`,
         { wa: nuevoWa, texto: 'hola' },
         { headers: { Authorization: `Bearer ${token}` } }

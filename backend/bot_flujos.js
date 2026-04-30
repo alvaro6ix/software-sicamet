@@ -177,10 +177,20 @@ async function escalarPorIntentosFallidos(wa, sesion, mensajeUsuario, motivoRegi
             [wa, (motivoRegistro || '').substring(0, 400)]
         );
     } catch {}
+    
+    const enHorario = await estaEnHorario();
+    const cfg = await getConfigHorario();
+
     // ✅ Notificar por WhatsApp a los números configurados
     await notificarNuevoAsesor(wa, motivoRegistro).catch(() => {});
     await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
-    const texto = `${mensajeUsuario}\n\n🧑‍💼 *Conectando con un asesor SICAMET…*\nUn representante se pondrá en contacto contigo pronto.\n\n_Escribe *0* para el menú principal._`;
+
+    let avisoHorario = '🧑‍💼 *Conectando con un asesor SICAMET…*\nUn representante se pondrá en contacto contigo pronto.';
+    if (!enHorario) {
+        avisoHorario = `⏰ *Fuera de Horario Laboral*\nHemos registrado tu solicitud. Un asesor se pondrá en contacto contigo al iniciar el turno laboral (${cfg.horario_inicio || '08:00'} - ${cfg.horario_fin || '18:00'} hrs). 🙏`;
+    }
+
+    const texto = `${mensajeUsuario}\n\n${avisoHorario}\n\n_Escribe *0* para el menú principal._`;
     await guardarEnHistorial(wa, 'bot', texto);
     return { text: texto };
 }
@@ -328,6 +338,7 @@ async function construirTextoOpcionesMenu(datos) {
 async function responderMenuPrincipal(wa, sesion) {
     try {
         const cfg = await getConfigHorario();
+        const enHorario = await estaEnHorario();
         const datos = sesion?.datos || {};
         const esCliente = !!datos.nombre_empresa;
         
@@ -337,7 +348,14 @@ async function responderMenuPrincipal(wa, sesion) {
             msgBase = `🌟 ¡Hola de nuevo, colaborador de *${datos.nombre_empresa}*! 👋\n\n¿En qué te podemos ayudar hoy?`;
         }
 
-        let texto = msgBase + '\n';
+        let texto = '';
+        
+        // Agregar nota de horario si está fuera de rango
+        if (!enHorario && cfg.modo_fuera_horario !== 'silent') {
+            texto += `⏰ *Nota:* Estamos fuera de horario laboral (${cfg.horario_inicio || '08:00'} - ${cfg.horario_fin || '18:00'}). Puedes usar mis funciones automáticas y mañana te contactará un asesor si lo requieres.\n\n`;
+        }
+
+        texto += msgBase + '\n';
         texto += await construirTextoOpcionesMenu(datos);
 
         texto += '\n\n_Escribe el número de tu opción, cuéntame en qué me necesitas, o escribe *Finalizar* para terminar el chat._';
@@ -400,13 +418,7 @@ async function procesarMensaje(wa, texto, detectarIntencion, respuestaIA, nrReal
 
     if (!enHorario && cfg.modo_fuera_horario === 'silent') return null;
 
-    if (!enHorario && cfg.modo_fuera_horario !== 'silent') {
-        const hFin = cfg.horario_fin || '18:00';
-        const hIni = cfg.horario_inicio || '08:00';
-        const txt = `⏰ Nuestro horario de atención es de *${hIni}* a *${hFin}* hrs (Lun-Vie).\n\nTu mensaje fue registrado. Te contactaremos en horario laboral. 🙏`;
-        await guardarEnHistorial(wa, 'bot', txt);
-        return { text: txt };
-    }
+    // El bot es 24/7: No bloqueamos la ejecución aquí, solo informamos en el menú o escalados.
 
     // ── Comandos especiales de navegación ────────────────────────────────────
     if (textoLower === 'reiniciar') {
@@ -1550,6 +1562,8 @@ async function flujosRegistroEquipoLogic(wa, texto, sesion) {
 
 async function escalarAHumanoLogic(wa, texto) {
     const sesion = await getSesion(wa);
+    const enHorario = await estaEnHorario();
+    const cfg = await getConfigHorario();
     try {
         await db.query(
             'INSERT INTO escalados (cliente_whatsapp, motivo, estatus) VALUES (?, ?, "pendiente")',
@@ -1559,8 +1573,14 @@ async function escalarAHumanoLogic(wa, texto) {
     // ✅ Notificar por WhatsApp a los números de alertas configurados
     await notificarNuevoAsesor(wa, texto, sesion.numeroUserReal).catch(() => {});
     await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
+
+    let mensaje = '🧑‍💼 *Conectando con un asesor SICAMET...*\n\nUn representante se pondrá en contacto contigo muy pronto.';
+    if (!enHorario) {
+        mensaje = `⏰ *Fuera de Horario Laboral*\nNuestro horario de atención humana es de ${cfg.horario_inicio || '08:00'} a ${cfg.horario_fin || '18:00'} hrs.\n\nHemos registrado tu solicitud y un asesor se pondrá en contacto contigo al iniciar el siguiente turno laboral. 🙏`;
+    }
+
     return {
-        text: '🧑‍💼 *Conectando con un asesor SICAMET...*\n\nUn representante se pondrá en contacto contigo muy pronto.\n\n_Escribe *0* cuando quieras volver al menú principal._'
+        text: mensaje + '\n\n_Escribe *0* cuando quieras volver al menú principal._'
     };
 }
 

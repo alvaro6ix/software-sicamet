@@ -21,7 +21,7 @@ const pdf = require('pdf-parse');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 
 // Módulos del Bot PRO
 const botIA = require('./bot_ia');
@@ -120,6 +120,8 @@ async function ensureMetrologiaSchema() {
                 usuario_destino_id INT NULL,
                 motivo TEXT NOT NULL,
                 fecha_rechazo DATETIME DEFAULT CURRENT_TIMESTAMP,
+                fecha_correccion DATETIME NULL,
+                estatus VARCHAR(50) DEFAULT 'pendiente',
                 estatus_previo VARCHAR(50),
                 INDEX (instrumento_id),
                 INDEX (usuario_rechaza_id)
@@ -226,6 +228,20 @@ async function ensureMetrologiaSchema() {
                 UNIQUE KEY (notificacion_global_id, usuario_id)
             )
         `);
+
+        // Asegurar columnas en rechazos_aseguramiento
+        const [colsEstatus] = await db.query('SHOW COLUMNS FROM rechazos_aseguramiento LIKE "estatus"');
+        if (colsEstatus.length === 0) {
+            await db.query('ALTER TABLE rechazos_aseguramiento ADD COLUMN estatus VARCHAR(50) DEFAULT "pendiente"');
+            await db.query('ALTER TABLE rechazos_aseguramiento ADD COLUMN fecha_correccion DATETIME NULL AFTER fecha_rechazo');
+            console.log("✅ Columnas estatus y fecha_correccion añadidas a rechazos_aseguramiento");
+        }
+
+        // --- MIGRACIÓN SICAMET 2026: Ampliar capacidad de columnas críticas ---
+        await db.query('ALTER TABLE instrumentos_estatus MODIFY COLUMN ubicacion TEXT NULL');
+        await db.query('ALTER TABLE instrumentos_estatus MODIFY COLUMN identificacion TEXT NULL');
+        await db.query('ALTER TABLE instrumentos_estatus MODIFY COLUMN nombre_instrumento TEXT NULL');
+        console.log("✅ Columnas ubicacion, identificacion y nombre_instrumento ampliadas a TEXT");
 
     } catch (e) { console.error("❌ Error en ensureMetrologiaSchema:", e.message); }
 }
@@ -778,30 +794,31 @@ app.get('/api/instrumentos', verificarToken(), async (req, res) => {
         } else if (rol === 'aseguramiento' || rol === 'validacion') {
             query += " AND ie.estatus_actual IN ('Aseguramiento','Certificación','Listo','Entregado') ORDER BY ie.fecha_ingreso DESC";
         } else if (rol === 'metrologo' || rol === 'operador') {
-            if (area) {
-                const [userRow] = await db.query('SELECT permisos, es_lider_area FROM usuarios WHERE id = ?', [userId]);
-                let permisos = [];
-                try { permisos = JSON.parse(userRow[0]?.permisos || '[]'); } catch(_) {}
-                const esLider = !!(userRow[0]?.es_lider_area);
-                
-                if (permisos.includes('supervisor_area') || esLider) {
-                    // Líder de área: ve todos los equipos de su área
-                    query += " AND ie.area_laboratorio = ? ORDER BY ie.fecha_ingreso DESC";
-                    params.push(area);
-                } else {
-                    // Metrología normal: solo sus equipos asignados
-                    query += ` 
-                        AND ie.area_laboratorio = ? 
-                        AND (
-                            ie.metrologo_asignado_id = ? 
-                            OR EXISTS (SELECT 1 FROM instrumento_metrologos im WHERE im.instrumento_id = ie.id AND im.usuario_id = ?)
-                        )
-                        ORDER BY ie.fecha_ingreso DESC
-                    `;
-                    params.push(area, userId, userId);
-                }
+            const [userRow] = await db.query('SELECT permisos, es_lider_area FROM usuarios WHERE id = ?', [userId]);
+            let permisos = [];
+            try { permisos = JSON.parse(userRow[0]?.permisos || '[]'); } catch(_) {}
+            const esLider = !!(userRow[0]?.es_lider_area);
+            
+            if (area && (permisos.includes('supervisor_area') || esLider)) {
+                // Líder de área o supervisor: ve TODO su área O lo que tenga asignado específicamente
+                query += ` 
+                    AND (
+                        ie.area_laboratorio = ? 
+                        OR ie.metrologo_asignado_id = ? 
+                        OR EXISTS (SELECT 1 FROM instrumento_metrologos im WHERE im.instrumento_id = ie.id AND im.usuario_id = ?)
+                    ) 
+                    ORDER BY ie.fecha_ingreso DESC
+                `;
+                params.push(area, userId, userId);
             } else {
-                query += " AND (ie.metrologo_asignado_id = ? OR EXISTS (SELECT 1 FROM instrumento_metrologos im WHERE im.instrumento_id = ie.id AND im.usuario_id = ?)) ORDER BY ie.fecha_ingreso DESC";
+                // Metrología normal: ve únicamente lo que tiene asignado (de cualquier área)
+                query += ` 
+                    AND (
+                        ie.metrologo_asignado_id = ? 
+                        OR EXISTS (SELECT 1 FROM instrumento_metrologos im WHERE im.instrumento_id = ie.id AND im.usuario_id = ?)
+                    ) 
+                    ORDER BY ie.fecha_ingreso DESC
+                `;
                 params.push(userId, userId);
             }
         } else {
@@ -1241,8 +1258,7 @@ app.post('/api/instrumentos/:id/validar-certificado', verificarToken(), uploadCe
         const fullFilePath = path.join(__dirname, 'uploads', 'certificados', req.file.filename);
 
         // Ejecutar parser del certificado
-        const { execFile } = require('child_process');
-        execFile('python', [path.join(__dirname, 'pdf_parser.py'), '--certificado', fullFilePath], 
+        execFile('python3', [path.join(__dirname, 'pdf_parser.py'), '--certificado', fullFilePath], 
             { maxBuffer: 1024 * 1024 * 10 }, 
             async (error, stdout, stderr) => {
                 if (error) {
@@ -1600,47 +1616,28 @@ app.post('/api/instrumentos/:id/certificado', verificarToken(['admin', 'aseguram
         const pythonCommand = `python3 pdf_parser.py --certificado "${fullFilePath}"`;
         
         exec(pythonCommand, async (error, stdout, stderr) => {
-            if (error) {
-                console.error("Error IA Parser:", stderr);
-                if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
-                return res.status(500).json({ error: 'Error al procesar el certificado con IA.' });
+            let nInforme = rows[0].numero_informe || 'PENDIENTE';
+            let dataExtraida = {};
+
+            if (!error) {
+                try {
+                    const aiResult = JSON.parse(stdout);
+                    if (!aiResult.error) {
+                        dataExtraida = aiResult.datos || {};
+                        if (dataExtraida.no_certificado) nInforme = dataExtraida.no_certificado;
+                    } else {
+                        console.warn("⚠️ IA indicó error (informativo):", aiResult.error);
+                    }
+                } catch (e) {
+                    console.warn("⚠️ Resultado IA no es JSON válido:", stdout);
+                }
+            } else {
+                console.warn("⚠️ Error en ejecución de IA Parser:", stderr);
             }
 
+            // Guardamos el certificado de todas formas, según solicitud del usuario
+            const dbPath = `/uploads/certificados/${req.file.filename}`;
             try {
-                const aiResult = JSON.parse(stdout);
-                
-                if (aiResult.error) {
-                    if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
-                    return res.status(400).json({ error: `La IA no pudo procesar el PDF: ${aiResult.error}` });
-                }
-
-                const dataExtraida = aiResult.datos || {};
-                const nInforme = dataExtraida.no_certificado;
-                const osExtraida = dataExtraida.orden_servicio;
-
-                // 1. Validar que se extrajo un número de informe (Es un certificado legítimo)
-                if (!nInforme) {
-                    if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
-                    return res.status(400).json({ error: 'El archivo no parece ser un certificado de SICAMET válido (No se encontró número de informe).' });
-                }
-
-                // 2. Validar correspondencia de Orden de Servicio (Seguridad / Integridad)
-                const osCRM = (rows[0].orden_cotizacion || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-                const osPDF = (osExtraida || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-                // Comprobamos si la del PDF está contenida en la del CRM o viceversa (para tolerar prefijos O, OS, etc)
-                const matchOS = osCRM.includes(osPDF) || osPDF.includes(osCRM);
-
-                if (!matchOS && osPDF) {
-                    if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
-                    return res.status(400).json({ 
-                        error: `Conflicto de Orden: El certificado indica la orden "${osExtraida}", pero el equipo pertenece a la orden "${rows[0].orden_cotizacion}".`,
-                        debug: { osPDF, osCRM }
-                    });
-                }
-
-                // Si todo está bien, guardamos
-                const dbPath = `/uploads/certificados/${req.file.filename}`;
                 await db.query('UPDATE instrumentos_estatus SET certificado_url = ?, numero_informe = ? WHERE id = ?', 
                     [dbPath, nInforme, req.params.id]);
                 
@@ -1653,12 +1650,11 @@ app.post('/api/instrumentos/:id/certificado', verificarToken(['admin', 'aseguram
                     url: dbPath, 
                     numero_informe: nInforme,
                     ai_data: dataExtraida,
-                    message: "Certificado validado y cargado con éxito."
+                    message: "Certificado cargado correctamente." + (Object.keys(dataExtraida).length === 0 ? " (Procesamiento automático omitido)" : "")
                 });
-
-            } catch (pErr) {
-                if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
-                res.status(500).json({ error: 'Error al interpretar los datos de la IA.' });
+            } catch (dbErr) {
+                console.error("❌ Error DB al guardar certificado:", dbErr.message);
+                res.status(500).json({ error: 'Error al guardar el certificado en la base de datos.' });
             }
         });
 
@@ -2054,7 +2050,6 @@ app.post('/api/importar-catalogo', upload.single('archivoExcel'), async (req, re
 });
 
 // --- INTELIGENCIA PDF v19 (PYTHON + PDFPLUMBER PARA TABLAS COMPLEJAS) ---
-const { execFile } = require('child_process');
 
 app.post('/api/leer-pdf', upload.single('archivoPdf'), async (req, res) => {
     try {
@@ -2063,7 +2058,7 @@ app.post('/api/leer-pdf', upload.single('archivoPdf'), async (req, res) => {
         const tempPath = path.join(__dirname, `temp_${Date.now()}.pdf`);
         fs.writeFileSync(tempPath, req.file.buffer);
 
-        execFile('python', [path.join(__dirname, 'pdf_parser.py'), tempPath], { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+        execFile('python3', [path.join(__dirname, 'pdf_parser.py'), tempPath], { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
             if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
             if (error) return res.status(500).json({ error: 'Fallo al procesar el PDF.' });
 
@@ -2109,7 +2104,7 @@ app.post('/api/leer-certificado', upload.single('archivoCert'), async (req, res)
         const finalPath = path.join(__dirname, 'uploads', 'certificados', fileName);
         fs.writeFileSync(finalPath, req.file.buffer);
 
-        execFile('python', [path.join(__dirname, 'pdf_parser.py'), '--certificado', finalPath], { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+        execFile('python3', [path.join(__dirname, 'pdf_parser.py'), '--certificado', finalPath], { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
             if (error) {
                 if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
                 return res.status(500).json({ error: 'Error al procesar certificado con IA.' });

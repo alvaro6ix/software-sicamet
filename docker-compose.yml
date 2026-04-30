@@ -4,8 +4,9 @@ services:
     container_name: sicamet_db
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: sicamet
-      MYSQL_DATABASE: sicamet_crm
+      - TZ=America/Mexico_City
+      - MYSQL_ROOT_PASSWORD=***REDACTED***
+      - MYSQL_DATABASE=sicamet_crm
     ports:
       - "3306:3306"
     volumes:
@@ -21,6 +22,7 @@ services:
     depends_on:
       - db
     environment:
+      - TZ=America/Mexico_City
       - DB_HOST=db
       - DB_USER=root
       - DB_PASS=***REDACTED***
@@ -39,7 +41,7 @@ services:
     depends_on:
       - backend
     environment:
-      - VITE_BACKEND_URL=http://localhost:3001
+      - VITE_BACKEND_URL=http://backend:3001
     volumes:
       - ./frontend:/app
       - /app/node_modules

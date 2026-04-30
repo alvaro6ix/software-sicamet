@@ -8,7 +8,8 @@ const pool = mysql.createPool({
     database: process.env.DB_NAME || 'sicamet_crm',
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    charset: 'utf8mb4'
 });
 
 // Función rápida para probar que la conexión funciona

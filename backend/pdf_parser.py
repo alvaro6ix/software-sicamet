@@ -8,7 +8,7 @@ try:
 except ImportError:
     print(json.dumps({"error": "pdfplumber no instalado"})); sys.exit(1)
 
-CERT_PATTERN = r'IC[A-Z]\.[0-9]{3,5}\.[0-9]{2}'
+CERT_PATTERN = r'IC[A-Z]{1,4}\.[0-9]{3,5}\.[0-9]{2}'
 FOOTER_RE = [
     r'Sistemas Integrales de Calibración', r'Juan Aldama Sur', r'\(722\)\s*\d+',
     r'www\.sicamet', r'sclientes@sicamet', r'^Página \d+ de \d+', r'^PEO\.', r'^FE \d+',
@@ -116,8 +116,9 @@ def _partidas(texto):
 
     out = []
     for idx, (line_idx, clave, resto) in enumerate(starts):
-        # Buscar cert en la línea principal
-        certm = re.search(r'(' + CERT_PATTERN + r')\s*$', resto, re.IGNORECASE)
+        # Buscar cert en la línea principal (soporta múltiples separados por /)
+        # Buscamos una secuencia de uno o más certificados con posibles separadores como '/'
+        certm = re.search(r'((?:' + CERT_PATTERN + r'(?:\s*/\s*)?)+)\s*$', resto, re.IGNORECASE)
         cert = certm.group(1).strip() if certm else ""
         nombre = resto[:certm.start()].strip() if certm else resto.strip()
 
