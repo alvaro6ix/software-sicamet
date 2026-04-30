@@ -3693,6 +3693,11 @@ httpServer.listen(port, '0.0.0.0', async () => {
     try {
         await waitForDB();
         await ensureWhatsappChatsColumns();
+        
+        // ─── ARRANCAR SERVICIOS SOLO CUANDO LA BD ESTÉ LISTA ──────────────────
+        
+        
+        
         console.log(`🚀 API + RealTime en http://localhost:${port}`);
         if (process.send) process.send('ready');
     } catch (err) {
@@ -3711,6 +3716,6 @@ httpServer.listen(port, '0.0.0.0', async () => {
 });
 
 // ─── ARRANCAR SERVICIOS ───────────────────────────────────────────────────────
-iniciarBot();
-programarRecordatoriosDiarios();
+
+
 
