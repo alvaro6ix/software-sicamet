@@ -3676,10 +3676,29 @@ app.post('/api/bot/chat', verificarToken(), async (req, res) => {
 });
 
 // --- INICIO DEL SERVIDOR ---
+async function waitForDB(retries = 12, delay = 5000) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            await db.query('SELECT 1');
+            return true;
+        } catch (err) {
+            console.log(`⏳ Esperando a la base de datos MySQL... (Intento ${i + 1}/${retries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+    throw new Error('❌ No se pudo conectar a la base de datos tras varios intentos.');
+}
+
 httpServer.listen(port, '0.0.0.0', async () => {
-    await ensureWhatsappChatsColumns();
-    console.log(`🚀 API + RealTime en http://localhost:${port}`);
-    if (process.send) process.send('ready');
+    try {
+        await waitForDB();
+        await ensureWhatsappChatsColumns();
+        console.log(`🚀 API + RealTime en http://localhost:${port}`);
+        if (process.send) process.send('ready');
+    } catch (err) {
+        console.error('💥 Error crítico en el inicio:', err.message);
+        process.exit(1);
+    }
 }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
         console.error(`❌ El puerto ${port} ya está ocupado por otra instancia del sistema.`);
