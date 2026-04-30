@@ -88,7 +88,111 @@ function calcularSLAReal(fechaRecepcionParsed, fechaRecepcionStr, fechaIngreso, 
     return { diasPasados, slaRestante, fechaBase: fechaBase.toISOString().split('T')[0] };
 }
 
+async function ensureBasicSchema() {
+    try {
+        // Tabla usuarios
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                nombre VARCHAR(150) NOT NULL,
+                email VARCHAR(150) NOT NULL UNIQUE,
+                password VARCHAR(255) NOT NULL,
+                rol ENUM('admin', 'recepcionista', 'metrologo', 'aseguramiento') DEFAULT 'recepcionista',
+                area VARCHAR(100) NULL,
+                notif_wa TINYINT DEFAULT 0,
+                activo TINYINT DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                permisos JSON NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+
+        // Insertar admin por defecto si no hay usuarios (solo si la tabla está vacía)
+        const [users] = await db.query('SELECT id FROM usuarios LIMIT 1');
+        if (users.length === 0) {
+            const bcrypt = require('bcrypt');
+            const hashed = await bcrypt.hash('sicamet', 12);
+            await db.query('INSERT INTO usuarios (nombre, email, password, rol) VALUES (?, ?, ?, ?)', 
+                ['Administrador', 'admin@sicamet.mx', hashed, 'admin']);
+            console.log("✅ Usuario administrador creado por defecto (pass: sicamet)");
+        }
+
+        // Tabla instrumentos_estatus
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS instrumentos_estatus (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                orden_servicio VARCHAR(50) NOT NULL,
+                identificacion TEXT NULL,
+                nombre_instrumento TEXT NULL,
+                no_serie VARCHAR(100) NULL,
+                numero_informe VARCHAR(100) NULL,
+                estatus VARCHAR(100) DEFAULT 'recepcion',
+                fecha_ingreso DATETIME DEFAULT CURRENT_TIMESTAMP,
+                sla INT DEFAULT 10,
+                area_laboratorio VARCHAR(100) NULL,
+                metrologo_asignado_id INT NULL,
+                no_certificado VARCHAR(100) NULL,
+                rechazos_aseguramiento INT DEFAULT 0,
+                cliente_whatsapp VARCHAR(50) NULL,
+                ubicacion TEXT NULL,
+                fecha_recepcion VARCHAR(100) NULL,
+                fecha_recepcion_parsed DATE NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+
+        // Tabla whatsapp_chats
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS whatsapp_chats (
+                numero_wa VARCHAR(50) NOT NULL PRIMARY KEY,
+                nombre_wa VARCHAR(200) NULL,
+                estatus VARCHAR(50) DEFAULT 'nuevo',
+                ultima_interaccion DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                bot_activo TINYINT DEFAULT 1,
+                telefono_display VARCHAR(45) NULL,
+                wa_jid VARCHAR(180) NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+
+        // Tabla bot_config
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS bot_config (
+                clave VARCHAR(50) PRIMARY KEY,
+                valor VARCHAR(500) NOT NULL,
+                descripcion VARCHAR(200) NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+
+        // Insertar config por defecto si está vacía
+        const [configs] = await db.query('SELECT clave FROM bot_config LIMIT 1');
+        if (configs.length === 0) {
+            await db.query(`
+                INSERT INTO bot_config (clave, valor, descripcion) VALUES 
+                ('horario_inicio', '08:00', 'Inicio jornada'),
+                ('horario_fin', '18:00', 'Fin jornada'),
+                ('mensaje_bienvenida', '¡Hola! Soy el asistente de SICAMET.', 'Bienvenida'),
+                ('modo_fuera_horario', 'auto', 'auto|silent')
+            `);
+        }
+
+        // Tabla bot_nodos (para los flujos)
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS bot_nodos (
+                id VARCHAR(50) PRIMARY KEY,
+                mensaje TEXT NOT NULL,
+                tipo VARCHAR(50) DEFAULT 'menu',
+                parent_id VARCHAR(50) NULL,
+                opcion_numero INT NULL,
+                accion VARCHAR(100) NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+
+        console.log("✅ Esquema básico SICAMET verificado");
+    } catch (e) {
+        console.error("❌ Error en ensureBasicSchema:", e.message);
+    }
+}
+
 async function ensureMetrologiaSchema() {
+    await ensureBasicSchema(); // Primero asegurar que existen las tablas
     try {
         // Asegurar columna numero_informe
         const [cols] = await db.query('SHOW COLUMNS FROM instrumentos_estatus LIKE "numero_informe"');
