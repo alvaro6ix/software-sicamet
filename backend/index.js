@@ -110,10 +110,10 @@ async function ensureBasicSchema() {
         const [users] = await db.query('SELECT id FROM usuarios LIMIT 1');
         if (users.length === 0) {
             const bcrypt = require('bcryptjs');
-            const hashed = await bcrypt.hash('sicamet', 12);
+            const hashed = await bcrypt.hash('SICAMET2026', 12);
             await db.query('INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, ?)', 
                 ['Administrador', 'admin@sicamet.mx', hashed, 'admin']);
-            console.log("✅ Usuario administrador creado por defecto (pass: sicamet)");
+            console.log("✅ Usuario administrador creado por defecto (pass: SICAMET2026)");
         }
 
         // Tabla instrumentos_estatus
