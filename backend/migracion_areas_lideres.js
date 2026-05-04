@@ -10,6 +10,7 @@
 const crypto = require('crypto');
 const db = require('./bd');
 const { hashPassword } = require('./auth');
+const { permisosPorDefectoParaRol } = require('./permisos_catalogo');
 
 function generarPasswordTemporal() {
     // 16 chars URL-safe: suficientemente fuerte y fácil de comunicar verbalmente.
@@ -69,12 +70,15 @@ async function asegurarLideresArea() {
 
             if (rows.length === 0) {
                 // Usuario no existe: crearlo con un password temporal único e irrepetible
+                // y poblar `permisos` con los defaults del rol para que la UI funcione
+                // de inmediato sin que admin tenga que tocarle nada.
                 const passwordTemporal = generarPasswordTemporal();
                 const hashTemporal = await hashPassword(passwordTemporal);
+                const permisosDefault = JSON.stringify(permisosPorDefectoParaRol(lider.rol));
                 await db.query(
-                    `INSERT INTO usuarios (nombre, email, password_hash, rol, area, es_lider_area, activo)
-                     VALUES (?, ?, ?, ?, ?, 1, 1)`,
-                    [lider.nombre, lider.email, hashTemporal, lider.rol, lider.area]
+                    `INSERT INTO usuarios (nombre, email, password_hash, rol, area, es_lider_area, activo, permisos)
+                     VALUES (?, ?, ?, ?, ?, 1, 1, ?)`,
+                    [lider.nombre, lider.email, hashTemporal, lider.rol, lider.area, permisosDefault]
                 );
                 creados++;
                 credencialesNuevas.push({ email: lider.email, passwordTemporal });

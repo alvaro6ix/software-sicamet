@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FileCheck, XCircle, CheckCircle, Package, Clock, MessageSquare, AlertTriangle, HelpCircle, AlertCircle, X, Paperclip, Camera, Tag, BookOpen, Hash, User, Calendar, FileText, File as FileIcon, Image as ImageIcon, Eye } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { usePermisos } from '../hooks/usePermisos';
 
 const getOsaColor = (osStr, isDark) => {
     if (!osStr) return isDark ? '#2a401c' : '#ffffff';
@@ -104,9 +105,17 @@ const InstrumentoRow = ({ eq, darkMode, tabActual, abrirDetalles, abrirComentari
 
 
 const Validacion = ({ darkMode, usuario }) => {
+    const { tiene } = usePermisos();
+    const puedeAprobar     = tiene(['aseguramiento.aprobar', 'aseguramiento.rechazar']);
+    const puedeCertificar  = tiene('certificacion.subir');
+    const puedeVerCert     = tiene(['certificacion.ver', 'certificacion.subir']);
+
+    // Tab por defecto según los permisos del usuario.
+    const tabInicial = puedeAprobar ? 'Pendientes' : (puedeCertificar ? 'Certificacion' : (puedeVerCert ? 'Listos' : 'Pendientes'));
+
     const [equiposGlobales, setEquiposGlobales] = useState([]);
     const [cargando, setCargando] = useState(true);
-    const [tabActual, setTabActual] = useState('Pendientes');
+    const [tabActual, setTabActual] = useState(tabInicial);
 
     // Modales de confirmación modernos
     const [confirmModal, setConfirmModal] = useState({ open: false, title: '', message: '', onConfirm: null, type: 'info' });
@@ -361,38 +370,48 @@ const Validacion = ({ darkMode, usuario }) => {
                 </div>
             </div>
 
-            {/* Tabs */}
+            {/* Tabs — filtrados por permisos del usuario */}
             <div className={`flex items-center gap-2 mb-4 border-b overflow-x-auto custom-scrollbar ${darkMode ? 'border-amber-900/20' : 'border-slate-200'}`}>
-                <button 
+                {puedeAprobar && (
+                <button
                     onClick={() => setTabActual('Pendientes')}
                     className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Pendientes' ? (darkMode ? 'border-amber-500 text-amber-400' : 'border-amber-600 text-amber-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
                 >
                     Pendientes de Aseguramiento
                 </button>
-                <button 
+                )}
+                {puedeCertificar && (
+                <button
                     onClick={() => setTabActual('Certificacion')}
                     className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Certificacion' ? (darkMode ? 'border-emerald-500 text-emerald-400' : 'border-emerald-600 text-emerald-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
                 >
                     En Certificación
                 </button>
-                <button 
+                )}
+                {puedeVerCert && (
+                <button
                     onClick={() => setTabActual('Listos')}
                     className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Listos' ? (darkMode ? 'border-emerald-500 text-emerald-400' : 'border-emerald-600 text-emerald-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
                 >
                     Listos para Entrega
                 </button>
-                <button 
+                )}
+                {puedeVerCert && (
+                <button
                     onClick={() => setTabActual('Entregados')}
                     className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Entregados' ? (darkMode ? 'border-blue-500 text-blue-400' : 'border-blue-600 text-blue-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
                 >
                     Entregados
                 </button>
-                <button 
+                )}
+                {puedeCertificar && (
+                <button
                     onClick={() => setTabActual('Faltantes')}
                     className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${tabActual === 'Faltantes' ? (darkMode ? 'border-rose-500 text-rose-400' : 'border-rose-600 text-rose-700') : 'border-transparent opacity-50 hover:opacity-100'}`}
                 >
                     Faltantes de PDF {countFaltantes > 0 && <span className="ml-2 bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{countFaltantes}</span>}
                 </button>
+                )}
             </div>
 
             <div className={`border rounded-2xl overflow-hidden ${darkMode ? 'border-amber-900/30 bg-[#141f0b]' : 'border-slate-200 bg-white'}`}>

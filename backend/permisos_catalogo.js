@@ -34,6 +34,7 @@ const PERMISOS = [
     { clave: 'metrologia.bandeja.ver',         grupo: 'Metrología',     descripcion: 'Ver Mi Bandeja (metrólogos)' },
     { clave: 'metrologia.centro.ver',          grupo: 'Metrología',     descripcion: 'Ver Centro de Metrología' },
     { clave: 'metrologia.asignar',             grupo: 'Metrología',     descripcion: 'Asignar metrólogos a equipos' },
+    { clave: 'metrologia.bandeja_jefe',        grupo: 'Metrología',     descripcion: 'Acceder a la Bandeja del Jefe de Metrología' },
     { clave: 'metrologia.correcciones.ver',    grupo: 'Metrología',     descripcion: 'Ver módulo de Correcciones' },
 
     // Aseguramiento (validación)

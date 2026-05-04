@@ -1822,6 +1822,65 @@ app.post('/api/instrumentos/:id/certificado', requirePermiso('certificacion.subi
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Sprint 4 / S4-B — Bandeja del jefe de metrología.
+// Devuelve equipos en fases de Recepción/Laboratorio sin ningún metrólogo asignado.
+// Solo accesible con permiso 'metrologia.asignar' (Agustín / admin).
+app.get('/api/asignacion/pendientes', requirePermiso('metrologia.asignar'), async (req, res) => {
+    try {
+        const [equipos] = await db.query(
+            `SELECT ie.*,
+                    (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', u.id, 'nombre', u.nombre, 'estatus', im.estatus))
+                     FROM instrumento_metrologos im
+                     JOIN usuarios u ON u.id = im.usuario_id
+                     WHERE im.instrumento_id = ie.id) AS metrologos_asignados
+             FROM instrumentos_estatus ie
+             WHERE ie.estatus_actual IN ('Recepción','Laboratorio')
+             ORDER BY ie.fecha_ingreso DESC`
+        );
+        const conSLA = equipos.map(e => {
+            const ma = typeof e.metrologos_asignados === 'string' ? JSON.parse(e.metrologos_asignados) : (e.metrologos_asignados || []);
+            return {
+                ...e,
+                metrologos_asignados: ma,
+                ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
+            };
+        });
+        const pendientes = conSLA.filter(e => !e.metrologos_asignados || e.metrologos_asignados.length === 0);
+        res.json({
+            pendientes,
+            total_pendientes: pendientes.length,
+            total_activos: conSLA.length
+        });
+    } catch (err) {
+        console.error('GET /api/asignacion/pendientes:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Carga de trabajo por metrólogo (cuántos equipos activos tiene cada uno).
+// Sirve para que Agustín distribuya inteligentemente.
+app.get('/api/asignacion/carga-metrologos', requirePermiso('metrologia.asignar'), async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT u.id, u.nombre, u.area,
+                    COUNT(DISTINCT im.instrumento_id) AS total_asignados,
+                    SUM(CASE WHEN im.estatus = 'asignado' THEN 1 ELSE 0 END) AS en_proceso,
+                    SUM(CASE WHEN im.estatus = 'terminado' THEN 1 ELSE 0 END) AS terminados,
+                    SUM(CASE WHEN im.estatus = 'correccion' THEN 1 ELSE 0 END) AS en_correccion
+             FROM usuarios u
+             LEFT JOIN instrumento_metrologos im ON im.usuario_id = u.id
+             LEFT JOIN instrumentos_estatus ie ON ie.id = im.instrumento_id AND ie.estatus_actual NOT IN ('Entregado','Cancelado')
+             WHERE u.activo = 1 AND u.rol IN ('metrologo','operador')
+             GROUP BY u.id, u.nombre, u.area
+             ORDER BY total_asignados DESC, u.nombre ASC`
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error('GET /api/asignacion/carga-metrologos:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Sprint 3 / S3-B — Buckets de SLA para dashboards por rol/fase.
 // Query: ?fase=Aseguramiento  (opcional; sin fase = todas las fases activas).
 // Devuelve: { vencidos, vence_3_dias, vence_4_7_dias, en_tiempo, total }
@@ -2000,7 +2059,7 @@ app.get('/api/ordenes/:orden', requirePermiso('busqueda.ver'), async (req, res) 
 });
 
 // NUEVO: Guardado múltiple de certificados (Certificación Ágil)
-app.post('/api/instrumentos-multiple-certificados', verificarToken(['admin', 'aseguramiento']), async (req, res) => {
+app.post('/api/instrumentos-multiple-certificados', requirePermiso('certificacion.subir'), async (req, res) => {
     try {
         const { vinculaciones } = req.body; // Array de { id, numero_informe, certificado_url }
         if (!vinculaciones || !Array.isArray(vinculaciones)) return res.status(400).json({ error: 'Datos de vinculación inválidos' });

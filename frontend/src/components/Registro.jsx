@@ -169,15 +169,14 @@ const Registro = ({ darkMode }) => {
       tipo_servicio: p.tipo_servicio || (typeof cabecera.servicio_solicitado === 'string' ? cabecera.servicio_solicitado : cabecera.servicio_solicitado?.label || '')
     }));
 
-    const metrologosIds = metrologosSeleccionados.map(m => m.value);
-
     try {
       setCargandoPdf(true);
+      // Recepción NO asigna metrólogos. Esa decisión es del jefe de metrología.
       await axios.post('/api/instrumentos-multiple', {
         instrumentos: instrumentosAGuardar,
-        metrologos_ids: metrologosIds
+        metrologos_ids: []
       });
-      alert(`¡Éxito! Se registraron ${partidas.length} equipos para Área(s): "${areasSeleccionadas.map(a => a.label).join(', ')}"${metrologosIds.length > 0 ? `, asignados a ${metrologosSeleccionados.length} técnico(s)` : ''}.`);
+      alert(`¡Éxito! Se registraron ${partidas.length} equipos para Área(s): "${areasSeleccionadas.map(a => a.label).join(', ')}". Quedan en bandeja del jefe de metrología para asignación.`);
       setCabecera({ orden_cotizacion: '', empresa: '', persona: '', sla: null, servicio_solicitado: null, cotizacion_referencia: '', fecha_recepcion: '', nombre_certificados: '', direccion: '', contacto_email: '' });
       setPartidas([]);
       setAreasSeleccionadas([]);
@@ -375,20 +374,13 @@ const Registro = ({ darkMode }) => {
             </div>
             <div>
               <label className={`text-xs font-bold flex items-center gap-1.5 mb-1.5 uppercase tracking-wide ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>
-                <FlaskConical size={14}/> Responsables (Metrólogos)
-                <span className={`text-[10px] font-normal ml-1 ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>(puedes elegir varios)</span>
+                <FlaskConical size={14}/> Asignación de metrólogos
               </label>
-              <Select
-                options={metrologos}
-                value={metrologosSeleccionados}
-                onChange={(m) => setMetrologosSeleccionados(m || [])}
-                placeholder={cargandoMetrologos ? "Cargando..." : "Selecciona técnicos..."}
-                noOptionsMessage={() => "Sin metrólogos registrados"}
-                styles={selectStyles}
-                className="text-sm"
-                isMulti
-                isClearable
-              />
+              <div className={`p-3 rounded-xl border text-xs leading-relaxed ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20 text-[#F2F6F0]/70' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
+                Recepción <b>solo registra el equipo y selecciona el área</b>.
+                El jefe de metrología (Agustín) recibe los equipos en su <b>Bandeja</b>
+                y asigna a los metrólogos según carga de trabajo.
+              </div>
             </div>
           </div>
 

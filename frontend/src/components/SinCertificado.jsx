@@ -2,8 +2,11 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FileText, AlertCircle, X, Upload, Eye, AlertTriangle } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { usePermisos } from '../hooks/usePermisos';
 
 const SinCertificado = ({ darkMode, usuario }) => {
+    const { tiene } = usePermisos();
+    const puedeSubirCert = tiene('certificacion.subir');
     const [equipos, setEquipos] = useState([]);
     const [cargando, setCargando] = useState(true);
     const [modalDetalle, setModalDetalle] = useState(false);
@@ -210,9 +213,15 @@ const SinCertificado = ({ darkMode, usuario }) => {
 
                         <div className={`p-5 border-t flex gap-3 ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-100'}`}>
                             <button onClick={() => setModalDetalle(false)} className={`flex-1 py-3 font-bold rounded-xl ${darkMode ? 'bg-[#253916] text-white hover:bg-[#314a1c]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Cerrar</button>
-                            <button onClick={subirCertificado} disabled={!certificadoFile || validando} className={`flex-[2] flex justify-center items-center gap-2 font-black py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}>
-                                {validando ? 'Validando con IA...' : <>Subir y Validar Certificado <Upload size={18}/></>}
-                            </button>
+                            {puedeSubirCert ? (
+                                <button onClick={subirCertificado} disabled={!certificadoFile || validando} className={`flex-[2] flex justify-center items-center gap-2 font-black py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}>
+                                    {validando ? 'Validando con IA...' : <>Subir y Validar Certificado <Upload size={18}/></>}
+                                </button>
+                            ) : (
+                                <div className={`flex-[2] flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold ${darkMode ? 'bg-[#1b2b10] text-[#F2F6F0]/40' : 'bg-slate-100 text-slate-400'}`}>
+                                    <AlertCircle size={14}/> No tienes permiso para subir certificados
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -28,6 +28,7 @@ import CorreccionesMetrologia from './components/CorreccionesMetrologia';
 import SinCertificado from './components/SinCertificado';
 import FeedbackBot from './components/FeedbackBot';
 import OrdenDetalle from './components/OrdenDetalle';
+import BandejaAsignacion from './components/BandejaAsignacion';
 import io from 'socket.io-client';
 
 import { ToastContainer, toast } from 'react-toastify';
@@ -85,6 +86,7 @@ const Sidebar = ({ darkMode, toggleDarkMode, mobileOpen, setMobileOpen, usuario,
     { name: 'Certificación Ágil',       path: '/certificacion-agil',        icon: FileCheck,       permiso: 'certificacion.ver' },
     { name: 'Lista Gral. Equipos',      path: '/equipos',                   icon: List,            permiso: 'equipos.ver' },
     { name: 'Pipelines Kanban',         path: '/kanban',                    icon: Package,         permiso: 'kanban.ver' },
+    { name: 'Bandeja Jefe Metrología',  path: '/asignacion',                icon: Inbox,           permiso: 'metrologia.bandeja_jefe' },
     { name: 'Mi Bandeja',               path: '/mi-bandeja',                icon: Inbox,           permiso: 'metrologia.bandeja.ver' },
     { name: 'Centro Metrología',        path: '/metrologia',                icon: Package,         permiso: 'metrologia.centro.ver' },
     { name: 'Correcciones',             path: '/correcciones-metrologia',   icon: AlertTriangle,   permiso: 'metrologia.correcciones.ver' },
@@ -443,6 +445,7 @@ const Layout = () => {
               <Route path="/kanban" element={<TableroKanban darkMode={darkMode} />} />
               <Route path="/equipos/grupo/:oc" element={<GestionGrupo darkMode={darkMode} usuario={usuario} />} />
               <Route path="/orden/:os" element={<OrdenDetalle darkMode={darkMode} />} />
+              <Route path="/asignacion" element={<BandejaAsignacion darkMode={darkMode} />} />
               <Route path="/metrologia" element={<MetrologiaDashboard darkMode={darkMode} usuario={usuario} />} />
               <Route path="/mi-bandeja" element={<MiBandeja darkMode={darkMode} usuario={usuario} />} />
               <Route path="/correcciones-metrologia" element={<CorreccionesMetrologia darkMode={darkMode} usuario={usuario} />} />
