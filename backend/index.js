@@ -387,6 +387,37 @@ async function ensureWhatsappChatsColumns() {
         // Sprint 2 / S2-B — Audiencia de notificaciones para filtrar destinatarios.
         // Formato: 'todos' | 'rol:admin' | 'permiso:equipos.editar' | 'usuario:42'
         "ALTER TABLE notificaciones_globales ADD COLUMN audiencia VARCHAR(120) NOT NULL DEFAULT 'todos' AFTER metadata",
+        // Sprint 5 / S5-A — Versión activa de cada equipo respecto a su OS.
+        // Cuando se crea una nueva versión de la OS, todos sus equipos se mueven a la nueva versión.
+        "ALTER TABLE instrumentos_estatus ADD COLUMN os_version INT NOT NULL DEFAULT 1 AFTER orden_cotizacion",
+        // Tabla de historial de versiones de OS — solo registro, una por orden+numero.
+        `CREATE TABLE IF NOT EXISTS os_versiones (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            orden_base VARCHAR(50) NOT NULL,
+            version_numero INT NOT NULL,
+            es_activa TINYINT NOT NULL DEFAULT 1,
+            dias_extra INT NOT NULL DEFAULT 0,
+            motivo TEXT NULL,
+            usuario_id INT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY orden_version (orden_base, version_numero),
+            KEY orden_activa (orden_base, es_activa)
+        )`,
+        // Sprint 5 / S5-B — Tabla de mensajes que el bot no entendió, para que admin
+        // los apruebe como FAQ. Se agrupa por mensaje_normalizado (lowercase+sin tildes
+        // hasta 200 chars) para detectar repetidos.
+        `CREATE TABLE IF NOT EXISTS bot_aprendizaje_pendiente (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            mensaje_original VARCHAR(500) NOT NULL,
+            mensaje_normalizado VARCHAR(200) NOT NULL,
+            contexto VARCHAR(120) NULL,
+            count INT NOT NULL DEFAULT 1,
+            primer_visto TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ultimo_visto TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            estatus ENUM('pendiente','aprobado','descartado') DEFAULT 'pendiente',
+            faq_id INT NULL,
+            UNIQUE KEY msg_norm (mensaje_normalizado, contexto)
+        )`,
         "ALTER TABLE usuarios ADD COLUMN area VARCHAR(100) NULL AFTER rol",
         "ALTER TABLE instrumentos_estatus ADD COLUMN area_laboratorio VARCHAR(100) NULL AFTER sla",
         "ALTER TABLE instrumentos_estatus ADD COLUMN metrologo_asignado_id INT NULL AFTER area_laboratorio",
@@ -1692,6 +1723,56 @@ app.delete('/api/bot/feedback/:id', verificarToken(['admin']), async (req, res) 
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Sprint 5 / S5-B — Aprendizaje del bot.
+// Lista los mensajes que el bot no supo responder, ordenados por frecuencia.
+app.get('/api/bot/aprendizaje', requirePermiso('bot.feedback.ver'), async (req, res) => {
+    try {
+        const estatus = req.query.estatus || 'pendiente';
+        const minCount = Math.max(1, parseInt(req.query.min_count || '1', 10));
+        const [rows] = await db.query(
+            `SELECT * FROM bot_aprendizaje_pendiente
+             WHERE estatus = ? AND count >= ?
+             ORDER BY count DESC, ultimo_visto DESC LIMIT 200`,
+            [estatus, minCount]
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Aprueba un mensaje pendiente como nueva FAQ del bot. Recibe `respuesta` y opcionalmente
+// `pregunta` (si no se manda, usa el mensaje original como pregunta clave).
+app.post('/api/bot/aprendizaje/:id/aprobar', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { respuesta, pregunta } = req.body || {};
+        if (!respuesta || String(respuesta).trim().length < 5) {
+            return res.status(400).json({ error: 'La respuesta es requerida y debe tener al menos 5 caracteres' });
+        }
+        const [rows] = await db.query('SELECT * FROM bot_aprendizaje_pendiente WHERE id = ? LIMIT 1', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Mensaje no encontrado' });
+
+        const msg = rows[0];
+        const preguntaFinal = (pregunta && pregunta.trim()) || msg.mensaje_original;
+
+        const [r] = await db.query(
+            `INSERT INTO bot_faq (pregunta, respuesta, activo) VALUES (?, ?, 1)`,
+            [preguntaFinal.slice(0, 500), respuesta]
+        );
+        await db.query(
+            `UPDATE bot_aprendizaje_pendiente SET estatus = 'aprobado', faq_id = ? WHERE id = ?`,
+            [r.insertId, id]
+        );
+        res.json({ success: true, faq_id: r.insertId });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/bot/aprendizaje/:id/descartar', verificarToken(['admin']), async (req, res) => {
+    try {
+        await db.query(`UPDATE bot_aprendizaje_pendiente SET estatus = 'descartado' WHERE id = ?`, [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // --- KPI ACTUALIZADO CON SLA REAL ---
 app.get('/api/metrologia/kpis', verificarToken(), async (req, res) => {
     try {
@@ -2051,11 +2132,146 @@ app.get('/api/ordenes/:orden', requirePermiso('busqueda.ver'), async (req, res) 
             rechazos = rows;
         }
 
-        res.json({ cabecera, equipos, historial, rechazos });
+        // Versiones — Sprint 5 / S5-A. Lista completa para el tab "Versiones" del detalle.
+        const [versiones] = await db.query(
+            `SELECT v.*, u.nombre AS usuario_nombre
+             FROM os_versiones v
+             LEFT JOIN usuarios u ON u.id = v.usuario_id
+             WHERE v.orden_base = ?
+             ORDER BY v.version_numero ASC`,
+            [orden]
+        );
+        const versionActiva = versiones.find(v => v.es_activa === 1) || null;
+        cabecera.version_activa = versionActiva?.version_numero || (equipos[0]?.os_version || 1);
+        cabecera.total_versiones = versiones.length || 1;
+
+        res.json({ cabecera, equipos, historial, rechazos, versiones });
     } catch (err) {
         console.error('GET /api/ordenes/:orden error:', err.message);
         res.status(500).json({ error: err.message });
     }
+});
+
+// Sprint 5 / S5-A — Crear nueva versión de una OS.
+// Reglas:
+//  - El número de versión es manual y debe ser estrictamente mayor a la versión activa.
+//  - dias_extra (>=0) se SUMAN al sla_dias_extra de TODOS los equipos vivos de la OS.
+//  - La versión anterior se marca como histórica (es_activa=0). La nueva queda activa.
+//  - Genera notificación 'os_versionada' a todos.
+app.post('/api/ordenes/:orden/versiones', requirePermiso('equipos.editar'), async (req, res) => {
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+        const { orden } = req.params;
+        const versionNumero = parseInt(req.body?.version_numero, 10);
+        const diasExtra = Math.max(0, parseInt(req.body?.dias_extra || 0, 10));
+        const motivo = String(req.body?.motivo || '').slice(0, 1000);
+
+        if (!Number.isFinite(versionNumero) || versionNumero <= 0) {
+            await connection.rollback();
+            return res.status(400).json({ error: 'version_numero debe ser un entero positivo' });
+        }
+
+        // Verificar que existan equipos en esa OS
+        const [equipos] = await connection.query(
+            'SELECT id, os_version FROM instrumentos_estatus WHERE orden_cotizacion = ?',
+            [orden]
+        );
+        if (equipos.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ error: `No existen equipos asociados a la orden ${orden}` });
+        }
+
+        // Determinar versión activa actual
+        const [actualRows] = await connection.query(
+            'SELECT version_numero FROM os_versiones WHERE orden_base = ? AND es_activa = 1 ORDER BY version_numero DESC LIMIT 1',
+            [orden]
+        );
+        const versionActual = actualRows[0]?.version_numero || (equipos[0]?.os_version || 1);
+
+        if (versionNumero <= versionActual) {
+            await connection.rollback();
+            return res.status(400).json({ error: `La versión nueva (${versionNumero}) debe ser mayor a la activa (${versionActual})` });
+        }
+
+        // Si no había registro de v1, lo creamos como histórica (semilla)
+        if (actualRows.length === 0 && versionActual === 1) {
+            await connection.query(
+                `INSERT IGNORE INTO os_versiones (orden_base, version_numero, es_activa, dias_extra, motivo, usuario_id)
+                 VALUES (?, 1, 0, 0, 'Versión inicial (auto)', NULL)`,
+                [orden]
+            );
+        } else {
+            // Marcar la actual como histórica
+            await connection.query(
+                'UPDATE os_versiones SET es_activa = 0 WHERE orden_base = ? AND es_activa = 1',
+                [orden]
+            );
+        }
+
+        // Insertar la nueva versión
+        await connection.query(
+            `INSERT INTO os_versiones (orden_base, version_numero, es_activa, dias_extra, motivo, usuario_id)
+             VALUES (?, ?, 1, ?, ?, ?)`,
+            [orden, versionNumero, diasExtra, motivo || null, req.usuario.id]
+        );
+
+        // Mover todos los equipos a la nueva versión + sumar días extra al SLA acumulado
+        await connection.query(
+            'UPDATE instrumentos_estatus SET os_version = ?, sla_dias_extra = sla_dias_extra + ? WHERE orden_cotizacion = ?',
+            [versionNumero, diasExtra, orden]
+        );
+
+        // Auditoría por equipo
+        for (const e of equipos) {
+            try {
+                await connection.query(
+                    'INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) VALUES (?, ?, ?, ?)',
+                    [e.id, 'os_versionada', req.usuario.id, JSON.stringify({ version_numero: versionNumero, dias_extra: diasExtra, motivo })]
+                );
+            } catch (_) {}
+        }
+
+        await connection.commit();
+
+        // Notificación global
+        try {
+            const { emitirNotificacion } = require('./notificaciones');
+            emitirNotificacion({
+                tipo: 'os_versionada',
+                titulo: `OS ${orden} actualizada a v${versionNumero}`,
+                detalle: `${req.usuario.nombre || 'Un usuario'} creó la versión v${versionNumero}${diasExtra > 0 ? ` (+${diasExtra} días al SLA)` : ''}${motivo ? ' — ' + motivo : ''}`,
+                audiencia: 'todos',
+                urgencia: 'media',
+                ruta: `/orden/${encodeURIComponent(orden)}`,
+                creadorId: req.usuario.id,
+                metadata: { orden, version_numero: versionNumero, dias_extra: diasExtra }
+            });
+        } catch (_) {}
+
+        if (global.io) global.io.emit('os_versionada', { orden, version_numero: versionNumero });
+        res.json({ success: true, version_numero: versionNumero, dias_extra: diasExtra });
+    } catch (err) {
+        await connection.rollback();
+        console.error('POST versiones:', err.message);
+        res.status(500).json({ error: err.message });
+    } finally {
+        connection.release();
+    }
+});
+
+app.get('/api/ordenes/:orden/versiones', requirePermiso('busqueda.ver'), async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT v.*, u.nombre AS usuario_nombre
+             FROM os_versiones v
+             LEFT JOIN usuarios u ON u.id = v.usuario_id
+             WHERE v.orden_base = ?
+             ORDER BY v.version_numero ASC`,
+            [req.params.orden]
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // NUEVO: Guardado múltiple de certificados (Certificación Ágil)

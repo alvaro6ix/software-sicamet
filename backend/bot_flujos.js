@@ -541,7 +541,11 @@ async function manejarMenuRaiz(wa, texto, textoLower, sesion, detectarIntencion,
         console.error('Error IA en menú raíz:', e);
     }
 
-    // 4. Fallo: No entendido -> Strike
+    // 4. Fallo: No entendido -> Strike. Registramos para que admin lo apruebe como FAQ.
+    try {
+        const { registrarMensajeNoEntendido } = require('./aprendizaje_bot');
+        registrarMensajeNoEntendido(texto, 'menu_principal');
+    } catch (_) {}
     return await manejarFalloIntento(wa, sesion, {
         reintento: 'No entendí tu opción. Por favor escribe el número de una de las opciones del menú.',
         escala: 'Te conectamos con un asesor.',

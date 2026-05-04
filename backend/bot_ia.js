@@ -75,6 +75,12 @@ async function respuestaIA(pregunta, contextoCliente = '', whatsapp = null, opts
         }
     }
 
+    // Sprint 5 / S5-B: registramos el mensaje no entendido para que admin lo apruebe como FAQ.
+    try {
+        const { registrarMensajeNoEntendido } = require('./aprendizaje_bot');
+        registrarMensajeNoEntendido(pregunta, 'menu_principal');
+    } catch (_) {}
+
     return 'No entiendo exactamente tu solicitud. Por favor, selecciona una opción válida del menú principal usando números, o escribe *ASESOR* para comunicarte con nuestro equipo. 🙏';
 }
 
