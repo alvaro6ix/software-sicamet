@@ -10,38 +10,10 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Clock, CheckCircle, Activity, RefreshCw, ChevronRight } from 'lucide-react';
 
 const BUCKETS_DEF = [
-    {
-        id: 'vencidos',
-        titulo: 'Vencidos',
-        descripcion: 'SLA agotado',
-        icono: AlertTriangle,
-        color: 'rose',
-        filtroQuery: 'sla_critico'
-    },
-    {
-        id: 'vence_3_dias',
-        titulo: 'Vence en 1–3 días',
-        descripcion: 'Crítico',
-        icono: Clock,
-        color: 'amber',
-        filtroQuery: 'sla_critico'
-    },
-    {
-        id: 'vence_4_7_dias',
-        titulo: 'Vence en 4–7 días',
-        descripcion: 'Atención',
-        icono: Activity,
-        color: 'sky',
-        filtroQuery: null   // No hay filtro pre-armado, va a /equipos genérico
-    },
-    {
-        id: 'en_tiempo',
-        titulo: 'En tiempo (>7 días)',
-        descripcion: 'OK',
-        icono: CheckCircle,
-        color: 'emerald',
-        filtroQuery: null
-    }
+    { id: 'vencidos',       titulo: 'Vencidos',           descripcion: 'SLA agotado', icono: AlertTriangle, color: 'rose',    filtroQuery: 'sla_vencidos' },
+    { id: 'vence_3_dias',   titulo: 'Vence en 1–3 días',  descripcion: 'Crítico',     icono: Clock,         color: 'amber',   filtroQuery: 'sla_3' },
+    { id: 'vence_4_7_dias', titulo: 'Vence en 4–7 días',  descripcion: 'Atención',    icono: Activity,      color: 'sky',     filtroQuery: 'sla_4_7' },
+    { id: 'en_tiempo',      titulo: 'En tiempo (>7 días)', descripcion: 'OK',         icono: CheckCircle,   color: 'emerald', filtroQuery: 'sla_en_tiempo' }
 ];
 
 export default function PanelSLA({ darkMode, fase = null, titulo, descripcion }) {

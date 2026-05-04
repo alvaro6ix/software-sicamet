@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { MessageSquare, CheckCircle, X, Trash2, Award, Brain, Plus, AlertCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { confirmar } from '../hooks/alertas';
 
 const FeedbackBot = ({ darkMode }) => {
     const [tab, setTab] = useState('feedback');
@@ -46,7 +47,7 @@ const FeedbackBot = ({ darkMode }) => {
     };
 
     const marcarImplementado = async (id) => {
-        if (!window.confirm('¿Marcar sugerencia como IMPLEMENTADA?')) return;
+        if (!(await confirmar('Marcar como implementada', 'La sugerencia se mostrará como aplicada.'))) return;
         try {
             await axios.put(`/api/bot/feedback/${id}/implementado`);
             setFeedbacks(prev => prev.map(f => f.id === id ? { ...f, implementado: 1, leido_admin: 1 } : f));
@@ -54,7 +55,7 @@ const FeedbackBot = ({ darkMode }) => {
     };
 
     const eliminarFeedback = async (id) => {
-        if (!window.confirm('¿Eliminar esta sugerencia de forma permanente?')) return;
+        if (!(await confirmar('Eliminar sugerencia', 'Esta acción es permanente.', { danger: true, confirmText: 'Sí, eliminar' }))) return;
         try {
             await axios.delete(`/api/bot/feedback/${id}`);
             setFeedbacks(prev => prev.filter(f => f.id !== id));
@@ -83,7 +84,7 @@ const FeedbackBot = ({ darkMode }) => {
     };
 
     const descartarApr = async (id) => {
-        if (!window.confirm('¿Descartar este mensaje? No se generará FAQ.')) return;
+        if (!(await confirmar('Descartar mensaje', 'No se generará FAQ y no volverá a aparecer.', { danger: true, confirmText: 'Sí, descartar' }))) return;
         try {
             await axios.post(`/api/bot/aprendizaje/${id}/descartar`);
             await fetchAprendizaje();

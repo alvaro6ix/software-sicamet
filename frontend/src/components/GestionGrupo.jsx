@@ -1,27 +1,78 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { 
-    Package, Clock, AlertTriangle, AlertCircle, CheckCircle, 
-    Search, ChevronDown, ChevronUp, CheckSquare, Square, 
-    ThumbsUp, HelpCircle, X, Paperclip, Tag, BookOpen, 
-    Hash, User, Calendar, FileText, Image as ImageIcon, 
+import {
+    Package, Clock, AlertTriangle, AlertCircle, CheckCircle,
+    Search, ChevronDown, ChevronUp, CheckSquare, Square,
+    ThumbsUp, HelpCircle, X, Paperclip, Tag, BookOpen,
+    Hash, User, Calendar, FileText, Image as ImageIcon,
     Eye, ArrowRight, Edit3, Save, RefreshCw, Trash2,
-    Layers, MapPin, Activity, Settings2, List, Plus, Edit, Truck, FileCheck
+    Layers, MapPin, Activity, Settings2, List, Plus, Edit, Truck, FileCheck, GitBranch
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import Select from 'react-select';
 import { createPortal } from 'react-dom';
+import { usePermisos } from '../hooks/usePermisos';
 
 const GestionGrupo = ({ darkMode, usuario }) => {
     const { oc } = useParams();
     const navigate = useNavigate();
-    
+    const { tiene } = usePermisos();
+    const puedeVersionar = tiene('equipos.editar');
+
     // Estados principales
     const [equipos, setEquipos] = useState([]);
     const [cargando, setCargando] = useState(true);
     const [vista, setVista] = useState('kanban'); // 'kanban' | 'lista'
     const [busqueda, setBusqueda] = useState('');
+
+    // Versionado de la orden completa (Sprint 6 fix)
+    const [modalVersion, setModalVersion] = useState(false);
+    const [versionForm, setVersionForm] = useState({ version_numero: '', dias_extra: 0, motivo: '' });
+    const [guardandoVer, setGuardandoVer] = useState(false);
+    const [versiones, setVersiones] = useState([]);
+
+    const cargarVersiones = useCallback(async () => {
+        try {
+            const res = await axios.get(`/api/ordenes/${encodeURIComponent(oc)}/versiones`);
+            setVersiones(res.data || []);
+        } catch (_) { setVersiones([]); }
+    }, [oc]);
+
+    useEffect(() => { cargarVersiones(); }, [cargarVersiones]);
+
+    const versionActiva = versiones.find(v => v.es_activa) || (equipos[0] ? { version_numero: equipos[0].os_version || 1 } : { version_numero: 1 });
+
+    const abrirModalVersion = () => {
+        setVersionForm({ version_numero: String((versionActiva.version_numero || 1) + 1), dias_extra: 0, motivo: '' });
+        setModalVersion(true);
+    };
+
+    const crearVersion = async () => {
+        const num = parseInt(versionForm.version_numero, 10);
+        const dias = Math.max(0, parseInt(versionForm.dias_extra || 0, 10));
+        if (!Number.isFinite(num) || num <= (versionActiva.version_numero || 1)) {
+            toast.error(`El número debe ser mayor a la versión activa (v${versionActiva.version_numero || 1})`);
+            return;
+        }
+        setGuardandoVer(true);
+        try {
+            await axios.post(`/api/ordenes/${encodeURIComponent(oc)}/versiones`, {
+                version_numero: num,
+                dias_extra: dias,
+                motivo: versionForm.motivo || null
+            });
+            toast.success(`Versión v${num} creada para toda la orden ${oc}`);
+            setModalVersion(false);
+            await cargarVersiones();
+            // Recargar lista de equipos para reflejar nuevo SLA
+            window.dispatchEvent(new Event('crm:refresh'));
+        } catch (err) {
+            toast.error(err.response?.data?.error || err.message);
+        } finally {
+            setGuardandoVer(false);
+        }
+    };
     
     // Selección
     const [seleccionados, setSeleccionados] = useState([]);
@@ -395,10 +446,26 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                             <h2 className={`text-2xl font-black uppercase tracking-tight ${textMain} line-clamp-1 max-w-[400px]`}>
                                 {equipos[0]?.empresa || "Cliente Sin Nombre"}
                             </h2>
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
                                 <p className={`text-[12px] font-bold opacity-50 ${darkMode ? 'text-white' : 'text-slate-600'}`}>
                                     {equipos.length} equipos • {equiposCerrados} cerrados ({Math.round(porcentajeProgreso)}%)
                                 </p>
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    v{versionActiva.version_numero || 1}
+                                </span>
+                                {versiones.length > 1 && (
+                                    <button onClick={() => navigate(`/orden/${encodeURIComponent(oc)}`)} className={`text-[10px] font-bold underline opacity-60 hover:opacity-100`}>
+                                        ver {versiones.length} versiones
+                                    </button>
+                                )}
+                                {equipos[0]?.fecha_recepcion_parsed && (
+                                    <span className={`text-[10px] font-bold ${darkMode ? 'text-white/50' : 'text-slate-500'}`}>
+                                        Fecha OS: {new Date(equipos[0].fecha_recepcion_parsed).toLocaleDateString('es-MX')}
+                                    </span>
+                                )}
+                                {equipos[0]?.persona && (
+                                    <span className={`text-[10px] font-bold ${darkMode ? 'text-white/50' : 'text-slate-500'}`}>Contacto: {equipos[0].persona}</span>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -436,15 +503,24 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                             </div>
                         </div>
 
+                        {puedeVersionar && (
+                            <button
+                                onClick={abrirModalVersion}
+                                className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md hover:scale-105 active:scale-95 ${darkMode ? 'bg-amber-500 text-amber-950 hover:bg-amber-400' : 'bg-amber-500 text-white hover:bg-amber-600'}`}
+                                title="Crear nueva versión de toda la orden"
+                            >
+                                <GitBranch size={16} /> Nueva Versión
+                            </button>
+                        )}
                         {puedeEditarTotal && (
                             <>
-                                <button 
+                                <button
                                     onClick={() => setModalAgregar(true)}
                                     className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md hover:scale-105 active:scale-95 ${darkMode ? 'bg-white text-black hover:bg-white/90' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                                 >
                                     <Plus size={16} /> Agregar Equipo
                                 </button>
-                                <button 
+                                <button
                                     onClick={abrirModalOrden}
                                     className={`flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md hover:scale-105 active:scale-95 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
                                 >
@@ -1367,6 +1443,74 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                 className={`px-4 py-3 rounded-xl font-black text-[11px] uppercase tracking-widest opacity-40 hover:opacity-100 transition-all ${textMain}`}
                             >
                                 Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Crear nueva versión de la ORDEN COMPLETA */}
+            {modalVersion && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
+                    <div className={`w-full max-w-md rounded-3xl shadow-2xl border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
+                        <div className={`p-5 border-b flex items-start justify-between gap-3 ${darkMode ? 'border-[#C9EA63]/15' : 'border-slate-200'}`}>
+                            <div>
+                                <p className={`text-[10px] font-black uppercase tracking-widest ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>Nueva versión de la orden</p>
+                                <h3 className={`text-lg font-black ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{oc}</h3>
+                                <p className={`text-[11px] mt-0.5 ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>
+                                    Activa actual: v{versionActiva.version_numero || 1} · Afectará a todos los {equipos.length} equipos
+                                </p>
+                            </div>
+                            <button onClick={() => setModalVersion(false)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-100'}`}>
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            <div className={`p-3 rounded-xl text-[11px] ${darkMode ? 'bg-amber-900/20 text-amber-300' : 'bg-amber-50 text-amber-800'}`}>
+                                <b>Versionado por orden completa.</b> Los días extra se suman al SLA de TODOS los equipos de esta OS desde la fecha original. La versión anterior queda como histórica.
+                            </div>
+                            <div>
+                                <label className={`block text-[10px] font-black uppercase tracking-wider mb-1.5 ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Número de versión nueva</label>
+                                <input
+                                    type="number"
+                                    min={(versionActiva.version_numero || 1) + 1}
+                                    step="1"
+                                    value={versionForm.version_numero}
+                                    onChange={e => setVersionForm({...versionForm, version_numero: e.target.value})}
+                                    className={`w-full p-3 rounded-xl text-lg font-black border outline-none ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20 text-[#C9EA63]' : 'bg-slate-50 border-slate-200 text-emerald-700'}`}
+                                />
+                                <p className={`text-[10px] mt-1 ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>Manual: tú decides el número (mayor a la activa).</p>
+                            </div>
+                            <div>
+                                <label className={`block text-[10px] font-black uppercase tracking-wider mb-1.5 ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Días extra al SLA</label>
+                                <input
+                                    type="number" min="0" step="1"
+                                    value={versionForm.dias_extra}
+                                    onChange={e => setVersionForm({...versionForm, dias_extra: e.target.value})}
+                                    className={`w-full p-3 rounded-xl text-sm font-bold border outline-none ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                                />
+                            </div>
+                            <div>
+                                <label className={`block text-[10px] font-black uppercase tracking-wider mb-1.5 ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Motivo</label>
+                                <textarea
+                                    rows={3}
+                                    value={versionForm.motivo}
+                                    onChange={e => setVersionForm({...versionForm, motivo: e.target.value})}
+                                    placeholder="Ej: cliente agregó equipos, error en cantidad, reescaneo del PDF..."
+                                    className={`w-full p-3 rounded-xl text-sm border outline-none resize-none ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                                />
+                            </div>
+                        </div>
+                        <div className={`p-4 border-t flex gap-2 ${darkMode ? 'border-[#C9EA63]/15' : 'border-slate-200'}`}>
+                            <button onClick={() => setModalVersion(false)} className={`flex-1 py-2.5 rounded-xl font-bold text-sm ${darkMode ? 'bg-[#1b2b10] text-[#F2F6F0]/70 hover:bg-[#253916]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={crearVersion}
+                                disabled={guardandoVer || !versionForm.version_numero}
+                                className={`flex-[2] py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
+                            >
+                                {guardandoVer ? 'Creando...' : <>Crear v{versionForm.version_numero || '?'} <GitBranch size={14}/></>}
                             </button>
                         </div>
                     </div>

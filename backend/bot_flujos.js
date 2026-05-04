@@ -843,7 +843,10 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
             await guardarSesion(wa, sesion.nodo_actual_id, { subcotizacion: 'verificentro', paso: 1 });
             return await flujosVerificentroLogic(wa, 'inicio', { ...sesion, datos: { subcotizacion: 'verificentro', paso: 1 } });
         }
-        if (opcion === '4' || textoLower.includes('ventas') || textoLower.includes('instrumento')) {
+        // Ventas: solo dispara con palabras explícitas (comprar, vender, adquirir, ventas).
+        // "instrumento" es demasiado genérica y choca con "calibración de instrumentos".
+        const palabrasVenta = ['ventas', 'venta', 'comprar', 'compra', 'vender', 'adquirir', 'cotizar instrumento', 'precio de instrumento'];
+        if (opcion === '4' || palabrasVenta.some(p => textoLower.includes(p))) {
             const nodos = await getTodosNodos();
             const nodoVentas = nodos.find(n => n.accion === 'ventas');
             if (nodoVentas) {
@@ -862,8 +865,27 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
     const pasoCalib = datos.paso || 1;
     switch (pasoCalib) {
         case 1: { // Inicio: Tipo de equipo o descripción
-            // Aceptar opción 1-7 del menú aunque sea un solo dígito
+            // Aceptar opción 1-7 del menú aunque sea un solo dígito O por palabra clave
             const esOpcionMenu = !!TIPOS_EQUIPO[textoTrim];
+            const textoNorm = normalizarTexto(textoTrim);
+            // Mapeo palabra → categoría. Si el usuario escribe "temperatura" o "presion" sola,
+            // la tratamos como elección del menú y pedimos el tipo específico (case 12).
+            const PALABRA_A_CATEGORIA = {
+                temperatura: '1', termometr: '1', termopar: '1', termohigr: '1', rtd: '1',
+                presion: '2', manometr: '2',
+                masa: '3', balanza: '3', fuerza: '3', dinamometr: '3', peso: '3',
+                electric: '4', voltaje: '4', corriente: '4', multimetr: '4', pinza: '4',
+                dimensional: '5', vernier: '5', calibrador: '5', micrometr: '5',
+                humedad: '6', flujo: '6', volumen: '6'
+            };
+            let categoriaPorPalabra = null;
+            // Solo consideramos palabra-categoria si el mensaje es CORTO (1-3 palabras), para
+            // evitar que "necesito calibrar un termometro Fluke 726 modelo X" caiga aquí.
+            if (textoNorm.split(/\s+/).length <= 3) {
+                for (const [k, v] of Object.entries(PALABRA_A_CATEGORIA)) {
+                    if (textoNorm.includes(k)) { categoriaPorPalabra = v; break; }
+                }
+            }
             if (!textoTrim || (textoTrim.length < 2 && !esOpcionMenu)) {
                 return await manejarFalloIntento(wa, sesion, {
                     reintento: MSG_COTIZ_REINTENTO,
@@ -872,16 +894,17 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
                     motivoEscalado: 'Cotización: paso 1 — respuesta vacía o inválida'
                 });
             }
-            if (esOpcionMenu) {
-                // Eligió categoría del menú: pedir el nombre específico del instrumento
-                const categoria = TIPOS_EQUIPO[textoTrim];
+            const claveCat = esOpcionMenu ? textoTrim : categoriaPorPalabra;
+            if (claveCat) {
+                // Eligió categoría (por número o por palabra): pedir el nombre específico
+                const categoria = TIPOS_EQUIPO[claveCat];
                 const updatedItem = { ...currentItem, tipoEquipo: categoria };
                 await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoCotiz({ ...datos, paso: 12, currentItem: updatedItem }));
                 return {
                     text: `✅ *${categoria}*\n\n¿Qué *tipo específico* de instrumento es?\n\n_Ej: Termómetro digital, RTD PT100, Termohigrómetro, Termopar tipo K..._`
                 };
             }
-            // Descripción libre: la usamos como nombre del equipo, categoría queda como "Otro"
+            // Descripción libre extensa: la usamos como nombre del equipo, categoría queda como "Otro"
             const updatedItem = { ...currentItem, tipoEquipo: '🔬 Otro', nombreEquipo: textoTrim };
             await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoCotiz({ ...datos, paso: 2, currentItem: updatedItem }));
             return {

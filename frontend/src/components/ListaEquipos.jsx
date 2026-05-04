@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { confirmar, alertaExito, alertaError } from '../hooks/alertas';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { Activity, CheckCircle, Clock, AlertTriangle, Eye, Edit, Trash2, X, FileText, Save, Search, Zap, Package, Plus, Trash, Settings2, MapPin, Layers, Edit3, List, RefreshCw, User, AlertCircle } from 'lucide-react';
@@ -158,13 +159,13 @@ const ListaEquipos = ({ darkMode }) => {
   };
 
   const eliminarEquipo = async (id) => {
-    if(window.confirm("¿Estás seguro de que deseas eliminar este registro?")) {
-      try {
-        await axios.delete(`/api/instrumentos/${id}`);
-        cargarEquipos();
-      } catch (err) {
-        alert("Error al eliminar");
-      }
+    if (!(await confirmar('Eliminar equipo', '¿Estás seguro? Esta acción no se puede deshacer.', { danger: true, confirmText: 'Sí, eliminar' }))) return;
+    try {
+      await axios.delete(`/api/instrumentos/${id}`);
+      cargarEquipos();
+      alertaExito('Equipo eliminado');
+    } catch (err) {
+      alertaError('Error al eliminar', err.response?.data?.error || err.message);
     }
   };
 
@@ -377,18 +378,22 @@ const ListaEquipos = ({ darkMode }) => {
   };
 
   // Filtros derivados de query params (sla, detenidos, etc).
+  // sla_restante viene calculado del backend (calcularSLAReal) desde fecha_recepcion_parsed.
   const aplicaFiltroPreset = (eq) => {
     if (filtroEstatus && eq.estatus_actual !== filtroEstatus) return false;
-    if (filtroNombre === 'sla_critico') {
-      const dias = Number.isFinite(eq.dias_restantes_sla) ? eq.dias_restantes_sla : null;
-      const operativo = !['Entregado', 'Facturación'].includes(eq.estatus_actual);
-      if (!operativo || dias === null || dias > 1) return false;
-    }
+    const sla = Number.isFinite(eq.sla_restante) ? eq.sla_restante : null;
+    const operativo = !['Entregado', 'Cancelado'].includes(eq.estatus_actual);
+
+    if (filtroNombre === 'sla_critico')   { if (!operativo || sla === null || sla > 1) return false; }
+    if (filtroNombre === 'sla_vencidos')  { if (!operativo || sla === null || sla > 0) return false; }
+    if (filtroNombre === 'sla_3')         { if (!operativo || sla === null || sla <= 0 || sla > 3) return false; }
+    if (filtroNombre === 'sla_4_7')       { if (!operativo || sla === null || sla < 4 || sla > 7) return false; }
+    if (filtroNombre === 'sla_en_tiempo') { if (!operativo || sla === null || sla <= 7) return false; }
+
     if (filtroNombre === 'detenidos') {
-      // Equipos atorados en Laboratorio más de 2 días
-      const operativo = eq.estatus_actual === 'Laboratorio';
+      const enLab = eq.estatus_actual === 'Laboratorio';
       const fecha = eq.fecha_ingreso ? new Date(eq.fecha_ingreso) : null;
-      if (!operativo || !fecha) return false;
+      if (!enLab || !fecha) return false;
       const horas = (Date.now() - fecha.getTime()) / (1000 * 60 * 60);
       if (horas < 48) return false;
     }
@@ -416,14 +421,21 @@ const ListaEquipos = ({ darkMode }) => {
   );
 
   const filtroLabel = (() => {
-    if (filtroEstatus) return `Estatus: ${filtroEstatus}`;
+    if (filtroEstatus && !filtroNombre) return `Estatus: ${filtroEstatus}`;
+    let base;
     switch (filtroNombre) {
-      case 'sla_critico':    return 'SLA Crítico (≤ 1 día)';
-      case 'detenidos':      return 'Detenidos en Laboratorio (> 2 días)';
-      case 'sin_notificar':  return 'Listos sin notificar al cliente';
-      case 'sin_certificado':return 'Sin certificado emitido';
-      default: return null;
+      case 'sla_critico':    base = 'SLA Crítico (≤ 1 día)'; break;
+      case 'sla_vencidos':   base = 'SLA vencido'; break;
+      case 'sla_3':          base = 'Vence en 1–3 días'; break;
+      case 'sla_4_7':        base = 'Vence en 4–7 días'; break;
+      case 'sla_en_tiempo':  base = 'En tiempo (>7 días)'; break;
+      case 'detenidos':      base = 'Detenidos en Laboratorio (> 2 días)'; break;
+      case 'sin_notificar':  base = 'Listos sin notificar al cliente'; break;
+      case 'sin_certificado':base = 'Sin certificado emitido'; break;
+      default: base = null;
     }
+    if (base && filtroEstatus) return `${base} · Etapa ${filtroEstatus}`;
+    return base;
   })();
 
   return (
@@ -969,15 +981,6 @@ const ListaEquipos = ({ darkMode }) => {
                         styles={selectStyles}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase opacity-40 ml-1">Días extra (versionado/extensión)</label>
-                    <input
-                      type="number" min="0" step="1"
-                      value={equipoEditando.sla_dias_extra || 0}
-                      onChange={(e) => setEquipoEditando({...equipoEditando, sla_dias_extra: Math.max(0, parseInt(e.target.value || '0', 10))})}
-                      className={`w-full p-3 rounded-xl text-sm font-bold border outline-none ${darkMode ? 'bg-[#141f0b] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
-                    />
-                  </div>
                 </div>
                 <div className={`mt-4 p-3 rounded-xl text-[10px] font-bold flex items-center justify-between ${darkMode ? 'bg-[#1b2b10] text-[#C9EA63]/80' : 'bg-emerald-50 text-emerald-800'}`}>
                   <span className="opacity-70">
@@ -989,7 +992,7 @@ const ListaEquipos = ({ darkMode }) => {
                 </div>
                 <div className="mt-2 flex items-center gap-2 text-[8px] font-black opacity-40 uppercase tracking-widest">
                    <AlertTriangle size={10} className="text-[#C9EA63]" />
-                   <span>El SLA cuenta desde la fecha de la OS. Días extra se suman para versionados.</span>
+                   <span>Para versionar la orden completa, abre "Gestionar Orden" desde el ícono de caja.</span>
                 </div>
               </div>
 

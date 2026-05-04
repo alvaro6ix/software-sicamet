@@ -456,6 +456,24 @@ async function ensureWhatsappChatsColumns() {
     }
     console.log('✅ Migraciones SICAMET 2026 verificadas.');
 
+    // Limpieza idempotente de filas huérfanas. Si un instrumento se elimina,
+    // sus relaciones (metrologos asignados, comentarios, rechazos, auditoría)
+    // pueden quedar colgadas e inflar contadores. Esto las purga al arrancar.
+    const limpiezas = [
+        'DELETE im FROM instrumento_metrologos im LEFT JOIN instrumentos_estatus ie ON ie.id = im.instrumento_id WHERE ie.id IS NULL',
+        'DELETE c FROM instrumentos_comentarios c LEFT JOIN instrumentos_estatus ie ON ie.id = c.instrumento_id WHERE ie.id IS NULL',
+        'DELETE r FROM rechazos_aseguramiento r LEFT JOIN instrumentos_estatus ie ON ie.id = r.instrumento_id WHERE ie.id IS NULL',
+        'DELETE a FROM auditoria_instrumentos a LEFT JOIN instrumentos_estatus ie ON ie.id = a.instrumento_id WHERE ie.id IS NULL'
+    ];
+    let totalHuerfanos = 0;
+    for (const sql of limpiezas) {
+        try {
+            const [r] = await db.query(sql);
+            totalHuerfanos += r.affectedRows || 0;
+        } catch (_) {}
+    }
+    if (totalHuerfanos > 0) console.log(`🧹 Filas huérfanas purgadas: ${totalHuerfanos}`);
+
     // Repara emojis perdidos por dumps con --default-character-set=utf8 (3 bytes).
     try {
         const { migrarEmojis } = require('./migracion_emojis');
@@ -1939,18 +1957,20 @@ app.get('/api/asignacion/pendientes', requirePermiso('metrologia.asignar'), asyn
 });
 
 // Carga de trabajo por metrólogo (cuántos equipos activos tiene cada uno).
-// Sirve para que Agustín distribuya inteligentemente.
+// Solo cuenta relaciones cuyo instrumento existe Y no está Entregado/Cancelado,
+// evitando que datos huérfanos en instrumento_metrologos inflen el contador.
 app.get('/api/asignacion/carga-metrologos', requirePermiso('metrologia.asignar'), async (req, res) => {
     try {
         const [rows] = await db.query(
             `SELECT u.id, u.nombre, u.area,
-                    COUNT(DISTINCT im.instrumento_id) AS total_asignados,
-                    SUM(CASE WHEN im.estatus = 'asignado' THEN 1 ELSE 0 END) AS en_proceso,
-                    SUM(CASE WHEN im.estatus = 'terminado' THEN 1 ELSE 0 END) AS terminados,
-                    SUM(CASE WHEN im.estatus = 'correccion' THEN 1 ELSE 0 END) AS en_correccion
+                    COUNT(DISTINCT ie.id) AS total_asignados,
+                    SUM(CASE WHEN ie.id IS NOT NULL AND im.estatus = 'asignado'   THEN 1 ELSE 0 END) AS en_proceso,
+                    SUM(CASE WHEN ie.id IS NOT NULL AND im.estatus = 'terminado'  THEN 1 ELSE 0 END) AS terminados,
+                    SUM(CASE WHEN ie.id IS NOT NULL AND im.estatus = 'correccion' THEN 1 ELSE 0 END) AS en_correccion
              FROM usuarios u
              LEFT JOIN instrumento_metrologos im ON im.usuario_id = u.id
-             LEFT JOIN instrumentos_estatus ie ON ie.id = im.instrumento_id AND ie.estatus_actual NOT IN ('Entregado','Cancelado')
+             LEFT JOIN instrumentos_estatus ie ON ie.id = im.instrumento_id
+                AND ie.estatus_actual NOT IN ('Entregado','Cancelado')
              WHERE u.activo = 1 AND u.rol IN ('metrologo','operador')
              GROUP BY u.id, u.nombre, u.area
              ORDER BY total_asignados DESC, u.nombre ASC`
@@ -2257,6 +2277,119 @@ app.post('/api/ordenes/:orden/versiones', requirePermiso('equipos.editar'), asyn
         res.status(500).json({ error: err.message });
     } finally {
         connection.release();
+    }
+});
+
+// Sprint 6 P5 — Trazabilidad de responsables: quién registró, asignó, metrologó,
+// aprobó/rechazó en aseguramiento, certificó, facturó, entregó la OS.
+// Se reconstruye desde la auditoría + tablas existentes.
+app.get('/api/ordenes/:orden/responsables', requirePermiso('busqueda.ver'), async (req, res) => {
+    try {
+        const orden = req.params.orden;
+        const [equipos] = await db.query('SELECT id FROM instrumentos_estatus WHERE orden_cotizacion = ?', [orden]);
+        if (equipos.length === 0) return res.json({ etapas: [] });
+        const ids = equipos.map(e => e.id);
+        const placeholders = ids.map(() => '?').join(',');
+
+        // Quien registró: el primer evento auditado (o creador del primer historial). Si no existe,
+        // tomamos el más antiguo evento de auditoría.
+        const [primerEventos] = await db.query(
+            `SELECT a.usuario_id, u.nombre, u.rol, MIN(a.fecha) AS fecha
+             FROM auditoria_instrumentos a
+             LEFT JOIN usuarios u ON u.id = a.usuario_id
+             WHERE a.instrumento_id IN (${placeholders})
+             GROUP BY a.usuario_id, u.nombre, u.rol
+             ORDER BY fecha ASC LIMIT 1`,
+            ids
+        );
+
+        // Quién asignó metrólogos (primera acción 'asignacion' o creador del registro im)
+        const [asignador] = await db.query(
+            `SELECT a.usuario_id, u.nombre, u.rol, MIN(a.fecha) AS fecha
+             FROM auditoria_instrumentos a
+             LEFT JOIN usuarios u ON u.id = a.usuario_id
+             WHERE a.instrumento_id IN (${placeholders}) AND a.accion LIKE '%asign%'
+             GROUP BY a.usuario_id, u.nombre, u.rol
+             ORDER BY fecha ASC LIMIT 1`,
+            ids
+        );
+
+        // Metrólogos que tocaron alguno
+        const [metrologos] = await db.query(
+            `SELECT DISTINCT u.id, u.nombre, u.rol
+             FROM instrumento_metrologos im
+             JOIN usuarios u ON u.id = im.usuario_id
+             WHERE im.instrumento_id IN (${placeholders})`,
+            ids
+        );
+
+        // Aseguramiento: quién aprobó/rechazó (busca en auditoría)
+        const [aseguradores] = await db.query(
+            `SELECT DISTINCT u.id, u.nombre, u.rol, MAX(a.fecha) AS ultima
+             FROM auditoria_instrumentos a
+             JOIN usuarios u ON u.id = a.usuario_id
+             WHERE a.instrumento_id IN (${placeholders})
+               AND (a.accion LIKE '%aseguramiento%' OR a.accion LIKE '%rechaz%' OR a.accion LIKE '%aprob%')
+             GROUP BY u.id, u.nombre, u.rol
+             ORDER BY ultima DESC`,
+            ids
+        );
+
+        // Certificación: quién subió certificados (acciones de certificacion en auditoría
+        // o usuarios con rol de certificación que tocaron certificado_url)
+        const [certificadores] = await db.query(
+            `SELECT DISTINCT u.id, u.nombre, u.rol, MAX(a.fecha) AS ultima
+             FROM auditoria_instrumentos a
+             JOIN usuarios u ON u.id = a.usuario_id
+             WHERE a.instrumento_id IN (${placeholders})
+               AND (a.accion LIKE '%certific%' OR a.accion LIKE '%vincul%')
+             GROUP BY u.id, u.nombre, u.rol
+             ORDER BY ultima DESC`,
+            ids
+        );
+
+        const etapas = [
+            {
+                etapa: 'Registro',
+                rol: primerEventos[0]?.rol || 'recepcionista',
+                usuario: primerEventos[0]?.nombre || 'No registrado',
+                usuario_id: primerEventos[0]?.usuario_id || null,
+                fecha: primerEventos[0]?.fecha || null
+            },
+            {
+                etapa: 'Asignación',
+                rol: 'jefe metrología',
+                usuario: asignador[0]?.nombre || 'Pendiente',
+                usuario_id: asignador[0]?.usuario_id || null,
+                fecha: asignador[0]?.fecha || null
+            },
+            {
+                etapa: 'Metrología',
+                rol: 'metrólogo(s)',
+                usuario: metrologos.map(m => m.nombre).join(', ') || 'Sin asignar',
+                usuario_id: null,
+                fecha: null
+            },
+            {
+                etapa: 'Aseguramiento',
+                rol: 'aseguramiento',
+                usuario: aseguradores.map(a => a.nombre).join(', ') || 'Pendiente',
+                usuario_id: null,
+                fecha: aseguradores[0]?.ultima || null
+            },
+            {
+                etapa: 'Certificación',
+                rol: 'certificación',
+                usuario: certificadores.map(c => c.nombre).join(', ') || 'Pendiente',
+                usuario_id: null,
+                fecha: certificadores[0]?.ultima || null
+            }
+        ];
+
+        res.json({ etapas });
+    } catch (err) {
+        console.error('responsables:', err.message);
+        res.status(500).json({ error: err.message });
     }
 });
 

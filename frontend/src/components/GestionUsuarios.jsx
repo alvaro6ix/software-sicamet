@@ -5,6 +5,7 @@ import {
   Mail, User, X, Save, Search, Loader2, Package, Plus,
   FlaskConical, MapPin, ChevronRight, CheckCircle, AlertCircle
 } from 'lucide-react';
+import { confirmar } from '../hooks/alertas';
 
 const GestionUsuarios = ({ darkMode }) => {
   const [tab, setTab] = useState('usuarios'); // 'usuarios' | 'areas'
@@ -101,7 +102,7 @@ const GestionUsuarios = ({ darkMode }) => {
   };
 
   const eliminarUsuario = async (id) => {
-    if (!window.confirm("¿Estás seguro de eliminar permanentemente a este usuario?")) return;
+    if (!(await confirmar('Eliminar usuario', '¿Eliminar permanentemente? No se puede deshacer.', { danger: true, confirmText: 'Sí, eliminar' }))) return;
     try {
       await axios.delete(`/api/usuarios/${id}`);
       alert("Usuario eliminado");
@@ -138,7 +139,7 @@ const GestionUsuarios = ({ darkMode }) => {
   };
 
   const eliminarArea = async (id) => {
-    if (!window.confirm("¿Eliminar esta área? Los equipos asignados a ella no se verán afectados.")) return;
+    if (!(await confirmar('Eliminar área', 'Los equipos asignados a ella no se verán afectados.', { danger: true, confirmText: 'Sí, eliminar' }))) return;
     try {
       await axios.delete(`/api/areas/${id}`);
       fetchAreas();

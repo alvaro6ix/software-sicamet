@@ -10,7 +10,7 @@ import { toast } from 'react-toastify';
 import {
     ArrowLeft, Package, Calendar, Building2, User, Mail, MapPin, Tag,
     Clock, CheckCircle, AlertTriangle, FileText, MessageSquare,
-    Activity, ChevronRight, RefreshCw, Hash, Truck, FileCheck, GitBranch, Plus, X
+    Activity, ChevronRight, RefreshCw, Hash, Truck, FileCheck, GitBranch, Plus, X, Settings2
 } from 'lucide-react';
 import { usePermisos } from '../hooks/usePermisos';
 
@@ -49,6 +49,7 @@ const OrdenDetalle = ({ darkMode }) => {
     const { tiene } = usePermisos();
     const puedeVersionar = tiene('equipos.editar');
     const [data, setData] = useState(null);
+    const [responsables, setResponsables] = useState([]);
     const [cargando, setCargando] = useState(true);
     const [error, setError] = useState(null);
     const [tab, setTab] = useState('equipos');
@@ -60,8 +61,12 @@ const OrdenDetalle = ({ darkMode }) => {
         setCargando(true);
         setError(null);
         try {
-            const res = await axios.get(`/api/ordenes/${encodeURIComponent(os)}`);
-            setData(res.data);
+            const [resOrden, resResp] = await Promise.all([
+                axios.get(`/api/ordenes/${encodeURIComponent(os)}`),
+                axios.get(`/api/ordenes/${encodeURIComponent(os)}/responsables`).catch(() => ({ data: { etapas: [] } }))
+            ]);
+            setData(resOrden.data);
+            setResponsables(resResp.data?.etapas || []);
         } catch (err) {
             setError(err.response?.status === 404 ? 'Orden no encontrada' : (err.response?.data?.error || err.message));
         } finally {
@@ -158,8 +163,12 @@ const OrdenDetalle = ({ darkMode }) => {
                     </div>
                 </div>
                 {puedeVersionar && (
-                    <button onClick={abrirModalVersion} className={`px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}>
-                        <GitBranch size={16}/> Crear versión
+                    <button
+                        onClick={() => navigate(`/equipos/grupo/${encodeURIComponent(cabecera.orden_cotizacion)}`)}
+                        className={`px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
+                        title="Gestionar la orden completa: agregar equipos, crear nueva versión, etc."
+                    >
+                        <Settings2 size={16}/> Gestionar Orden
                     </button>
                 )}
                 <button onClick={cargar} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-100'}`} title="Refrescar">
@@ -232,10 +241,11 @@ const OrdenDetalle = ({ darkMode }) => {
             {/* Tabs */}
             <div className="flex gap-2 border-b overflow-x-auto custom-scrollbar" style={{ borderColor: darkMode ? 'rgba(201,234,99,0.15)' : '#e2e8f0' }}>
                 {[
-                    { id: 'equipos',   label: `Equipos (${equipos.length})` },
-                    { id: 'historial', label: `Historial (${historial.length})` },
-                    { id: 'rechazos',  label: `Rechazos (${rechazos.length})` },
-                    { id: 'versiones', label: `Versiones (${versiones.length || 1})` }
+                    { id: 'equipos',      label: `Equipos (${equipos.length})` },
+                    { id: 'responsables', label: `Responsables` },
+                    { id: 'historial',    label: `Historial (${historial.length})` },
+                    { id: 'rechazos',     label: `Rechazos (${rechazos.length})` },
+                    { id: 'versiones',    label: `Versiones (${versiones.length || 1})` }
                 ].map(t => (
                     <button
                         key={t.id}
@@ -309,6 +319,42 @@ const OrdenDetalle = ({ darkMode }) => {
                             })}
                         </tbody>
                     </table>
+                </div>
+            )}
+
+            {/* Tab: Responsables — quién hizo qué en cada etapa */}
+            {tab === 'responsables' && (
+                <div className={`rounded-2xl border ${boxBg} p-4 space-y-2`}>
+                    <p className={`text-xs italic mb-3 ${textMuted}`}>
+                        Cadena de responsabilidad de esta OS. Útil para auditorías: si algo se equivocó, sabes a quién consultar.
+                    </p>
+                    {responsables.length === 0 ? (
+                        <p className={`text-center py-8 italic ${textMuted}`}>Sin información de responsables.</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {responsables.map((r, i) => (
+                                <div key={i} className={`p-4 rounded-xl border flex items-center gap-4 ${cardBg}`}>
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63]' : 'bg-emerald-100 text-emerald-700'}`}>
+                                        {i + 1}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-3 flex-wrap">
+                                            <p className={`text-sm font-black ${textTitle}`}>{r.etapa}</p>
+                                            <span className={`text-[10px] uppercase font-bold ${textMuted}`}>{r.rol}</span>
+                                        </div>
+                                        <p className={`text-sm mt-0.5 ${r.usuario === 'Pendiente' || r.usuario === 'Sin asignar' || r.usuario === 'No registrado' ? textMuted + ' italic' : textBody}`}>
+                                            {r.usuario}
+                                        </p>
+                                    </div>
+                                    {r.fecha && (
+                                        <span className={`text-[10px] font-bold ${textMuted}`}>
+                                            {formatearFecha(r.fecha)}
+                                        </span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
