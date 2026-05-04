@@ -31,6 +31,7 @@ import OrdenDetalle from './components/OrdenDetalle';
 import BandejaAsignacion from './components/BandejaAsignacion';
 import MisEnvios from './components/MisEnvios';
 import MisDecisiones from './components/MisDecisiones';
+import Facturacion from './components/Facturacion';
 import io from 'socket.io-client';
 
 import { Toaster, toast } from 'sonner';
@@ -93,6 +94,7 @@ const Sidebar = ({ darkMode, toggleDarkMode, mobileOpen, setMobileOpen, usuario,
     { name: 'Dashboard',                path: '/',                          icon: LayoutDashboard, permiso: 'dashboard.ver' },
     { name: 'Registro Ágil',            path: '/registro',                  icon: FileText,        permiso: 'registro.ver' },
     { name: 'Entregas',                 path: '/entregas',                  icon: Truck,           permiso: 'entregas.ver' },
+    { name: 'Facturación',              path: '/facturacion',               icon: FileText,        permiso: 'facturacion.ver' },
     { name: 'Dashboard Aseguramiento',  path: '/aseguramiento-dashboard',   icon: LayoutDashboard, permiso: 'dashboard.aseguramiento.ver' },
     { name: 'Gestión Operativa',        path: '/validacion',                icon: FileCheck,       permiso: 'aseguramiento.ver' },
     { name: 'Mis Decisiones',           path: '/mis-decisiones',            icon: ShieldCheck,     permiso: 'aseguramiento.ver' },
@@ -475,6 +477,7 @@ const Layout = () => {
               <Route path="/feedback-bot" element={<FeedbackBot darkMode={darkMode} />} />
               <Route path="/validacion" element={<Validacion darkMode={darkMode} usuario={usuario} />} />
               <Route path="/entregas" element={<Entregas darkMode={darkMode} usuario={usuario} />} />
+              <Route path="/facturacion" element={<Facturacion darkMode={darkMode} usuario={usuario} />} />
               <Route path="/clientes" element={<Clientes darkMode={darkMode} />} />
               <Route path="/catalogo-instrumentos" element={<CatalogoInstrumentos darkMode={darkMode} />} />
               <Route path="/marcas" element={<Marcas darkMode={darkMode} />} />

@@ -393,6 +393,11 @@ async function ensureWhatsappChatsColumns() {
         // Sprint 8 — Bandera para equipos que NO requieren certificado físico.
         // Permite a Julieta marcarlos y pasarlos a Facturación sin exigir PDF.
         "ALTER TABLE instrumentos_estatus ADD COLUMN no_requiere_certificado TINYINT(1) NOT NULL DEFAULT 0 AFTER certificado_url",
+        // Sprint 9 — Sub-estado dentro de Facturación: Ivón confirma cobro al cliente.
+        // Flor solo ve los equipos con factura_pagada=1 para entregar.
+        "ALTER TABLE instrumentos_estatus ADD COLUMN factura_pagada TINYINT(1) NOT NULL DEFAULT 0 AFTER no_requiere_certificado",
+        "ALTER TABLE instrumentos_estatus ADD COLUMN fecha_factura_pagada TIMESTAMP NULL AFTER factura_pagada",
+        "ALTER TABLE instrumentos_estatus ADD COLUMN factura_usuario_id INT NULL AFTER fecha_factura_pagada",
         // Tabla de historial de versiones de OS — solo registro, una por orden+numero.
         `CREATE TABLE IF NOT EXISTS os_versiones (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2467,6 +2472,151 @@ app.get('/api/ordenes/:orden/versiones', requirePermiso('busqueda.ver'), async (
             [req.params.orden]
         );
         res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sprint 9 — Módulo de Facturación (Ivón).
+// Pendientes: equipos en estatus 'Facturación' con factura_pagada=0.
+// Historial: equipos cuya factura ya marcó pagada (cualquier usuario o este).
+app.get('/api/facturacion/pendientes', requirePermiso('facturacion.ver'), async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT ie.*,
+                    (SELECT COUNT(*) FROM instrumentos_comentarios c WHERE c.instrumento_id = ie.id) AS comentarios_count
+             FROM instrumentos_estatus ie
+             WHERE ie.estatus_actual = 'Facturación' AND ie.factura_pagada = 0
+             ORDER BY ie.fecha_ingreso DESC`
+        );
+        const conSLA = rows.map(e => ({
+            ...e,
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
+        }));
+        res.json(conSLA);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/facturacion/historial', requirePermiso('facturacion.ver'), async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT ie.*, u.nombre AS factura_usuario_nombre
+             FROM instrumentos_estatus ie
+             LEFT JOIN usuarios u ON u.id = ie.factura_usuario_id
+             WHERE ie.factura_pagada = 1
+             ORDER BY ie.fecha_factura_pagada DESC LIMIT 200`
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/facturacion/:id/confirmar-pago', requirePermiso('facturacion.confirmar_pago'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [eq] = await db.query('SELECT estatus_actual, orden_cotizacion, nombre_instrumento, empresa FROM instrumentos_estatus WHERE id = ? LIMIT 1', [id]);
+        if (eq.length === 0) return res.status(404).json({ error: 'Equipo no encontrado' });
+        if (eq[0].estatus_actual !== 'Facturación') {
+            return res.status(400).json({ error: `El equipo está en "${eq[0].estatus_actual}", no en Facturación` });
+        }
+        await db.query(
+            `UPDATE instrumentos_estatus
+             SET factura_pagada = 1, fecha_factura_pagada = NOW(), factura_usuario_id = ?
+             WHERE id = ?`,
+            [req.usuario.id, id]
+        );
+        try {
+            await db.query(
+                'INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) VALUES (?, ?, ?, ?)',
+                [id, 'pago_confirmado', req.usuario.id, JSON.stringify({ orden: eq[0].orden_cotizacion })]
+            );
+        } catch (_) {}
+
+        try {
+            const { emitirNotificacion } = require('./notificaciones');
+            emitirNotificacion({
+                tipo: 'sistema',
+                titulo: `Pago confirmado · OC ${eq[0].orden_cotizacion || '—'}`,
+                detalle: `${req.usuario.nombre || 'Facturación'} marcó pago del equipo "${eq[0].nombre_instrumento || '—'}" (${eq[0].empresa || '—'}). Listo para entrega.`,
+                audiencia: 'permiso:entregas.ver',
+                urgencia: 'media',
+                ruta: '/entregas',
+                creadorId: req.usuario.id
+            });
+        } catch (_) {}
+
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'pago_confirmado', id: Number(id) });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sprint 9 — Módulo de Entregas (Flor) endpoints.
+// Pendientes: equipos en Facturación con factura_pagada=1 (Ivón ya cobró).
+app.get('/api/entregas/pendientes', requirePermiso('entregas.ver'), async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT ie.*,
+                    u.nombre AS factura_usuario_nombre,
+                    (SELECT COUNT(*) FROM instrumentos_comentarios c WHERE c.instrumento_id = ie.id) AS comentarios_count
+             FROM instrumentos_estatus ie
+             LEFT JOIN usuarios u ON u.id = ie.factura_usuario_id
+             WHERE ie.estatus_actual = 'Facturación' AND ie.factura_pagada = 1
+             ORDER BY ie.fecha_factura_pagada DESC`
+        );
+        const conSLA = rows.map(e => ({
+            ...e,
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
+        }));
+        res.json(conSLA);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/entregas/historial', requirePermiso('entregas.ver'), async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT ie.*
+             FROM instrumentos_estatus ie
+             WHERE ie.estatus_actual = 'Entregado'
+             ORDER BY ie.fecha_entrega DESC LIMIT 200`
+        );
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/entregas/:id/confirmar', requirePermiso('entregas.confirmar'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [eq] = await db.query('SELECT estatus_actual, factura_pagada, orden_cotizacion, nombre_instrumento, empresa FROM instrumentos_estatus WHERE id = ? LIMIT 1', [id]);
+        if (eq.length === 0) return res.status(404).json({ error: 'Equipo no encontrado' });
+        if (eq[0].estatus_actual !== 'Facturación') {
+            return res.status(400).json({ error: 'El equipo no está en Facturación' });
+        }
+        if (!eq[0].factura_pagada) {
+            return res.status(400).json({ error: 'La factura aún no ha sido confirmada como pagada' });
+        }
+        await db.query(
+            `UPDATE instrumentos_estatus SET estatus_actual = 'Entregado', fecha_entrega = NOW() WHERE id = ?`,
+            [id]
+        );
+        try {
+            await db.query(
+                'INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) VALUES (?, ?, ?, ?)',
+                [id, 'entrega_confirmada', req.usuario.id, JSON.stringify({ orden: eq[0].orden_cotizacion })]
+            );
+        } catch (_) {}
+
+        try {
+            const { emitirNotificacion } = require('./notificaciones');
+            emitirNotificacion({
+                tipo: 'sistema',
+                titulo: `Equipo entregado · OC ${eq[0].orden_cotizacion || '—'}`,
+                detalle: `${req.usuario.nombre || 'Entrega'} confirmó la entrega de "${eq[0].nombre_instrumento || '—'}" (${eq[0].empresa || '—'}).`,
+                audiencia: 'todos',
+                urgencia: 'baja',
+                ruta: '/equipos?estatus=Entregado',
+                creadorId: req.usuario.id
+            });
+        } catch (_) {}
+
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'entrega_confirmada', id: Number(id) });
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

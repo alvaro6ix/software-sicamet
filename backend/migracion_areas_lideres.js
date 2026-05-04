@@ -24,8 +24,8 @@ const LIDERES_AREA = [
     { nombre: 'Agustín',   email: 'agustin@sicamet.mx',   rol: 'metrologo',     area: 'Laboratorio',   esJefeMetrologia: true },
     { nombre: 'Berenice',  email: 'berenice@sicamet.mx',  rol: 'aseguramiento', area: 'Aseguramiento' },
     { nombre: 'Julieta',   email: 'julieta@sicamet.mx',   rol: 'validacion',    area: 'Certificación' },
-    { nombre: 'Ivón',      email: 'ivon@sicamet.mx',      rol: 'recepcionista', area: 'Facturación' },
-    { nombre: 'Flor',      email: 'flor@sicamet.mx',      rol: 'recepcionista', area: 'Entrega' }
+    { nombre: 'Ivón',      email: 'ivon@sicamet.mx',      rol: 'facturacion',   area: 'Facturación' },
+    { nombre: 'Flor',      email: 'flor@sicamet.mx',      rol: 'entrega',       area: 'Entrega' }
 ];
 
 const AREAS_OPERATIVAS = [

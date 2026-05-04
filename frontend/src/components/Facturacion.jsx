@@ -1,12 +1,13 @@
-// Sprint 9 / S9-B — Módulo de Entregas para Flor.
-// Recibe equipos cuya factura ya fue confirmada por Ivón y los marca como entregados.
+// Sprint 9 / S9-A — Módulo de Facturación para Ivón.
+// Recibe equipos que Julieta envió (con o sin certificado), confirma pago al cliente
+// y los pasa a la bandeja de Flor (Entregas).
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
-    Truck, RefreshCw, Building2, Calendar, ArrowRight, CheckCircle, Clock,
-    AlertTriangle, Search, History, Package, FileText
+    DollarSign, FileText, RefreshCw, Building2, Calendar, ArrowRight,
+    CheckCircle, Clock, AlertTriangle, Search, Receipt, History, FileCheck, Ban
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirmar } from '../hooks/alertas';
@@ -29,11 +30,11 @@ function badgeSLA(sla, darkMode) {
     return <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${cls}`}>{label}</span>;
 }
 
-export default function Entregas({ darkMode, usuario }) {
+export default function Facturacion({ darkMode, usuario }) {
     const navigate = useNavigate();
     const { tiene } = usePermisos();
-    const puedeConfirmar = tiene('entregas.confirmar');
-    const [tab, setTab] = useState('pendientes');
+    const puedeConfirmar = tiene('facturacion.confirmar_pago');
+    const [tab, setTab] = useState('pendientes'); // 'pendientes' | 'historial'
     const [pendientes, setPendientes] = useState([]);
     const [historial, setHistorial] = useState([]);
     const [cargando, setCargando] = useState(true);
@@ -44,28 +45,28 @@ export default function Entregas({ darkMode, usuario }) {
         setCargando(true);
         try {
             const [r1, r2] = await Promise.all([
-                axios.get('/api/entregas/pendientes'),
-                axios.get('/api/entregas/historial')
+                axios.get('/api/facturacion/pendientes'),
+                axios.get('/api/facturacion/historial')
             ]);
             setPendientes(r1.data || []);
             setHistorial(r2.data || []);
         } catch (err) {
-            toast.error('Error: ' + (err.response?.data?.error || err.message));
+            toast.error('Error cargando facturación: ' + (err.response?.data?.error || err.message));
         } finally { setCargando(false); }
     };
     useEffect(() => { cargar(); }, []);
 
-    const confirmarEntrega = async (eq) => {
+    const confirmarPago = async (eq) => {
         const ok = await confirmar(
-            'Confirmar entrega al cliente',
-            `¿Ya entregaste "${eq.nombre_instrumento}" a ${eq.empresa || 'el cliente'}?`,
-            { confirmText: 'Sí, entregado' }
+            'Confirmar pago de factura',
+            `¿El cliente ${eq.empresa || ''} ya pagó la factura de "${eq.nombre_instrumento}"? Se enviará a Entrega.`,
+            { confirmText: 'Sí, marcar pagada' }
         );
         if (!ok) return;
         setConfirmando(eq.id);
         try {
-            await axios.post(`/api/entregas/${eq.id}/confirmar`);
-            toast.success('Entrega registrada. Equipo cerrado.');
+            await axios.post(`/api/facturacion/${eq.id}/confirmar-pago`);
+            toast.success('Pago confirmado. Equipo movido a Entregas.');
             await cargar();
         } catch (err) {
             toast.error(err.response?.data?.error || err.message);
@@ -83,12 +84,8 @@ export default function Entregas({ darkMode, usuario }) {
     };
 
     const totalCert = pendientes.filter(e => e.certificado_url).length;
-    const entregadosHoy = historial.filter(h => {
-        if (!h.fecha_entrega) return false;
-        const f = new Date(h.fecha_entrega);
-        const hoy = new Date();
-        return f.toDateString() === hoy.toDateString();
-    }).length;
+    const totalSinCert = pendientes.filter(e => !e.certificado_url && e.no_requiere_certificado).length;
+    const totalNoCert = pendientes.filter(e => !e.certificado_url && !e.no_requiere_certificado).length;
 
     const boxBg     = darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200';
     const cardBg    = darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/15' : 'bg-slate-50 border-slate-200';
@@ -99,12 +96,13 @@ export default function Entregas({ darkMode, usuario }) {
 
     return (
         <div className="w-full space-y-6 animate-in fade-in">
+            {/* Header */}
             <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
-                    <p className={`text-[11px] font-black uppercase tracking-widest ${textMuted}`}>Entregas</p>
-                    <h1 className={`text-2xl sm:text-3xl font-black ${accent}`}>Bandeja de Entrega</h1>
+                    <p className={`text-[11px] font-black uppercase tracking-widest ${textMuted}`}>Facturación</p>
+                    <h1 className={`text-2xl sm:text-3xl font-black ${accent}`}>Bandeja de Cobranza</h1>
                     <p className={`text-xs ${textBody} mt-1`}>
-                        Equipos pagados listos para entregar al cliente. Confirma cuando se hizo entrega física.
+                        Equipos certificados listos para facturar al cliente. Al confirmar el pago se envían a Entregas.
                     </p>
                 </div>
                 <button onClick={cargar} className={`p-2 rounded-lg border ${darkMode ? 'border-[#C9EA63]/20 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>
@@ -112,41 +110,41 @@ export default function Entregas({ darkMode, usuario }) {
                 </button>
             </div>
 
-            {/* KPIs */}
+            {/* KPIs principales */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className={`p-4 rounded-2xl border-l-4 border-amber-500 ${boxBg}`}>
-                    <div className="text-[10px] font-black uppercase tracking-widest text-amber-500 flex items-center gap-1"><Truck size={12}/> Por entregar</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-amber-500 flex items-center gap-1"><Receipt size={12}/> Por facturar</div>
                     <div className={`text-3xl font-black mt-1 ${textTitle}`}>{pendientes.length}</div>
                 </div>
                 <div className={`p-4 rounded-2xl border-l-4 border-emerald-500 ${boxBg}`}>
-                    <div className="text-[10px] font-black uppercase tracking-widest text-emerald-500 flex items-center gap-1"><CheckCircle size={12}/> Con certificado</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-emerald-500 flex items-center gap-1"><FileCheck size={12}/> Con certificado</div>
                     <div className={`text-3xl font-black mt-1 ${textTitle}`}>{totalCert}</div>
                 </div>
                 <div className={`p-4 rounded-2xl border-l-4 border-sky-500 ${boxBg}`}>
-                    <div className="text-[10px] font-black uppercase tracking-widest text-sky-500 flex items-center gap-1"><Calendar size={12}/> Entregados hoy</div>
-                    <div className={`text-3xl font-black mt-1 ${textTitle}`}>{entregadosHoy}</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-sky-500 flex items-center gap-1"><Ban size={12}/> No requieren cert.</div>
+                    <div className={`text-3xl font-black mt-1 ${textTitle}`}>{totalSinCert}</div>
                 </div>
-                <div className={`p-4 rounded-2xl border-l-4 border-purple-500 ${boxBg}`}>
-                    <div className="text-[10px] font-black uppercase tracking-widest text-purple-500 flex items-center gap-1"><History size={12}/> Total entregados</div>
-                    <div className={`text-3xl font-black mt-1 ${textTitle}`}>{historial.length}</div>
+                <div className={`p-4 rounded-2xl border-l-4 border-rose-500 ${boxBg}`}>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-rose-500 flex items-center gap-1"><AlertTriangle size={12}/> Pendientes de PDF</div>
+                    <div className={`text-3xl font-black mt-1 ${textTitle}`}>{totalNoCert}</div>
                 </div>
             </div>
 
-            {/* PanelSLA — equipos en Facturación (incluye los pagados pendientes de entrega) */}
+            {/* PanelSLA específico para Facturación */}
             <PanelSLA
                 darkMode={darkMode}
                 fase="Facturación"
-                titulo="SLA en mi bandeja"
-                descripcion="Equipos pagados con SLA agrupado por urgencia. Los vencidos requieren atención inmediata."
+                titulo="SLA de equipos en Facturación"
+                descripcion="Equipos en mi bandeja agrupados por urgencia. Click en una tarjeta filtra el listado de equipos."
             />
 
             {/* Tabs */}
             <div className={`flex gap-1 p-1 rounded-xl ${darkMode ? 'bg-white/5' : 'bg-slate-100'}`}>
                 <button onClick={() => setTab('pendientes')} className={`flex-1 py-2 rounded-lg text-xs font-black ${tab === 'pendientes' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white text-slate-800 shadow-sm') : (darkMode ? 'text-white/40' : 'text-slate-400')}`}>
-                    Por entregar ({pendientes.length})
+                    Por cobrar ({pendientes.length})
                 </button>
                 <button onClick={() => setTab('historial')} className={`flex-1 py-2 rounded-lg text-xs font-black flex items-center justify-center gap-1 ${tab === 'historial' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white text-slate-800 shadow-sm') : (darkMode ? 'text-white/40' : 'text-slate-400')}`}>
-                    <History size={12}/> Historial entregas ({historial.length})
+                    <History size={12}/> Historial pagos ({historial.length})
                 </button>
             </div>
 
@@ -172,51 +170,42 @@ export default function Entregas({ darkMode, usuario }) {
                     );
                     if (lista.length === 0) return (
                         <div className={`p-12 text-center ${textMuted}`}>
-                            <Truck size={32} className="mx-auto mb-2 opacity-50" />
-                            <p className="text-sm font-bold">{tab === 'pendientes' ? 'Sin equipos por entregar' : 'Sin entregas registradas'}</p>
-                            <p className="text-xs mt-1">{tab === 'pendientes' ? 'Cuando Facturación confirme un pago, aparecerá aquí.' : ''}</p>
+                            <Receipt size={32} className="mx-auto mb-2 opacity-50" />
+                            <p className="text-sm font-bold">{tab === 'pendientes' ? 'Sin equipos pendientes de facturar' : 'Sin pagos registrados'}</p>
                         </div>
                     );
                     return lista.map(e => {
                         const esHist = tab === 'historial';
                         const tieneCert = !!e.certificado_url;
+                        const noReq = !!e.no_requiere_certificado;
                         return (
                             <div key={e.id} className={`p-4 flex items-start gap-3 ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
                                 <div className={`p-2 rounded-lg flex-shrink-0 ${esHist ? (darkMode ? 'bg-emerald-900/30 text-emerald-400' : 'bg-emerald-100 text-emerald-600') : (darkMode ? 'bg-amber-900/30 text-amber-400' : 'bg-amber-100 text-amber-600')}`}>
-                                    {esHist ? <CheckCircle size={16}/> : <Truck size={16}/>}
+                                    {esHist ? <CheckCircle size={16}/> : <Receipt size={16}/>}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <p className={`text-sm font-bold ${textTitle}`}>{e.nombre_instrumento}</p>
-                                        {tieneCert ? (
-                                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${darkMode ? 'bg-emerald-900/40 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                Con PDF
-                                            </span>
-                                        ) : (
-                                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${darkMode ? 'bg-sky-900/40 text-sky-300' : 'bg-sky-100 text-sky-700'}`}>
-                                                Sin cert (no requiere)
-                                            </span>
-                                        )}
+                                        {tieneCert && <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${darkMode ? 'bg-emerald-900/40 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>Con PDF</span>}
+                                        {!tieneCert && noReq && <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${darkMode ? 'bg-sky-900/40 text-sky-300' : 'bg-sky-100 text-sky-700'}`}>Sin cert (no requiere)</span>}
+                                        {!tieneCert && !noReq && <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${darkMode ? 'bg-rose-900/40 text-rose-300' : 'bg-rose-100 text-rose-700'}`}>Sin PDF</span>}
                                         {!esHist && badgeSLA(e.slaRestante, darkMode)}
                                     </div>
                                     <div className={`text-[11px] flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-0.5 ${textMuted}`}>
                                         <span className="flex items-center gap-1"><Building2 size={11}/> {e.empresa || '—'}</span>
                                         <span>OC {e.orden_cotizacion}</span>
-                                        {!esHist && e.fecha_factura_pagada && (
+                                        {esHist && e.fecha_factura_pagada && (
                                             <span className="text-emerald-500">Pagada {formatearFechaHora(e.fecha_factura_pagada)}</span>
-                                        )}
-                                        {esHist && e.fecha_entrega && (
-                                            <span className="text-emerald-500">Entregada {formatearFechaHora(e.fecha_entrega)}</span>
                                         )}
                                     </div>
                                 </div>
                                 {!esHist && puedeConfirmar && (
                                     <button
-                                        onClick={() => confirmarEntrega(e)}
+                                        onClick={() => confirmarPago(e)}
                                         disabled={confirmando === e.id}
                                         className={`px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 disabled:opacity-50 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
                                     >
-                                        <Truck size={14}/> Confirmar entrega
+                                        <DollarSign size={14}/> Confirmar pago
                                     </button>
                                 )}
                                 <button onClick={() => navigate(`/orden/${encodeURIComponent(e.orden_cotizacion)}`)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-100'}`}>

@@ -47,6 +47,10 @@ const PERMISOS = [
     { clave: 'certificacion.subir',            grupo: 'Certificación',  descripcion: 'Subir / asociar certificados PDF' },
     { clave: 'sin_certificado.ver',            grupo: 'Certificación',  descripcion: 'Ver listado Sin Certificado' },
 
+    // Facturación
+    { clave: 'facturacion.ver',                grupo: 'Facturación',    descripcion: 'Ver módulo de Facturación' },
+    { clave: 'facturacion.confirmar_pago',     grupo: 'Facturación',    descripcion: 'Confirmar pago de factura por el cliente' },
+
     // Entregas
     { clave: 'entregas.ver',                   grupo: 'Entregas',       descripcion: 'Ver módulo de Entregas' },
     { clave: 'entregas.confirmar',             grupo: 'Entregas',       descripcion: 'Confirmar entregas al cliente' },
@@ -103,6 +107,18 @@ const PERMISOS_DEFAULT_POR_ROL = {
         'dashboard.aseguramiento.ver',
         'certificacion.ver', 'certificacion.subir',
         'sin_certificado.ver',
+        'kanban.ver',
+        'busqueda.ver'
+    ],
+    facturacion: [
+        // Ivón
+        'facturacion.ver', 'facturacion.confirmar_pago',
+        'kanban.ver',
+        'busqueda.ver'
+    ],
+    entrega: [
+        // Flor
+        'entregas.ver', 'entregas.confirmar',
         'kanban.ver',
         'busqueda.ver'
     ],
