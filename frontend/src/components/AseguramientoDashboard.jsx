@@ -135,22 +135,23 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
 
             {/* KPI Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <KPICard 
-                    title="Por Validar" 
-                    value={stats.pendientes_aseguramiento} 
-                    icon={Package} 
+                <KPICard
+                    title="Por Validar"
+                    value={stats.pendientes_aseguramiento}
+                    icon={Package}
                     isDark={darkMode}
                     subtitle="Pase QA"
                     onClick={() => navigate('/validacion')}
                 />
-                <KPICard 
-                    title="SLA Crítico" 
-                    value={stats.sla_critico} 
-                    icon={AlertTriangle} 
-                    color="rose" 
+                {/* Aseguramiento — equipos en estado actual */}
+                <KPICard
+                    title="SLA Crítico"
+                    value={stats.sla_critico}
+                    icon={AlertTriangle}
+                    color="rose"
                     isDark={darkMode}
                     subtitle="< 24h"
-                    onClick={() => navigate('/kanban')}
+                    onClick={() => navigate('/equipos?filtro=sla_critico')}
                 />
                 <KPICard 
                     title="En Certificación" 

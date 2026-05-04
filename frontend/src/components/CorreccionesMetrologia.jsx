@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { AlertTriangle, Eye, X, MessageSquare, ThumbsUp, CheckCircle, Send, Paperclip } from 'lucide-react';
+import { AlertTriangle, Eye, X, MessageSquare, ThumbsUp, CheckCircle, Send, Paperclip, Camera, FileText } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 const CorreccionesMetrologia = ({ darkMode, usuario }) => {
@@ -18,6 +18,7 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
     const [listaComentarios, setListaComentarios] = useState([]);
     const [nuevoMensaje, setNuevoMensaje] = useState('');
     const [enviandoChat, setEnviandoChat] = useState(false);
+    const [archivoChat, setArchivoChat] = useState(null);
     const chatEndRef = useRef(null);
 
     const fetchData = async () => {
@@ -66,11 +67,15 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
 
     const enviarMensaje = async (e) => {
         if (e) e.preventDefault();
-        if (!nuevoMensaje.trim() || !chatActivo || enviandoChat) return;
+        if ((!nuevoMensaje.trim() && !archivoChat) || !chatActivo || enviandoChat) return;
         setEnviandoChat(true);
         try {
-            await axios.post(`/api/instrumentos/${chatActivo}/comentarios`, { mensaje: nuevoMensaje });
+            const fd = new FormData();
+            fd.append('mensaje', nuevoMensaje || '');
+            if (archivoChat) fd.append('archivo', archivoChat);
+            await axios.post(`/api/instrumentos/${chatActivo}/comentarios`, fd);
             setNuevoMensaje('');
+            setArchivoChat(null);
             const res = await axios.get(`/api/instrumentos/${chatActivo}/comentarios`);
             setListaComentarios(Array.isArray(res.data) ? res.data : []);
         } catch (err) { console.error(err); } finally {
@@ -340,7 +345,7 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
                                 </div>
                             ) : (
                                 listaComentarios.map(c => {
-                                    const soyYo = c.usuario_id === usuario?.id;
+                                    const soyYo = c.mio === true;
                                     return (
                                         <div key={c.id} className={`flex flex-col ${soyYo ? 'items-end' : 'items-start'}`}>
                                             <div className={`max-w-[85%] px-3 py-2 rounded-lg shadow-sm text-sm ${soyYo ? (darkMode ? 'bg-[#005c4b] text-[#e9edef]' : 'bg-[#d9fdd3] text-[#111b21]') : (darkMode ? 'bg-[#202c33] text-[#e9edef]' : 'bg-white text-[#111b21]')}`}>
@@ -349,7 +354,20 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
                                                         {c.usuario_nombre || 'Sistema'}
                                                     </p>
                                                 )}
-                                                <p className="whitespace-pre-wrap break-words">{c.mensaje}</p>
+                                                {c.mensaje && <p className="whitespace-pre-wrap break-words">{c.mensaje}</p>}
+                                                {c.archivo_url && (
+                                                    <div className="mt-2 mb-1">
+                                                        {c.archivo_url.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
+                                                            <a href={c.archivo_url} target="_blank" rel="noreferrer" className="block cursor-zoom-in">
+                                                                <img src={c.archivo_url} alt="Adjunto" className="rounded-lg max-w-full max-h-[250px] object-cover" />
+                                                            </a>
+                                                        ) : (
+                                                            <a href={c.archivo_url} target="_blank" rel="noreferrer" className={`flex items-center gap-2 p-2 rounded border text-xs font-bold transition-colors ${darkMode ? 'bg-[#182229] border-[#2a3942] text-[#8696a0] hover:bg-[#202c33]' : 'bg-[#f0f2f5] border-[#d1d7db] text-[#54656f] hover:bg-[#e9edef]'}`}>
+                                                                <FileText size={16}/> <span>Ver archivo adjunto</span>
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                )}
                                                 <p className="text-[10px] opacity-40 text-right mt-1">
                                                     {new Date(c.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                 </p>
@@ -362,22 +380,41 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
                         </div>
 
                         {/* Input */}
-                        <form onSubmit={enviarMensaje} className={`p-3 flex items-end gap-2 flex-shrink-0 border-t ${darkMode ? 'bg-[#202c33] border-slate-700' : 'bg-[#f0f2f5] border-slate-200'}`}>
-                            <textarea
-                                value={nuevoMensaje}
-                                onChange={e => setNuevoMensaje(e.target.value)}
-                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarMensaje(); } }}
-                                placeholder="Escribe una respuesta..."
-                                rows={1}
-                                className={`flex-1 p-3 rounded-2xl text-sm outline-none resize-none max-h-28 overflow-y-auto ${darkMode ? 'bg-[#2a3942] text-[#e9edef] placeholder:text-[#8696a0]' : 'bg-white text-[#111b21] placeholder:text-[#8696a0]'}`}
-                            />
-                            <button
-                                type="submit"
-                                disabled={!nuevoMensaje.trim() || enviandoChat}
-                                className="w-11 h-11 flex items-center justify-center rounded-full bg-[#008a5e] text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:bg-[#007b55] active:scale-95 flex-shrink-0"
-                            >
-                                <Send size={18} />
-                            </button>
+                        <form onSubmit={enviarMensaje} className={`p-3 flex flex-col gap-2 flex-shrink-0 border-t ${darkMode ? 'bg-[#202c33] border-slate-700' : 'bg-[#f0f2f5] border-slate-200'}`}>
+                            {archivoChat && (
+                                <div className={`p-2 rounded-lg flex justify-between items-center text-sm ${darkMode ? 'bg-[#2a3942] text-[#e9edef]' : 'bg-white text-[#111b21]'}`}>
+                                    <div className="flex items-center gap-2 truncate font-medium">
+                                        <Paperclip size={14} />
+                                        <span className="truncate">{archivoChat.name}</span>
+                                    </div>
+                                    <button type="button" onClick={() => setArchivoChat(null)} className={`p-1 rounded-full ${darkMode ? 'hover:bg-[#202c33]' : 'hover:bg-[#f0f2f5]'}`}><X size={14}/></button>
+                                </div>
+                            )}
+                            <div className="flex items-end gap-2">
+                                <label className={`p-3 shrink-0 cursor-pointer rounded-full transition-colors ${darkMode ? 'text-[#8696a0] hover:text-[#e9edef] hover:bg-[#2a3942]' : 'text-[#54656f] hover:text-[#111b21] hover:bg-white'}`} title="Adjuntar archivo">
+                                    <Paperclip size={18} />
+                                    <input type="file" className="hidden" onChange={e => { e.target.files[0] && setArchivoChat(e.target.files[0]); e.target.value = null; }} />
+                                </label>
+                                <label className={`p-3 shrink-0 cursor-pointer rounded-full transition-colors ${darkMode ? 'text-[#8696a0] hover:text-[#e9edef] hover:bg-[#2a3942]' : 'text-[#54656f] hover:text-[#111b21] hover:bg-white'}`} title="Tomar foto">
+                                    <Camera size={18} />
+                                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { e.target.files[0] && setArchivoChat(e.target.files[0]); e.target.value = null; }} />
+                                </label>
+                                <textarea
+                                    value={nuevoMensaje}
+                                    onChange={e => setNuevoMensaje(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarMensaje(); } }}
+                                    placeholder="Escribe una respuesta..."
+                                    rows={1}
+                                    className={`flex-1 p-3 rounded-2xl text-sm outline-none resize-none max-h-28 overflow-y-auto ${darkMode ? 'bg-[#2a3942] text-[#e9edef] placeholder:text-[#8696a0]' : 'bg-white text-[#111b21] placeholder:text-[#8696a0]'}`}
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={(!nuevoMensaje.trim() && !archivoChat) || enviandoChat}
+                                    className="w-11 h-11 flex items-center justify-center rounded-full bg-[#008a5e] text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:bg-[#007b55] active:scale-95 flex-shrink-0"
+                                >
+                                    <Send size={18} />
+                                </button>
+                            </div>
                         </form>
                     </div>
                 </div>

@@ -127,7 +127,7 @@ const Dashboard = ({ darkMode }) => {
         </div>
 
         {/* Detenidos Laboratorio */}
-        <div onClick={() => navigate('/kanban')} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg ${darkMode ? 'border-[#C9EA63]' : 'border-[#008a5e]'} ${boxBg}`}>
+        <div onClick={() => navigate('/equipos?filtro=detenidos')} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg ${darkMode ? 'border-[#C9EA63]' : 'border-[#008a5e]'} ${boxBg}`}>
             <div className="flex justify-between items-start">
               <div>
                 <div className={`text-[10px] font-black tracking-widest uppercase flex items-center gap-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}><Clock size={10} /> Detenidos en Lab</div>
@@ -141,7 +141,7 @@ const Dashboard = ({ darkMode }) => {
         </div>
 
         {/* Listos para entregar */}
-        <div onClick={() => navigate('/kanban')} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg ${darkMode ? 'border-[#C9EA63]' : 'border-[#008a5e]'} ${boxBg}`}>
+        <div onClick={() => navigate('/equipos?filtro=sin_notificar')} className={`p-4 rounded-2xl border-l-4 cursor-pointer transition-transform hover:-translate-y-1 hover:shadow-lg ${darkMode ? 'border-[#C9EA63]' : 'border-[#008a5e]'} ${boxBg}`}>
             <div className="flex justify-between items-start">
               <div>
                 <div className={`text-[10px] font-black tracking-widest uppercase flex items-center gap-1 ${darkMode ? 'text-[#C9EA63]' : 'text-[#008a5e]'}`}><CheckCircle size={10} /> Listos Sin Notificar</div>

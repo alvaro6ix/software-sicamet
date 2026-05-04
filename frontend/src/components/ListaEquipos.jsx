@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { Activity, CheckCircle, Clock, AlertTriangle, Eye, Edit, Trash2, X, FileText, Save, Search, Zap, Package, Plus, Trash, Settings2, MapPin, Layers, Edit3, List, RefreshCw, User, AlertCircle } from 'lucide-react';
@@ -22,8 +22,14 @@ const opcionesServicio = [
 const ListaEquipos = ({ darkMode }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [equipos, setEquipos] = useState([]);
   const [busqueda, setBusqueda] = useState(location.state?.busquedaInicial || '');
+
+  // Filtros opcionales pasados por URL desde KPI cards de los dashboards.
+  const filtroEstatus = searchParams.get('estatus');     // ej: 'Aseguramiento', 'Facturación'
+  const filtroNombre  = searchParams.get('filtro');      // ej: 'sla_critico', 'detenidos', 'sin_notificar'
+  const limpiarFiltro = () => setSearchParams({});
   
   // Estados para el Modal de VER
   const [equipoSeleccionado, setEquipoSeleccionado] = useState(null);
@@ -370,15 +376,55 @@ const ListaEquipos = ({ darkMode }) => {
     return isDark ? `hsl(${hue}, 40%, 20%)` : `hsl(${hue}, 70%, 95%)`;
   };
 
-  const equiposFiltrados = equipos.filter(eq => 
-    eq.folio_rastreo?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    eq.orden_cotizacion?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    eq.nombre_instrumento?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    eq.marca?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    eq.no_serie?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    eq.empresa?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    eq.cliente?.toLowerCase().includes(busqueda.toLowerCase())
+  // Filtros derivados de query params (sla, detenidos, etc).
+  const aplicaFiltroPreset = (eq) => {
+    if (filtroEstatus && eq.estatus_actual !== filtroEstatus) return false;
+    if (filtroNombre === 'sla_critico') {
+      const dias = Number.isFinite(eq.dias_restantes_sla) ? eq.dias_restantes_sla : null;
+      const operativo = !['Entregado', 'Facturación'].includes(eq.estatus_actual);
+      if (!operativo || dias === null || dias > 1) return false;
+    }
+    if (filtroNombre === 'detenidos') {
+      // Equipos atorados en Laboratorio más de 2 días
+      const operativo = eq.estatus_actual === 'Laboratorio';
+      const fecha = eq.fecha_ingreso ? new Date(eq.fecha_ingreso) : null;
+      if (!operativo || !fecha) return false;
+      const horas = (Date.now() - fecha.getTime()) / (1000 * 60 * 60);
+      if (horas < 48) return false;
+    }
+    if (filtroNombre === 'sin_notificar') {
+      if (eq.estatus_actual !== 'Facturación') return false;
+      if (eq.notificado_cliente) return false;
+    }
+    if (filtroNombre === 'sin_certificado') {
+      if (!['Certificación', 'Facturación', 'Entregado'].includes(eq.estatus_actual)) return false;
+      if (eq.no_certificado || eq.certificado_url) return false;
+    }
+    return true;
+  };
+
+  const equiposFiltrados = equipos.filter(eq =>
+    aplicaFiltroPreset(eq) && (
+      eq.folio_rastreo?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      eq.orden_cotizacion?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      eq.nombre_instrumento?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      eq.marca?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      eq.no_serie?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      eq.empresa?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      eq.cliente?.toLowerCase().includes(busqueda.toLowerCase())
+    )
   );
+
+  const filtroLabel = (() => {
+    if (filtroEstatus) return `Estatus: ${filtroEstatus}`;
+    switch (filtroNombre) {
+      case 'sla_critico':    return 'SLA Crítico (≤ 1 día)';
+      case 'detenidos':      return 'Detenidos en Laboratorio (> 2 días)';
+      case 'sin_notificar':  return 'Listos sin notificar al cliente';
+      case 'sin_certificado':return 'Sin certificado emitido';
+      default: return null;
+    }
+  })();
 
   return (
     <>
@@ -387,6 +433,23 @@ const ListaEquipos = ({ darkMode }) => {
         <h2 className={`text-xl font-bold ${darkMode ? 'text-[#C9EA63]' : 'text-slate-800'}`}>Panel de Trazabilidad (Órdenes de Servicio)</h2>
         <span className={`text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-slate-500'}`}>Total: {equipos.length} equipos</span>
       </div>
+
+      {filtroLabel && (
+        <div className={`flex items-center justify-between gap-3 mb-4 px-4 py-2 rounded-xl border ${darkMode ? 'bg-amber-900/20 border-amber-500/30 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <AlertTriangle size={16} />
+            <span>Filtro activo: {filtroLabel}</span>
+            <span className={`text-xs font-medium ml-2 ${darkMode ? 'text-amber-200/70' : 'text-amber-700/70'}`}>({equiposFiltrados.length} resultado{equiposFiltrados.length !== 1 ? 's' : ''})</span>
+          </div>
+          <button
+            type="button"
+            onClick={limpiarFiltro}
+            className={`flex items-center gap-1 text-xs font-bold px-3 py-1 rounded-lg transition-colors ${darkMode ? 'hover:bg-amber-500/20' : 'hover:bg-amber-100'}`}
+          >
+            <X size={14} /> Limpiar
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div className={`flex items-center gap-2 px-4 py-2 border rounded-xl w-full max-w-md ${darkMode ? 'bg-[#2a401c] border-[#C9EA63]/20 text-[#F2F6F0]' : 'bg-slate-50 border-gray-200 text-slate-800'}`}>

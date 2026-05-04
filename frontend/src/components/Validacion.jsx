@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { FileCheck, XCircle, CheckCircle, Package, Clock, MessageSquare, AlertTriangle, HelpCircle, AlertCircle, X, Paperclip, Tag, BookOpen, Hash, User, Calendar, FileText, File as FileIcon, Image as ImageIcon, Eye } from 'lucide-react';
+import { FileCheck, XCircle, CheckCircle, Package, Clock, MessageSquare, AlertTriangle, HelpCircle, AlertCircle, X, Paperclip, Camera, Tag, BookOpen, Hash, User, Calendar, FileText, File as FileIcon, Image as ImageIcon, Eye } from 'lucide-react';
 import { toast } from 'react-toastify';
 
 const getOsaColor = (osStr, isDark) => {
@@ -545,7 +545,7 @@ const Validacion = ({ darkMode, usuario }) => {
                                     </div>
                                 ) : (
                                     listaComentarios.slice().reverse().map((c, i, arr) => {
-                                        const soyYo = c.usuario_id === usuario?.id;
+                                        const soyYo = c.mio === true;
                                         const nextMsg = arr[i + 1];
                                         const sameUserNext = nextMsg && nextMsg.usuario_id === c.usuario_id;
                                         const msgBg = soyYo 
@@ -611,9 +611,13 @@ const Validacion = ({ darkMode, usuario }) => {
                                 )}
                                 
                                 <div className={`flex items-end rounded-2xl md:rounded-full px-2 min-h-[44px] ${darkMode ? 'bg-[#2a3942]' : 'bg-white'}`}>
-                                    <label className={`p-3 shrink-0 cursor-pointer rounded-full transition-colors ${darkMode ? 'text-[#8696a0] hover:text-[#e9edef]' : 'text-[#54656f] hover:text-[#111b21]'}`}>
+                                    <label className={`p-3 shrink-0 cursor-pointer rounded-full transition-colors ${darkMode ? 'text-[#8696a0] hover:text-[#e9edef]' : 'text-[#54656f] hover:text-[#111b21]'}`} title="Adjuntar archivo">
                                         <Paperclip size={20} />
                                         <input type="file" className="hidden" onChange={e => { e.target.files[0] && setArchivoChat(e.target.files[0]); e.target.value = null; }} />
+                                    </label>
+                                    <label className={`p-3 shrink-0 cursor-pointer rounded-full transition-colors ${darkMode ? 'text-[#8696a0] hover:text-[#e9edef]' : 'text-[#54656f] hover:text-[#111b21]'}`} title="Tomar foto">
+                                        <Camera size={20} />
+                                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { e.target.files[0] && setArchivoChat(e.target.files[0]); e.target.value = null; }} />
                                     </label>
                                     <textarea 
                                         value={nuevoComentario} onChange={e => setNuevoComentario(e.target.value)} required

@@ -1964,13 +1964,17 @@ app.post('/api/instrumentos/bulk-status', verificarToken(), async (req, res) => 
 app.get('/api/instrumentos/:id/comentarios', verificarToken(), async (req, res) => {
     try {
         const [rows] = await db.query(`
-            SELECT c.*, u.nombre as usuario_nombre 
-            FROM instrumentos_comentarios c 
-            LEFT JOIN usuarios u ON c.usuario_id = u.id 
-            WHERE c.instrumento_id = ? 
+            SELECT c.*, u.nombre as usuario_nombre, u.rol as usuario_rol
+            FROM instrumentos_comentarios c
+            LEFT JOIN usuarios u ON c.usuario_id = u.id
+            WHERE c.instrumento_id = ?
             ORDER BY c.fecha DESC
         `, [req.params.id]);
-        res.json(rows);
+        // Marcar cada comentario con `mio` para que el cliente posicione la burbuja
+        // sin depender de comparar IDs en JS (evita el bug de race con /api/auth/me).
+        const meId = req.usuario?.id;
+        const out = rows.map(c => ({ ...c, mio: meId != null && c.usuario_id === meId }));
+        res.json(out);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
