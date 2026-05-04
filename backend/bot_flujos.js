@@ -868,11 +868,38 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
                     motivoEscalado: 'Cotización: paso 1 — respuesta vacía o inválida'
                 });
             }
-            const tipo = TIPOS_EQUIPO[textoTrim] || textoTrim;
-            const updatedItem = { ...currentItem, tipoEquipo: tipo };
+            if (esOpcionMenu) {
+                // Eligió categoría del menú: pedir el nombre específico del instrumento
+                const categoria = TIPOS_EQUIPO[textoTrim];
+                const updatedItem = { ...currentItem, tipoEquipo: categoria };
+                await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoCotiz({ ...datos, paso: 12, currentItem: updatedItem }));
+                return {
+                    text: `✅ *${categoria}*\n\n¿Qué *tipo específico* de instrumento es?\n\n_Ej: Termómetro digital, RTD PT100, Termohigrómetro, Termopar tipo K..._`
+                };
+            }
+            // Descripción libre: la usamos como nombre del equipo, categoría queda como "Otro"
+            const updatedItem = { ...currentItem, tipoEquipo: '🔬 Otro', nombreEquipo: textoTrim };
             await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoCotiz({ ...datos, paso: 2, currentItem: updatedItem }));
             return {
-                text: `✅ *${tipo}*\n\n¿Cuál es la *marca y modelo* del instrumento?\n\n_Ej: Fluke 726 | Vaisala HMT310 | WIKA P-30_\n_(Escribe "no sé" si no tienes el dato)_`
+                text: `✅ *${textoTrim}*\n\n¿Cuál es la *marca y modelo* del instrumento?\n\n_Ej: Fluke 726 | Vaisala HMT310 | WIKA P-30_\n_(Escribe "no sé" si no tienes el dato)_`
+            };
+        }
+        case 12: { // Nombre específico del instrumento (cuando se eligió categoría del menú)
+            if (!textoTrim || textoTrim.length < 2) {
+                return await manejarFalloIntento(wa, sesion, {
+                    reintento: 'Por favor indica el tipo específico del instrumento. Ej: Termómetro digital, RTD PT100, Manómetro Bourdon...',
+                    escala: MSG_COTIZ_ESCALA,
+                    claveIntentos: I_COTIZ,
+                    motivoEscalado: 'Cotización: paso 12 — nombre del instrumento inválido'
+                });
+            }
+            await guardarSesion(wa, sesion.nodo_actual_id, limpiarIntentoCotiz({
+                ...datos,
+                paso: 2,
+                currentItem: { ...currentItem, nombreEquipo: textoTrim }
+            }));
+            return {
+                text: `✅ *${textoTrim}*\n\n¿Cuál es la *marca y modelo* del instrumento?\n\n_Ej: Fluke 726 | Vaisala HMT310 | WIKA P-30_\n_(Escribe "no sé" si no tienes el dato)_`
             };
         }
         case 2: // Marca y Modelo
@@ -1029,7 +1056,10 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
                 await notificarNuevaCotizacion(dFinal);
                 await guardarSesion(wa, null, estadoTrasEscalado(sesion.datos));
                 let resumen = `🎉 *¡Solicitud de Calibración registrada!*\n\n📋 *Resumen:*\n• Empresa: *${empresa}*\n• Teléfono: *${telefono}*\n• Ít. equipos: *${items.length}*\n• Entrega: *${dFinal.tiempoEntrega}*\n\nListado:`;
-                items.forEach((it, i) => { resumen += `\n${i+1}. ${it.tipoEquipo} (${it.marcaModelo || 'S/M'})`; });
+                items.forEach((it, i) => {
+                    const nombre = it.nombreEquipo ? ` — ${it.nombreEquipo}` : '';
+                    resumen += `\n${i+1}. ${it.tipoEquipo}${nombre} (${it.marcaModelo || 'S/M'})`;
+                });
                 resumen += `\n\nEn breve un especialista SICAMET se pondrá en contacto. ¡Gracias! 📧\n\n_Escribe *0* para volver al menú._`;
                 return { text: resumen };
             } catch (err) {
