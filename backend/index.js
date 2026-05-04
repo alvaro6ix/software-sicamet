@@ -663,7 +663,7 @@ app.get('/api/stats', async (req, res) => {
             chartDataMapeada.push({ 
                 name: diasSemanaRel[d.getDay()], 
                 fecha: fechaStr,
-                ingresos: 0, 
+                recibidos: 0, ingresos: 0,
                 entregados: 0 
             });
         }
@@ -687,7 +687,7 @@ app.get('/api/stats', async (req, res) => {
         // 4. Mapear datos a los últimos 7 días generados
         ingresosData.forEach(row => {
             const d = chartDataMapeada.find(item => item.fecha === row.fecha);
-            if (d) d.ingresos = row.cantidad;
+            if (d) { d.recibidos = row.cantidad; d.ingresos = row.cantidad; }
         });
 
         entregasData.forEach(row => {
@@ -2280,6 +2280,61 @@ app.post('/api/ordenes/:orden/versiones', requirePermiso('equipos.editar'), asyn
     }
 });
 
+// Sprint 7 / S7-C — Mis decisiones de aseguramiento: aprobados y rechazados por mí.
+app.get('/api/aseguramiento/mis-decisiones', requirePermiso('aseguramiento.ver'), async (req, res) => {
+    try {
+        const userId = req.usuario.id;
+        const [aprobados] = await db.query(
+            `SELECT ie.id, ie.nombre_instrumento, ie.orden_cotizacion, ie.empresa, ie.estatus_actual,
+                    a.fecha AS fecha_decision,
+                    (SELECT COUNT(*) FROM instrumentos_comentarios c WHERE c.instrumento_id = ie.id) AS comentarios_count
+             FROM auditoria_instrumentos a
+             JOIN instrumentos_estatus ie ON ie.id = a.instrumento_id
+             WHERE a.usuario_id = ? AND a.accion = 'aprobacion_aseguramiento'
+             ORDER BY a.fecha DESC LIMIT 100`,
+            [userId]
+        );
+        const [rechazados] = await db.query(
+            `SELECT ie.id, ie.nombre_instrumento, ie.orden_cotizacion, ie.empresa, ie.estatus_actual,
+                    r.motivo, r.fecha_rechazo AS fecha_decision, r.fecha_correccion, r.estatus AS rechazo_estatus,
+                    (SELECT COUNT(*) FROM instrumentos_comentarios c WHERE c.instrumento_id = ie.id) AS comentarios_count
+             FROM rechazos_aseguramiento r
+             JOIN instrumentos_estatus ie ON ie.id = r.instrumento_id
+             WHERE r.usuario_rechaza_id = ?
+             ORDER BY r.fecha_rechazo DESC LIMIT 100`,
+            [userId]
+        );
+        res.json({ aprobados, rechazados });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sprint 7 / S7-C — Mis envíos de metrólogo (equipos que envié a aseguramiento).
+app.get('/api/metrologia/mis-envios', verificarToken(), async (req, res) => {
+    try {
+        const userId = req.usuario.id;
+        // Equipos donde tengo o tuve relación y que ya están post-laboratorio
+        const [rows] = await db.query(
+            `SELECT DISTINCT ie.id, ie.nombre_instrumento, ie.orden_cotizacion, ie.empresa,
+                    ie.estatus_actual, ie.fecha_recepcion_parsed, ie.fecha_recepcion, ie.fecha_ingreso,
+                    ie.sla, ie.sla_dias_extra,
+                    (SELECT COUNT(*) FROM instrumentos_comentarios c WHERE c.instrumento_id = ie.id) AS comentarios_count,
+                    (SELECT MAX(c.fecha) FROM instrumentos_comentarios c WHERE c.instrumento_id = ie.id) AS ultimo_comentario,
+                    ie.rechazos_aseguramiento
+             FROM instrumentos_estatus ie
+             LEFT JOIN instrumento_metrologos im ON im.instrumento_id = ie.id
+             WHERE (im.usuario_id = ? OR ie.metrologo_asignado_id = ?)
+               AND ie.estatus_actual IN ('Aseguramiento','Certificación','Facturación','Entregado')
+             ORDER BY ie.fecha_ingreso DESC LIMIT 100`,
+            [userId, userId]
+        );
+        const conSLA = rows.map(e => ({
+            ...e,
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
+        }));
+        res.json(conSLA);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Sprint 6 P5 — Trazabilidad de responsables: quién registró, asignó, metrologó,
 // aprobó/rechazó en aseguramiento, certificó, facturó, entregó la OS.
 // Se reconstruye desde la auditoría + tablas existentes.
@@ -2523,6 +2578,18 @@ app.post('/api/instrumentos/bulk-status', verificarToken(), async (req, res) => 
                 'INSERT INTO instrumentos_historial (instrumento_id, usuario_id, estatus_anterior, estatus_nuevo) VALUES (?, ?, ?, ?)',
                 [id, req.usuario?.id || null, oldStatus, estatus]
             );
+
+            // Auditoría con acción específica para que admin pueda hacer reportes "quién aprobó qué"
+            try {
+                let accion = 'cambio_estatus';
+                if (oldStatus === 'Aseguramiento' && (estatus === 'Certificación' || estatus === 'Facturación')) accion = 'aprobacion_aseguramiento';
+                else if (estatus === 'Entregado') accion = 'entrega';
+                else if (estatus === 'Facturación') accion = 'facturacion';
+                await db.query(
+                    'INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) VALUES (?, ?, ?, ?)',
+                    [id, accion, req.usuario?.id || null, JSON.stringify({ de: oldStatus, a: estatus, comentario: comentario || null })]
+                );
+            } catch (_) { /* best-effort */ }
 
             if (comentario) {
                 await db.query(

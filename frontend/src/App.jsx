@@ -29,18 +29,19 @@ import SinCertificado from './components/SinCertificado';
 import FeedbackBot from './components/FeedbackBot';
 import OrdenDetalle from './components/OrdenDetalle';
 import BandejaAsignacion from './components/BandejaAsignacion';
+import MisEnvios from './components/MisEnvios';
+import MisDecisiones from './components/MisDecisiones';
 import io from 'socket.io-client';
 
-import { ToastContainer, toast } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import { Toaster, toast } from 'sonner';
 import { PermisosProvider, usePermisos } from './hooks/usePermisos';
 
 window.alert = (msg) => {
   if (!msg) return;
-  const lowerMsg = msg.toLowerCase();
-  if (lowerMsg.includes('error')) toast.error(msg, { theme: 'colored' });
-  else if (lowerMsg.includes('éxito') || lowerMsg.includes('correctamente') || lowerMsg.includes('exitosamente')) toast.success(msg, { theme: 'colored' });
-  else toast.info(msg, { theme: 'colored' });
+  const lowerMsg = String(msg).toLowerCase();
+  if (lowerMsg.includes('error')) toast.error(msg);
+  else if (lowerMsg.includes('éxito') || lowerMsg.includes('correctamente') || lowerMsg.includes('exitosamente')) toast.success(msg);
+  else toast.info ? toast.info(msg) : toast(msg);
 };
 
 // Configurar axios con token automáticamente
@@ -83,11 +84,13 @@ const Sidebar = ({ darkMode, toggleDarkMode, mobileOpen, setMobileOpen, usuario,
     { name: 'Entregas',                 path: '/entregas',                  icon: Truck,           permiso: 'entregas.ver' },
     { name: 'Dashboard Aseguramiento',  path: '/aseguramiento-dashboard',   icon: LayoutDashboard, permiso: 'dashboard.aseguramiento.ver' },
     { name: 'Gestión Operativa',        path: '/validacion',                icon: FileCheck,       permiso: 'aseguramiento.ver' },
+    { name: 'Mis Decisiones',           path: '/mis-decisiones',            icon: ShieldCheck,     permiso: 'aseguramiento.ver' },
     { name: 'Certificación Ágil',       path: '/certificacion-agil',        icon: FileCheck,       permiso: 'certificacion.ver' },
     { name: 'Lista Gral. Equipos',      path: '/equipos',                   icon: List,            permiso: 'equipos.ver' },
     { name: 'Pipelines Kanban',         path: '/kanban',                    icon: Package,         permiso: 'kanban.ver' },
     { name: 'Bandeja Jefe Metrología',  path: '/asignacion',                icon: Inbox,           permiso: 'metrologia.bandeja_jefe' },
     { name: 'Mi Bandeja',               path: '/mi-bandeja',                icon: Inbox,           permiso: 'metrologia.bandeja.ver' },
+    { name: 'Mis Envíos',               path: '/mis-envios',                icon: Package,         permiso: 'metrologia.bandeja.ver' },
     { name: 'Centro Metrología',        path: '/metrologia',                icon: Package,         permiso: 'metrologia.centro.ver' },
     { name: 'Correcciones',             path: '/correcciones-metrologia',   icon: AlertTriangle,   permiso: 'metrologia.correcciones.ver' },
     { name: 'Sin Certificado',          path: '/sin-certificado',           icon: FileTextIcon,    permiso: 'sin_certificado.ver' },
@@ -377,7 +380,13 @@ const Layout = () => {
   return (
     <PermisosProvider usuario={usuario}>
     <Router>
-      <ToastContainer position="bottom-right" autoClose={3000} theme="colored" />
+      <Toaster
+        position="bottom-right"
+        theme={darkMode ? 'dark' : 'light'}
+        richColors
+        closeButton
+        toastOptions={{ style: { fontFamily: 'inherit' } }}
+      />
       <div translate="no" className={`flex h-screen overflow-hidden transition-all duration-300 ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]' : 'bg-slate-50 text-[#253916]'}`}>
         
         {/* Botón Flotante para reabrir Sidebar */}
@@ -446,6 +455,8 @@ const Layout = () => {
               <Route path="/equipos/grupo/:oc" element={<GestionGrupo darkMode={darkMode} usuario={usuario} />} />
               <Route path="/orden/:os" element={<OrdenDetalle darkMode={darkMode} />} />
               <Route path="/asignacion" element={<BandejaAsignacion darkMode={darkMode} />} />
+              <Route path="/mis-envios" element={<MisEnvios darkMode={darkMode} usuario={usuario} />} />
+              <Route path="/mis-decisiones" element={<MisDecisiones darkMode={darkMode} usuario={usuario} />} />
               <Route path="/metrologia" element={<MetrologiaDashboard darkMode={darkMode} usuario={usuario} />} />
               <Route path="/mi-bandeja" element={<MiBandeja darkMode={darkMode} usuario={usuario} />} />
               <Route path="/correcciones-metrologia" element={<CorreccionesMetrologia darkMode={darkMode} usuario={usuario} />} />

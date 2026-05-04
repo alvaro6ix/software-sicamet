@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FileText, AlertCircle, X, Upload, Eye, AlertTriangle } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { usePermisos } from '../hooks/usePermisos';
 
 const SinCertificado = ({ darkMode, usuario }) => {

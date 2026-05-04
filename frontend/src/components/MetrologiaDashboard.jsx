@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Package, Clock, AlertTriangle, AlertCircle, CheckCircle, Search, MessageSquare, ChevronDown, ChevronUp, CheckSquare, Square, ThumbsUp, HelpCircle, X, Paperclip, Tag, BookOpen, Hash, User, Calendar, FileText, FileCheck, Image as ImageIcon, Eye, ArrowRight, Camera, Send } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import PanelSLA from './PanelSLA';
 
 const getOsaColor = (osStr, isDark) => {

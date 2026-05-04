@@ -11,7 +11,7 @@ import {
     Inbox, Users, Activity, ChevronRight, RefreshCw, AlertTriangle, X,
     UserPlus, Clock, Calendar, Tag, Building2, FileText, CheckCircle, Search
 } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 
 function badgeSLA(slaRestante, darkMode) {
     if (slaRestante == null) return null;

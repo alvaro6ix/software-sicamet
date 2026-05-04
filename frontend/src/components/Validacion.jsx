@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FileCheck, XCircle, CheckCircle, Package, Clock, MessageSquare, AlertTriangle, HelpCircle, AlertCircle, X, Paperclip, Camera, Tag, BookOpen, Hash, User, Calendar, FileText, File as FileIcon, Image as ImageIcon, Eye } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { usePermisos } from '../hooks/usePermisos';
 
 const getOsaColor = (osStr, isDark) => {

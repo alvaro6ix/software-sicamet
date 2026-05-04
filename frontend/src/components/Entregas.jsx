@@ -5,7 +5,7 @@ import {
   ChevronRight, Calendar, Building2, User, FileText,
   ExternalLink, ArrowRight, Tag, X, AlertTriangle, Truck
 } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 
 const ConfirmModal = ({ isOpen, onClose, onConfirm, titulo, mensaje, darkMode, selectedCount }) => {
   if (!isOpen) return null;

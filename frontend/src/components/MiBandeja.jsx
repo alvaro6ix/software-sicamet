@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Package, Clock, AlertTriangle, CheckCircle, MessageSquare, X, Eye, ThumbsUp, CheckSquare, Square, AlertCircle, FileText } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 
 const getOsaColor = (osStr, isDark) => {
     if (!osStr) return isDark ? '#2a401c' : '#ffffff';
@@ -17,6 +17,7 @@ const MiBandeja = ({ darkMode, usuario }) => {
     const [equipos, setEquipos] = useState([]);
     const [cargando, setCargando] = useState(true);
     const [busqueda, setBusqueda] = useState('');
+    const [filtroPrio, setFiltroPrio] = useState(null); // null | 'Rojo' | 'Amarillo' | 'Verde' | 'correccion' | 'terminado'
     const [seleccionados, setSeleccionados] = useState([]);
     const [modalDetalle, setModalDetalle] = useState(false);
     const [equipoDetalle, setEquipoDetalle] = useState(null);
@@ -82,11 +83,20 @@ const MiBandeja = ({ darkMode, usuario }) => {
         setModalDetalle(true);
     };
 
-    const filtrados = equipos.filter(e =>
-        (e.orden_cotizacion || '').toLowerCase().includes(busqueda.toLowerCase()) ||
-        (e.empresa || '').toLowerCase().includes(busqueda.toLowerCase()) ||
-        (e.nombre_instrumento || '').toLowerCase().includes(busqueda.toLowerCase())
-    );
+    const filtrados = equipos.filter(e => {
+        const matchBusqueda = (e.orden_cotizacion || '').toLowerCase().includes(busqueda.toLowerCase()) ||
+            (e.empresa || '').toLowerCase().includes(busqueda.toLowerCase()) ||
+            (e.nombre_instrumento || '').toLowerCase().includes(busqueda.toLowerCase());
+        if (!matchBusqueda) return false;
+        if (!filtroPrio) return true;
+        if (filtroPrio === 'correccion') return e.mi_estatus === 'correccion';
+        if (filtroPrio === 'terminado')  return e.mi_estatus === 'terminado';
+        const sla = e.slaRestante ?? 99;
+        if (filtroPrio === 'Rojo')     return sla <= 1;
+        if (filtroPrio === 'Amarillo') return sla > 1 && sla <= 3;
+        if (filtroPrio === 'Verde')    return sla > 3;
+        return true;
+    });
 
     // KPIs personales
     const countTotal = equipos.length;
@@ -114,32 +124,32 @@ const MiBandeja = ({ darkMode, usuario }) => {
                 </div>
             </div>
 
-            {/* KPIs Personales */}
+            {/* KPIs Personales — clickables: filtran la lista */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-                <div className={`p-3 rounded-xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
+                <button onClick={() => setFiltroPrio(null)} className={`p-3 rounded-xl border text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${filtroPrio === null ? 'ring-2 ring-emerald-500' : ''} ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
                     <div className={`text-[10px] uppercase font-bold opacity-60 flex items-center gap-1`}><Package size={12}/> Total</div>
                     <div className={`text-2xl font-black ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{countTotal}</div>
-                </div>
-                <div className={`p-3 rounded-xl border ${darkMode ? 'bg-rose-950/20 border-rose-900/50 text-rose-400' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
+                </button>
+                <button onClick={() => setFiltroPrio(filtroPrio === 'Rojo' ? null : 'Rojo')} className={`p-3 rounded-xl border text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${filtroPrio === 'Rojo' ? 'ring-2 ring-rose-500' : ''} ${darkMode ? 'bg-rose-950/20 border-rose-900/50 text-rose-400' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
                     <div className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1"><AlertTriangle size={12}/> Urgente</div>
                     <div className="text-2xl font-black">{countRojo}</div>
-                </div>
-                <div className={`p-3 rounded-xl border ${darkMode ? 'bg-[#C9EA63]/10 border-[#C9EA63]/20 text-[#C9EA63]' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+                </button>
+                <button onClick={() => setFiltroPrio(filtroPrio === 'Amarillo' ? null : 'Amarillo')} className={`p-3 rounded-xl border text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${filtroPrio === 'Amarillo' ? 'ring-2 ring-amber-500' : ''} ${darkMode ? 'bg-[#C9EA63]/10 border-[#C9EA63]/20 text-[#C9EA63]' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
                     <div className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1"><AlertCircle size={12}/> Medio</div>
                     <div className="text-2xl font-black">{countAmarillo}</div>
-                </div>
-                <div className={`p-3 rounded-xl border ${darkMode ? 'bg-emerald-950/20 border-emerald-900/50 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+                </button>
+                <button onClick={() => setFiltroPrio(filtroPrio === 'Verde' ? null : 'Verde')} className={`p-3 rounded-xl border text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${filtroPrio === 'Verde' ? 'ring-2 ring-emerald-500' : ''} ${darkMode ? 'bg-emerald-950/20 border-emerald-900/50 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
                     <div className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1"><CheckCircle size={12}/> Normal</div>
                     <div className="text-2xl font-black">{countVerde}</div>
-                </div>
-                <div className={`p-3 rounded-xl border ${darkMode ? 'bg-orange-950/20 border-orange-900/50 text-orange-400' : 'bg-orange-50 border-orange-200 text-orange-700'}`}>
+                </button>
+                <button onClick={() => setFiltroPrio(filtroPrio === 'correccion' ? null : 'correccion')} className={`p-3 rounded-xl border text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${filtroPrio === 'correccion' ? 'ring-2 ring-orange-500' : ''} ${darkMode ? 'bg-orange-950/20 border-orange-900/50 text-orange-400' : 'bg-orange-50 border-orange-200 text-orange-700'}`}>
                     <div className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1"><AlertTriangle size={12}/> Corrección</div>
                     <div className="text-2xl font-black">{countCorreccion}</div>
-                </div>
-                <div className={`p-3 rounded-xl border ${darkMode ? 'bg-blue-950/20 border-blue-900/50 text-blue-400' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
+                </button>
+                <button onClick={() => setFiltroPrio(filtroPrio === 'terminado' ? null : 'terminado')} className={`p-3 rounded-xl border text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${filtroPrio === 'terminado' ? 'ring-2 ring-blue-500' : ''} ${darkMode ? 'bg-blue-950/20 border-blue-900/50 text-blue-400' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
                     <div className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1"><ThumbsUp size={12}/> Terminado</div>
                     <div className="text-2xl font-black">{countTerminado}</div>
-                </div>
+                </button>
             </div>
 
             {/* Busqueda */}

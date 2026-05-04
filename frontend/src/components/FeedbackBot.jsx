@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { MessageSquare, CheckCircle, X, Trash2, Award, Brain, Plus, AlertCircle } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import { confirmar } from '../hooks/alertas';
 
 const FeedbackBot = ({ darkMode }) => {

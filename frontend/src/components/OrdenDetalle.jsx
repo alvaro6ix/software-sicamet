@@ -6,7 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import {
     ArrowLeft, Package, Calendar, Building2, User, Mail, MapPin, Tag,
     Clock, CheckCircle, AlertTriangle, FileText, MessageSquare,

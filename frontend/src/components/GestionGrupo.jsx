@@ -9,7 +9,7 @@ import {
     Eye, ArrowRight, Edit3, Save, RefreshCw, Trash2,
     Layers, MapPin, Activity, Settings2, List, Plus, Edit, Truck, FileCheck, GitBranch
 } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from 'sonner';
 import Select from 'react-select';
 import { createPortal } from 'react-dom';
 import { usePermisos } from '../hooks/usePermisos';
