@@ -4,12 +4,12 @@ import axios from 'axios';
 import { Package, Clock, FileCheck, CheckCircle, Truck, AlertTriangle, X, Calendar, Hash, User, Info, Tag, BookOpen, ChevronRight, Check, Circle, ChevronDown, FileText, Layers, Square, CheckSquare } from 'lucide-react';
 
 const columnasEstatus = [
-    { id: 'Recepción', icono: Package, color: 'text-sky-500', bg: 'bg-sky-500/10', border: 'border-sky-500' },
-    { id: 'Laboratorio', icono: Clock, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500' },
-    { id: 'Aseguramiento', icono: AlertTriangle, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500' },
-    { id: 'Certificación', icono: FileCheck, color: 'text-purple-500', bg: 'bg-purple-500/10', border: 'border-purple-500' },
-    { id: 'Listo', icono: CheckCircle, color: '#008a5e', bg: 'bg-emerald-500/10', border: 'border-emerald-500' },
-    { id: 'Entregado', icono: Truck, color: 'text-gray-500', bg: 'bg-gray-500/10', border: 'border-gray-500' }
+    { id: 'Recepción',     areaLider: 'Recepción',     icono: Package,        color: 'text-sky-500',    bg: 'bg-sky-500/10',     border: 'border-sky-500' },
+    { id: 'Laboratorio',   areaLider: 'Laboratorio',   icono: Clock,          color: 'text-amber-500',  bg: 'bg-amber-500/10',   border: 'border-amber-500' },
+    { id: 'Aseguramiento', areaLider: 'Aseguramiento', icono: AlertTriangle,  color: 'text-blue-500',   bg: 'bg-blue-500/10',    border: 'border-blue-500' },
+    { id: 'Certificación', areaLider: 'Certificación', icono: FileCheck,      color: 'text-purple-500', bg: 'bg-purple-500/10',  border: 'border-purple-500' },
+    { id: 'Facturación',   areaLider: 'Facturación',   icono: CheckCircle,    color: '#008a5e',         bg: 'bg-emerald-500/10', border: 'border-emerald-500' },
+    { id: 'Entregado',     areaLider: 'Entrega',       icono: Truck,          color: 'text-gray-500',   bg: 'bg-gray-500/10',    border: 'border-gray-500' }
 ];
 
 const TableroKanban = ({ darkMode }) => {
@@ -20,6 +20,13 @@ const TableroKanban = ({ darkMode }) => {
     const [equipoDetalle, setEquipoDetalle] = useState(null);
     const [gruposExpandidos, setGruposExpandidos] = useState(new Set());
     const [seleccionados, setSeleccionados] = useState([]);
+    const [lideresArea, setLideresArea] = useState({});
+
+    useEffect(() => {
+        axios.get('/api/lideres-area')
+            .then(res => setLideresArea(res.data || {}))
+            .catch(() => setLideresArea({}));
+    }, []);
 
     const toggleSeleccion = (id) => {
         setSeleccionados(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -186,7 +193,7 @@ const TableroKanban = ({ darkMode }) => {
                 const enLabNoSel = totalesDoc.filter(e => e.estatus_actual === 'Laboratorio' && !seleccionados.includes(e.id)).length;
                 const enQA = totalesDoc.filter(e => e.estatus_actual === 'Aseguramiento').length;
                 const enCert = totalesDoc.filter(e => e.estatus_actual === 'Certificación').length;
-                const enListo = totalesDoc.filter(e => e.estatus_actual === 'Listo' || e.estatus_actual === 'Entregado').length;
+                const enListo = totalesDoc.filter(e => e.estatus_actual === 'Facturación' || e.estatus_actual === 'Entregado').length;
                 
                 let d = [];
                 if (enRec) d.push(`${enRec} en Recepción`);
@@ -271,14 +278,24 @@ const TableroKanban = ({ darkMode }) => {
                             onDragOver={esSoloLectura ? undefined : onDragOver}
                         >
                             {/* Cabecera Columna */}
-                            <div className={`p-4 border-b flex items-center justify-between ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-200'} ${columna.bg} rounded-t-2xl`}>
-                                <div className={`flex items-center gap-2 font-bold ${columna.color}`}>
-                                    <columna.icono size={18} />
-                                    <h3 className="whitespace-nowrap">{columna.id}</h3>
+                            <div className={`p-4 border-b ${darkMode ? 'border-[#C9EA63]/10' : 'border-slate-200'} ${columna.bg} rounded-t-2xl`}>
+                                <div className="flex items-center justify-between">
+                                    <div className={`flex items-center gap-2 font-bold ${columna.color}`}>
+                                        <columna.icono size={18} />
+                                        <h3 className="whitespace-nowrap">{columna.id}</h3>
+                                    </div>
+                                    <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]' : 'bg-white text-slate-800'}`}>
+                                        {equiposColumna.length}
+                                    </span>
                                 </div>
-                                <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]' : 'bg-white text-slate-800'}`}>
-                                    {equiposColumna.length}
-                                </span>
+                                {lideresArea[columna.areaLider]?.nombre && (
+                                    <div className={`mt-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
+                                        <User size={11} />
+                                        <span className="truncate" title={lideresArea[columna.areaLider].email}>
+                                            {lideresArea[columna.areaLider].nombre}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Tarjetas */}

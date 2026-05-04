@@ -55,7 +55,7 @@ const Entregas = ({ darkMode, usuario }) => {
     setLoading(true);
     try {
       const res = await axios.get('/api/instrumentos');
-      const listos = res.data.filter(e => e.estatus_actual === 'Listo');
+      const listos = res.data.filter(e => e.estatus_actual === 'Facturación');
       setEquipos(listos);
     } catch (err) {
       console.error(err);

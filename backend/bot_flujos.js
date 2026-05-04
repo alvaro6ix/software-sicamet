@@ -1168,7 +1168,7 @@ function pareceNumeroOrden(raw) {
     return false;
 }
 
-const ORDEN_ETAPAS_ESTATUS = ['Recepción', 'Laboratorio', 'Certificación', 'Listo', 'Entregado'];
+const ORDEN_ETAPAS_ESTATUS = ['Recepción', 'Laboratorio', 'Aseguramiento', 'Certificación', 'Facturación', 'Entregado'];
 
 function normalizarEtapaEstatus(est) {
     const e = (est || '').trim();
@@ -1178,7 +1178,9 @@ function normalizarEtapaEstatus(est) {
         recepcion: 'Recepción',
         laboratorio: 'Laboratorio',
         certificacion: 'Certificación',
-        listo: 'Listo',
+        facturacion: 'Facturación',
+        // Compat: estatus 'Listo' anterior queda mapeado a 'Facturación'
+        listo: 'Facturación',
         entregado: 'Entregado'
     };
     return map[lower] || e;
@@ -1190,8 +1192,9 @@ function formatearOrdenAgrupada(lista) {
     const etapLabel = {
         Recepción: '📥 Recibido en SICAMET',
         Laboratorio: '🔬 En proceso de calibración',
+        Aseguramiento: '🛡️ En aseguramiento de calidad',
         Certificación: '📋 Emitiendo certificado',
-        Listo: '✅ ¡Listo para entrega!',
+        Facturación: '🧾 En facturación',
         Entregado: '📦 Entregado al cliente'
     };
     const byE = {};
@@ -1482,8 +1485,9 @@ function formatearRespuestaEstatus(eq) {
     const etap = {
         'Recepción': '📥 Recibido en SICAMET',
         'Laboratorio': '🔬 En proceso de calibración',
+        'Aseguramiento': '🛡️ En aseguramiento de calidad',
         'Certificación': '📋 Emitiendo certificado',
-        'Listo': '✅ ¡Listo para entrega!',
+        'Facturación': '🧾 En facturación',
         'Entregado': '📦 Entregado al cliente'
     };
     const fechaEntrega = eq.fecha_entrega

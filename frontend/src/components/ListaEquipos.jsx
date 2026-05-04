@@ -333,7 +333,7 @@ const ListaEquipos = ({ darkMode }) => {
     'Laboratorio':   { light: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/50 text-emerald-300', icon: <Activity size={13} /> },
     'Aseguramiento': { light: 'bg-blue-100 text-blue-700',       dark: 'bg-blue-900/40 text-blue-300',       icon: <AlertTriangle size={13} /> },
     'Certificación': { light: 'bg-slate-100 text-slate-700',    dark: 'bg-slate-800 text-slate-300',    icon: <FileText size={13} /> },
-    'Listo':         { light: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/40 text-emerald-300', icon: <CheckCircle size={13} /> },
+    'Facturación':         { light: 'bg-emerald-100 text-emerald-700', dark: 'bg-emerald-900/40 text-emerald-300', icon: <CheckCircle size={13} /> },
     'Entregado':     { light: 'bg-green-100 text-green-700',     dark: 'bg-green-900/40 text-green-300',     icon: <CheckCircle size={13} /> },
   };
 
@@ -356,7 +356,7 @@ const ListaEquipos = ({ darkMode }) => {
     'Laboratorio': { color: 'bg-emerald-100 text-emerald-700', icon: <Activity size={14} /> },
     'Aseguramiento': { color: 'bg-blue-100 text-blue-700', icon: <AlertTriangle size={14} /> },
     'Certificación': { color: 'bg-slate-100 text-slate-700', icon: <FileText size={14} /> },
-    'Listo': { color: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle size={14} /> },
+    'Facturación': { color: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle size={14} /> },
     'Entregado': { color: 'bg-green-100 text-green-700', icon: <CheckCircle size={14} /> }
   };
 
@@ -412,7 +412,7 @@ const ListaEquipos = ({ darkMode }) => {
               <option value="Laboratorio">Laboratorio</option>
               <option value="Aseguramiento">Aseguramiento</option>
               <option value="Certificación">Certificación</option>
-              <option value="Listo">Listo</option>
+              <option value="Facturación">Facturación</option>
               <option value="Entregado">Entregado</option>
             </select>
             <button onClick={() => setSeleccionados([])} className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all" title="Deseleccionar todo">
@@ -549,7 +549,7 @@ const ListaEquipos = ({ darkMode }) => {
                               <option value="Laboratorio">Laboratorio</option>
                               <option value="Aseguramiento">Aseguramiento</option>
                               <option value="Certificación">Certificación</option>
-                              <option value="Listo">Listo</option>
+                              <option value="Facturación">Facturación</option>
                               <option value="Entregado">Entregado</option>
                             </select>
                           </td>
@@ -626,7 +626,7 @@ const ListaEquipos = ({ darkMode }) => {
                           <option value="Laboratorio">Laboratorio</option>
                           <option value="Aseguramiento">Aseguramiento</option>
                           <option value="Certificación">Certificación</option>
-                          <option value="Listo">Listo</option>
+                          <option value="Facturación">Facturación</option>
                           <option value="Entregado">Entregado</option>
                         </select>
                       </td>

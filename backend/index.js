@@ -413,6 +413,14 @@ async function ensureWhatsappChatsColumns() {
     } catch (e) {
         console.warn('⚠️ migracion_emojis no se pudo cargar:', e.message);
     }
+
+    // Sprint 1 / S1-A: áreas operativas, líderes y rename Listo→Facturación.
+    try {
+        const { migrarAreasLideres } = require('./migracion_areas_lideres');
+        await migrarAreasLideres();
+    } catch (e) {
+        console.warn('⚠️ migracion_areas_lideres no se pudo cargar:', e.message);
+    }
 }
 
 /** Limpia sesión del motor del bot y memoria de conversación bot por número CRM (solo dígitos). */
@@ -657,7 +665,7 @@ app.get('/api/kpis_negocio', async (req, res) => {
         // Métricas Core del Laboratorio y CRM
         const [leads] = await db.query(`SELECT COUNT(*) as total FROM chat_leads WHERE estado='Pendiente'`);
         const [detenidos] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Laboratorio' AND fecha_ingreso < NOW() - INTERVAL 2 DAY`);
-        const [listosSinNotificar] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Listo'`);
+        const [listosSinNotificar] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Facturación'`);
         const [esperando] = await db.query(`SELECT COUNT(*) as total FROM whatsapp_chats WHERE bot_desactivado = 1`);
         const [[botCots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'");
         const [[botCalif]] = await db.query("SELECT COUNT(*) as total FROM calificaciones_bot WHERE estatus = 'nueva'");
@@ -712,7 +720,7 @@ app.get('/api/kpis_aseguramiento', async (req, res) => {
     try {
         const [[qAseg]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Aseguramiento'`);
         const [[qCert]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Certificación'`);
-        const [[qListos]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Listo'`);
+        const [[qListos]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Facturación'`);
         
         // SLA Crítico (<= 1 día)
         const [equiposSLA] = await db.query(`SELECT fecha_ingreso, sla FROM instrumentos_estatus WHERE estatus_actual NOT IN ('Entregado', 'Cancelado')`);
@@ -722,7 +730,7 @@ app.get('/api/kpis_aseguramiento', async (req, res) => {
             return (e.sla - diasPasados) <= 1;
         }).length;
 
-        const [[sinPdf]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual IN ('Certificación', 'Listo', 'Entregado') AND certificado_url IS NULL`);
+        const [[sinPdf]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual IN ('Certificación', 'Facturación', 'Entregado') AND certificado_url IS NULL`);
         
         const [enCorreccion] = await db.query(`
             SELECT 
@@ -904,7 +912,7 @@ app.get('/api/instrumentos', verificarToken(), async (req, res) => {
         if (rol === 'admin') {
             query += ' ORDER BY ie.fecha_ingreso DESC';
         } else if (rol === 'aseguramiento' || rol === 'validacion') {
-            query += " AND ie.estatus_actual IN ('Aseguramiento','Certificación','Listo','Entregado') ORDER BY ie.fecha_ingreso DESC";
+            query += " AND ie.estatus_actual IN ('Aseguramiento','Certificación','Facturación','Entregado') ORDER BY ie.fecha_ingreso DESC";
         } else if (rol === 'metrologo' || rol === 'operador') {
             const [userRow] = await db.query('SELECT permisos, es_lider_area FROM usuarios WHERE id = ?', [userId]);
             let permisos = [];
@@ -1017,6 +1025,25 @@ app.get('/api/areas/:area/metrologos', verificarToken(), async (req, res) => {
             [req.params.area]
         );
         res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Líderes de las áreas operativas (Recepción, Laboratorio, Aseguramiento,
+// Certificación, Facturación, Entrega). Devuelve un objeto { area: {id,nombre,email,rol} }
+app.get('/api/lideres-area', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT id, nombre, email, rol, area
+             FROM usuarios
+             WHERE activo = 1 AND es_lider_area = 1 AND area IS NOT NULL AND area <> ''
+             ORDER BY area ASC`
+        );
+        const out = {};
+        for (const u of rows) {
+            // Si por alguna razón hay 2 líderes en la misma área, gana el primero (alfabético).
+            if (!out[u.area]) out[u.area] = { id: u.id, nombre: u.nombre, email: u.email, rol: u.rol };
+        }
+        res.json(out);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1453,11 +1480,11 @@ app.get('/api/instrumentos/sin-certificado', verificarToken(), async (req, res) 
                      WHERE im.instrumento_id = ie.id) as metrologos_asignados,
                     ie.rechazos_aseguramiento
              FROM instrumentos_estatus ie
-             WHERE (ie.estatus_actual = 'Listo' OR ie.estatus_actual = 'Entregado')
+             WHERE (ie.estatus_actual = 'Facturación' OR ie.estatus_actual = 'Entregado')
                AND (ie.no_certificado IS NULL OR ie.no_certificado = '')
                AND (ie.numero_informe IS NULL OR ie.numero_informe = '')
              ORDER BY 
-                CASE ie.estatus_actual WHEN 'Listo' THEN 0 ELSE 1 END,
+                CASE ie.estatus_actual WHEN 'Facturación' THEN 0 ELSE 1 END,
                 ie.fecha_ingreso DESC`,
             []
         );
@@ -1687,7 +1714,7 @@ app.get('/api/metrologia/kpis', verificarToken(), async (req, res) => {
         // Equipos sin certificado (persistente)
         const [[sinCert]] = await db.query(
             `SELECT COUNT(*) as total FROM instrumentos_estatus 
-             WHERE estatus_actual IN ('Listo', 'Entregado') 
+             WHERE estatus_actual IN ('Facturación', 'Entregado') 
              AND (no_certificado IS NULL OR no_certificado = '')`
         );
 
@@ -2978,9 +3005,9 @@ app.get('/api/bot/stats', async (req, res) => {
         const [[verifNuevas]] = await db.query("SELECT COUNT(*) as total FROM verificentros_bot WHERE estatus = 'nueva'");
         const [[ventasNuevas]] = await db.query("SELECT COUNT(*) as total FROM ventas_bot WHERE estatus = 'nueva'");
 
-        const [[listos]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Listo'");
+        const [[listos]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Facturación'");
         const [[validacion]] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Aseguramiento'");
-        const [[sinCert]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual IN ('Listo', 'Entregado') AND (no_certificado IS NULL OR no_certificado = '')`);
+        const [[sinCert]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual IN ('Facturación', 'Entregado') AND (no_certificado IS NULL OR no_certificado = '')`);
         const [[feedbackNuevos]] = await db.query("SELECT COUNT(*) as total FROM feedback_bot WHERE leido_admin = 0");
         const [metrologiaAreas] = await db.query("SELECT area_laboratorio, COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual = 'Laboratorio' AND area_laboratorio IS NOT NULL GROUP BY area_laboratorio");
 
@@ -3041,8 +3068,8 @@ app.get('/api/clientes/:id/historial', verificarToken(), async (req, res) => {
             cliente,
             equiposStats: {
                 total: equipos.length,
-                en_laboratorio: equipos.filter(e => e.estatus_actual !== 'Entregado' && e.estatus_actual !== 'Listo').length,
-                listos_entregados: equipos.filter(e => e.estatus_actual === 'Entregado' || e.estatus_actual === 'Listo').length
+                en_laboratorio: equipos.filter(e => e.estatus_actual !== 'Entregado' && e.estatus_actual !== 'Facturación').length,
+                listos_entregados: equipos.filter(e => e.estatus_actual === 'Entregado' || e.estatus_actual === 'Facturación').length
             },
             historial: equipos
         });
@@ -3153,7 +3180,7 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
                         (sla - DATEDIFF(NOW(), fecha_ingreso)) as sla_restante
                  FROM instrumentos_estatus
                  WHERE (sla - DATEDIFF(NOW(), fecha_ingreso)) <= 2
-                   AND estatus_actual NOT IN ('Listo','Entregado')
+                   AND estatus_actual NOT IN ('Facturación','Entregado')
                  ORDER BY sla_restante ASC LIMIT 10`
             );
             vencidos.forEach(e => {

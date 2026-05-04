@@ -8,7 +8,7 @@ const ESTATUS_COLORS = {
   'Laboratorio': { bg: 'bg-emerald-100 text-[#008a5e]', bgDark: 'bg-emerald-900/40 text-[#C9EA63]' },
   'Aseguramiento':{ bg: 'bg-blue-100 text-blue-700', bgDark: 'bg-blue-900/40 text-blue-300' },
   'Certificación':{ bg: 'bg-purple-100 text-purple-700', bgDark: 'bg-purple-900/40 text-purple-300' },
-  'Listo':       { bg: 'bg-teal-100 text-teal-700', bgDark: 'bg-teal-900/40 text-teal-300' },
+  'Facturación': { bg: 'bg-teal-100 text-teal-700', bgDark: 'bg-teal-900/40 text-teal-300' },
   'Entregado':   { bg: 'bg-green-100 text-green-700', bgDark: 'bg-green-900/40 text-green-300' },
 };
 

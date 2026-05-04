@@ -351,12 +351,12 @@ const GestionGrupo = ({ darkMode, usuario }) => {
         { id: 'Laboratorio', icono: Clock, color: 'text-amber-500', bg: 'bg-amber-500/10' },
         { id: 'Aseguramiento', icono: AlertTriangle, color: 'text-blue-500', bg: 'bg-blue-500/10' },
         { id: 'Certificación', icono: FileText, color: 'text-purple-500', bg: 'bg-purple-500/10' },
-        { id: 'Listo', icono: CheckCircle, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+        { id: 'Facturación', icono: CheckCircle, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
         { id: 'Entregado', icono: Truck, color: 'text-gray-500', bg: 'bg-gray-500/10' }
     ];
 
     const totalEquipos = equipos.length;
-    const equiposCerrados = equipos.filter(e => e.estatus_actual === 'Listo' || e.estatus_actual === 'Entregado').length;
+    const equiposCerrados = equipos.filter(e => e.estatus_actual === 'Facturación' || e.estatus_actual === 'Entregado').length;
     const porcentajeProgreso = totalEquipos > 0 ? (equiposCerrados / totalEquipos) * 100 : 0;
 
     if (cargando) return (

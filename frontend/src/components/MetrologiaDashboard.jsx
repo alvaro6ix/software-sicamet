@@ -95,7 +95,7 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
             return enLab && (soyAsignadoLegacy || soyAsignadoMultiple);
         });
     } else if (tabActual === 'Historial') {
-        equiposFiltroTab = equiposConSLA.filter(e => ['Validación', 'Aseguramiento', 'Certificación', 'Listo'].includes(e.estatus_actual));
+        equiposFiltroTab = equiposConSLA.filter(e => ['Validación', 'Aseguramiento', 'Certificación', 'Facturación'].includes(e.estatus_actual));
     } else if (tabActual === 'Entregados') {
         equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Entregado');
     } else if (tabActual === 'Vencidos') {

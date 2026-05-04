@@ -169,11 +169,11 @@ const Validacion = ({ darkMode, usuario }) => {
     } else if (tabActual === 'Certificacion') {
         equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Certificación');
     } else if (tabActual === 'Listos') {
-        equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Listo');
+        equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Facturación');
     } else if (tabActual === 'Entregados') {
         equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Entregado');
     } else if (tabActual === 'Faltantes') {
-        equiposFiltroTab = equiposConSLA.filter(e => ['Certificación', 'Listo', 'Entregado'].includes(e.estatus_actual) && !e.certificado_url);
+        equiposFiltroTab = equiposConSLA.filter(e => ['Certificación', 'Facturación', 'Entregado'].includes(e.estatus_actual) && !e.certificado_url);
     }
 
     // Agrupar solo si la OC tiene >= 5 equipos (Umbral solicitado por el usuario)
@@ -249,10 +249,10 @@ const Validacion = ({ darkMode, usuario }) => {
                 try {
                     await axios.post('/api/instrumentos/bulk-status', {
                         ids,
-                        estatus: 'Listo',
+                        estatus: 'Facturación',
                         comentario: 'Certificación completada por Aseguramiento'
                     });
-                    toast.success('Equipos movidos a Listos para Entrega.');
+                    toast.success('Equipos movidos a Facturación.');
                     setConfirmModal({ open: false });
                     fetchData();
                     window.dispatchEvent(new CustomEvent('actualizacion_operativa'));
@@ -322,7 +322,7 @@ const Validacion = ({ darkMode, usuario }) => {
     // KPIs generales
     const validacionList = equiposConSLA.filter(e => e.estatus_actual === 'Aseguramiento');
     const certList = equiposConSLA.filter(e => e.estatus_actual === 'Certificación');
-    const listosList = equiposConSLA.filter(e => e.estatus_actual === 'Listo');
+    const listosList = equiposConSLA.filter(e => e.estatus_actual === 'Facturación');
     const entregadosList = equiposConSLA.filter(e => e.estatus_actual === 'Entregado');
     
     const countTotal = validacionList.length;
@@ -330,7 +330,7 @@ const Validacion = ({ darkMode, usuario }) => {
     const countCert = certList.length;
     const countCertSinDoc = certList.filter(e => !e.certificado_url).length;
     const countEntregados = entregadosList.length;
-    const countFaltantes = equiposConSLA.filter(e => ['Certificación', 'Listo', 'Entregado'].includes(e.estatus_actual) && !e.certificado_url).length;
+    const countFaltantes = equiposConSLA.filter(e => ['Certificación', 'Facturación', 'Entregado'].includes(e.estatus_actual) && !e.certificado_url).length;
 
     return (
         <div className="w-full relative pb-24 animate-in fade-in">

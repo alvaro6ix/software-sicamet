@@ -75,7 +75,7 @@ const SinCertificado = ({ darkMode, usuario }) => {
         }
     };
 
-    const countListo = equipos.filter(e => e.estatus_actual === 'Listo').length;
+    const countListo = equipos.filter(e => e.estatus_actual === 'Facturación').length;
     const countEntregado = equipos.filter(e => e.estatus_actual === 'Entregado').length;
 
     return (
