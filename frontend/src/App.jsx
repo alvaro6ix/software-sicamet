@@ -51,14 +51,25 @@ axios.interceptors.request.use(config => {
   return config;
 });
 
-// Interceptor para logout automático si el token expira
+// Interceptor de errores HTTP:
+//  401 → token expirado, fuerza re-login.
+//  403 → permiso insuficiente. Toast amigable (deduplicado para no spammear).
+let lastForbiddenToastAt = 0;
 axios.interceptors.response.use(
   response => response,
   error => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status;
+    if (status === 401) {
       localStorage.removeItem('crm_token');
       localStorage.removeItem('crm_usuario');
       window.location.reload();
+    } else if (status === 403) {
+      const ahora = Date.now();
+      if (ahora - lastForbiddenToastAt > 2000) {
+        lastForbiddenToastAt = ahora;
+        const msg = error.response?.data?.error || 'No tienes permiso para esta acción.';
+        try { toast.error('Acción bloqueada', { description: msg }); } catch (_) {}
+      }
     }
     return Promise.reject(error);
   }
@@ -381,7 +392,7 @@ const Layout = () => {
     <PermisosProvider usuario={usuario}>
     <Router>
       <Toaster
-        position="bottom-right"
+        position="top-center"
         theme={darkMode ? 'dark' : 'light'}
         richColors
         closeButton

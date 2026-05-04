@@ -390,6 +390,9 @@ async function ensureWhatsappChatsColumns() {
         // Sprint 5 / S5-A — Versión activa de cada equipo respecto a su OS.
         // Cuando se crea una nueva versión de la OS, todos sus equipos se mueven a la nueva versión.
         "ALTER TABLE instrumentos_estatus ADD COLUMN os_version INT NOT NULL DEFAULT 1 AFTER orden_cotizacion",
+        // Sprint 8 — Bandera para equipos que NO requieren certificado físico.
+        // Permite a Julieta marcarlos y pasarlos a Facturación sin exigir PDF.
+        "ALTER TABLE instrumentos_estatus ADD COLUMN no_requiere_certificado TINYINT(1) NOT NULL DEFAULT 0 AFTER certificado_url",
         // Tabla de historial de versiones de OS — solo registro, una por orden+numero.
         `CREATE TABLE IF NOT EXISTS os_versiones (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2464,6 +2467,46 @@ app.get('/api/ordenes/:orden/versiones', requirePermiso('busqueda.ver'), async (
             [req.params.orden]
         );
         res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sprint 8 / B9 — Marcar/desmarcar equipo como "no requiere certificado".
+// Cuando un equipo no necesita PDF (servicio sin entregable), Julieta lo marca aquí
+// para que pueda pasar a Facturación sin trabar el flujo.
+app.put('/api/instrumentos/:id/config', requirePermiso('certificacion.subir'), async (req, res) => {
+    try {
+        const { no_requiere_certificado } = req.body;
+        const valor = no_requiere_certificado ? 1 : 0;
+        await db.query(
+            'UPDATE instrumentos_estatus SET no_requiere_certificado = ? WHERE id = ?',
+            [valor, req.params.id]
+        );
+        try {
+            await db.query(
+                'INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) VALUES (?, ?, ?, ?)',
+                [req.params.id, valor ? 'marcar_no_requiere_cert' : 'desmarcar_no_requiere_cert', req.usuario.id, null]
+            );
+        } catch (_) {}
+        res.json({ success: true, no_requiere_certificado: valor });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sprint 8 / B9 — Finalizar equipos en lote: mover a Facturación los que ya tienen
+// certificado_url o están marcados como no_requiere_certificado.
+app.post('/api/instrumentos-multiple-finalizar', requirePermiso('certificacion.subir'), async (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids vacío' });
+        const placeholders = ids.map(() => '?').join(',');
+        await db.query(
+            `UPDATE instrumentos_estatus SET estatus_actual = 'Facturación'
+             WHERE id IN (${placeholders})
+               AND estatus_actual = 'Certificación'
+               AND (certificado_url IS NOT NULL OR no_requiere_certificado = 1)`,
+            ids
+        );
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'multiple_finalizar' });
+        res.json({ success: true, count: ids.length });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

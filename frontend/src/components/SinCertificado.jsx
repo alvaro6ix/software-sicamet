@@ -3,6 +3,7 @@ import axios from 'axios';
 import { FileText, AlertCircle, X, Upload, Eye, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermisos } from '../hooks/usePermisos';
+import { confirmar } from '../hooks/alertas';
 
 const SinCertificado = ({ darkMode, usuario }) => {
     const { tiene } = usePermisos();
@@ -52,8 +53,10 @@ const SinCertificado = ({ darkMode, usuario }) => {
                 const validacion = validRes.data?.validacion;
                 if (validacion && !validacion.coincide && validacion.campos_fail?.length > 0) {
                     const campos = validacion.campos_fail.map(c => c.campo).join(', ');
-                    const continuar = window.confirm(
-                        `⚠️ La IA detectó diferencias en: ${campos}\n\n¿Deseas subir el certificado de todos modos?`
+                    const continuar = await confirmar(
+                        'La IA detectó diferencias',
+                        `Campos que no coinciden: ${campos}. ¿Subir el certificado de todos modos?`,
+                        { confirmText: 'Sí, subir igual' }
                     );
                     if (!continuar) {
                         setValidando(false);
