@@ -78,6 +78,7 @@ const SinCertificado = ({ darkMode, usuario }) => {
         }
     };
 
+    const countCert = equipos.filter(e => e.estatus_actual === 'Certificación').length;
     const countListo = equipos.filter(e => e.estatus_actual === 'Facturación').length;
     const countEntregado = equipos.filter(e => e.estatus_actual === 'Entregado').length;
 
@@ -88,22 +89,26 @@ const SinCertificado = ({ darkMode, usuario }) => {
                 <div>
                     <h2 className={`text-2xl md:text-3xl font-bold flex items-center gap-3 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
                         <AlertCircle className="text-amber-500" size={32} />
-                        Equipos Sin Certificado
+                        Pendientes de Certificación
                     </h2>
                     <p className={`mt-1 md:mt-2 text-xs md:text-sm ${darkMode ? 'text-[#F2F6F0]/70' : 'text-gray-500'}`}>
-                        Equipos que ya están Listos o Entregados pero aún no tienen certificado. Esta alerta es persistente hasta que se suba el PDF.
+                        Equipos aprobados por Aseguramiento esperando que subas el certificado, y los que ya pasaron a Facturación o Entregado sin PDF.
                     </p>
                 </div>
             </div>
 
             {/* KPIs */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div className={`p-4 rounded-xl border ${darkMode ? 'bg-amber-950/20 border-amber-500/30 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
                     <div className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1"><FileText size={14}/> Total Sin Certificado</div>
                     <div className="text-3xl font-black">{equipos.length}</div>
                 </div>
+                <div className={`p-4 rounded-xl border ${darkMode ? 'bg-purple-950/20 border-purple-500/30 text-purple-400' : 'bg-purple-50 border-purple-200 text-purple-700'}`}>
+                    <div className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1"><AlertCircle size={14}/> En Certificación (recién aprobados)</div>
+                    <div className="text-3xl font-black">{countCert}</div>
+                </div>
                 <div className={`p-4 rounded-xl border ${darkMode ? 'bg-blue-950/20 border-blue-500/30 text-blue-400' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
-                    <div className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1"><AlertCircle size={14}/> Listos (pendiente entrega)</div>
+                    <div className="text-[10px] uppercase font-bold opacity-80 flex items-center gap-1"><AlertCircle size={14}/> Facturación (pendiente entrega)</div>
                     <div className="text-3xl font-black">{countListo}</div>
                 </div>
                 <div className={`p-4 rounded-xl border ${darkMode ? 'bg-rose-950/20 border-rose-500/30 text-rose-400' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>

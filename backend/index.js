@@ -1540,7 +1540,9 @@ function validarCertificadoContraOrden(certDatos, partida) {
     };
 }
 
-// --- EQUIPOS LISTOS SIN CERTIFICADO (alerta persistente) ---
+// --- EQUIPOS PENDIENTES DE CERTIFICADO (vista de Julieta) ---
+// Incluye equipos en Certificación (recién aprobados por Aseguramiento, esperando
+// que Julieta suba el PDF), Facturación y Entregado que aún no tienen certificado.
 app.get('/api/instrumentos/sin-certificado', verificarToken(), async (req, res) => {
     try {
         const [equipos] = await db.query(
@@ -1551,11 +1553,14 @@ app.get('/api/instrumentos/sin-certificado', verificarToken(), async (req, res) 
                      WHERE im.instrumento_id = ie.id) as metrologos_asignados,
                     ie.rechazos_aseguramiento
              FROM instrumentos_estatus ie
-             WHERE (ie.estatus_actual = 'Facturación' OR ie.estatus_actual = 'Entregado')
-               AND (ie.no_certificado IS NULL OR ie.no_certificado = '')
-               AND (ie.numero_informe IS NULL OR ie.numero_informe = '')
-             ORDER BY 
-                CASE ie.estatus_actual WHEN 'Facturación' THEN 0 ELSE 1 END,
+             WHERE ie.estatus_actual IN ('Certificación', 'Facturación', 'Entregado')
+               AND (ie.certificado_url IS NULL OR ie.certificado_url = '')
+             ORDER BY
+                CASE ie.estatus_actual
+                    WHEN 'Certificación' THEN 0
+                    WHEN 'Facturación' THEN 1
+                    ELSE 2
+                END,
                 ie.fecha_ingreso DESC`,
             []
         );

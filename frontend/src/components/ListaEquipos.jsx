@@ -1096,7 +1096,7 @@ const ListaEquipos = ({ darkMode }) => {
       {modalOrdenAbierto && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 backdrop-blur-lg bg-black/60 animate-in fade-in duration-500">
           <div className={`w-full max-w-7xl max-h-[95vh] overflow-hidden rounded-[3rem] shadow-3xl border flex flex-col animate-in zoom-in-95 duration-500 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
-            <div className={`p-8 border-b flex items-center justify-between ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
+            <div className={`p-8 border-b flex items-center justify-between gap-3 flex-wrap ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
               <div className="flex items-center gap-5">
                 <div className={`p-4 rounded-3xl ${darkMode ? 'bg-[#C9EA63] text-black shadow-lg shadow-[#C9EA63]/20' : 'bg-[#008a5e] text-white shadow-lg shadow-[#008a5e]/20'}`}>
                   <Layers size={28} />
@@ -1106,7 +1106,16 @@ const ListaEquipos = ({ darkMode }) => {
                   <p className="text-xs font-bold opacity-40 uppercase tracking-widest">Sincronización masiva y edición de lote: {folioEdicion}</p>
                 </div>
               </div>
-              <button onClick={() => setModalOrdenAbierto(false)} className="opacity-40 hover:opacity-100 transition-all hover:rotate-90"><X size={32} /></button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setModalOrdenAbierto(false); navigate(`/equipos/grupo/${encodeURIComponent(folioEdicion)}`); }}
+                  className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${darkMode ? 'bg-amber-500 text-amber-950 hover:bg-amber-400' : 'bg-amber-500 text-white hover:bg-amber-600'}`}
+                  title="Crear nueva versión de la orden, ver kanban completo, agregar equipos..."
+                >
+                  <Layers size={14}/> Vista completa / Versionar
+                </button>
+                <button onClick={() => setModalOrdenAbierto(false)} className="opacity-40 hover:opacity-100 transition-all hover:rotate-90"><X size={32} /></button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">

@@ -560,7 +560,12 @@ const Validacion = ({ darkMode, usuario }) => {
                                     </div>
                                 ) : (
                                     listaComentarios.slice().reverse().map((c, i, arr) => {
-                                        const soyYo = c.mio === true;
+                                        // Defensa triple: backend mio, comparación con usuario actual, fallback a localStorage
+                                        let usuarioId = usuario?.id;
+                                        if (!usuarioId) {
+                                            try { usuarioId = JSON.parse(localStorage.getItem('crm_usuario') || '{}').id; } catch (_) {}
+                                        }
+                                        const soyYo = c.mio === true || (usuarioId != null && Number(c.usuario_id) === Number(usuarioId));
                                         const nextMsg = arr[i + 1];
                                         const sameUserNext = nextMsg && nextMsg.usuario_id === c.usuario_id;
                                         const msgBg = soyYo 

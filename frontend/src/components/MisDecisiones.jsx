@@ -10,12 +10,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatearFechaHora } from '../hooks/fechas';
+import ChatEquipo from './ChatEquipo';
 
 export default function MisDecisiones({ darkMode, usuario }) {
     const navigate = useNavigate();
     const [data, setData] = useState({ aprobados: [], rechazados: [] });
     const [tab, setTab] = useState('aprobados');
     const [cargando, setCargando] = useState(true);
+    const [chatEquipo, setChatEquipo] = useState(null);
 
     const cargar = async () => {
         setCargando(true);
@@ -61,11 +63,18 @@ export default function MisDecisiones({ darkMode, usuario }) {
                     <p className={`text-xs italic mt-2 ${textBody}`}>"{e.motivo.replace(/^RECHAZO:\s*/i, '')}"</p>
                 )}
             </div>
-            {e.comentarios_count > 0 && (
-                <span className={`text-[10px] font-bold flex items-center gap-1 ${textMuted}`}>
-                    <MessageSquare size={11}/> {e.comentarios_count}
-                </span>
-            )}
+            <button
+                onClick={() => setChatEquipo({ id: e.id, nombre: e.nombre_instrumento })}
+                className={`relative p-2 rounded-lg ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-100'}`}
+                title={e.comentarios_count > 0 ? `Ver chat (${e.comentarios_count})` : 'Abrir chat'}
+            >
+                <MessageSquare size={16} className={e.comentarios_count > 0 ? 'text-amber-500' : textMuted}/>
+                {e.comentarios_count > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center">
+                        {e.comentarios_count > 9 ? '9+' : e.comentarios_count}
+                    </span>
+                )}
+            </button>
             <button onClick={() => navigate(`/orden/${encodeURIComponent(e.orden_cotizacion)}`)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-100'}`}>
                 <ArrowRight size={16} className={textMuted}/>
             </button>
@@ -109,6 +118,15 @@ export default function MisDecisiones({ darkMode, usuario }) {
                     </div>
                 ) : lista.map(e => renderItem(e, tab === 'rechazados'))}
             </div>
+
+            {chatEquipo && (
+                <ChatEquipo
+                    darkMode={darkMode}
+                    equipoId={chatEquipo.id}
+                    equipoNombre={chatEquipo.nombre}
+                    onClose={() => { setChatEquipo(null); cargar(); }}
+                />
+            )}
         </div>
     );
 }

@@ -345,7 +345,11 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
                                 </div>
                             ) : (
                                 listaComentarios.map(c => {
-                                    const soyYo = c.mio === true;
+                                    let usuarioId = usuario?.id;
+                                    if (!usuarioId) {
+                                        try { usuarioId = JSON.parse(localStorage.getItem('crm_usuario') || '{}').id; } catch (_) {}
+                                    }
+                                    const soyYo = c.mio === true || (usuarioId != null && Number(c.usuario_id) === Number(usuarioId));
                                     return (
                                         <div key={c.id} className={`flex flex-col ${soyYo ? 'items-end' : 'items-start'}`}>
                                             <div className={`max-w-[85%] px-3 py-2 rounded-lg shadow-sm text-sm ${soyYo ? (darkMode ? 'bg-[#005c4b] text-[#e9edef]' : 'bg-[#d9fdd3] text-[#111b21]') : (darkMode ? 'bg-[#202c33] text-[#e9edef]' : 'bg-white text-[#111b21]')}`}>

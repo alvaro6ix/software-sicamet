@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatearFechaHora, relativeTime } from '../hooks/fechas';
+import ChatEquipo from './ChatEquipo';
 
 const FASE_INFO = {
     'Aseguramiento': { color: 'blue',    icono: AlertTriangle, label: 'En Aseguramiento' },
@@ -25,6 +26,7 @@ export default function MisEnvios({ darkMode, usuario }) {
     const [cargando, setCargando] = useState(true);
     const [filtroFase, setFiltroFase] = useState(null);
     const [busqueda, setBusqueda] = useState('');
+    const [chatEquipo, setChatEquipo] = useState(null);  // {id, nombre} para abrir modal de chat
 
     const cargar = async () => {
         setCargando(true);
@@ -161,9 +163,9 @@ export default function MisEnvios({ darkMode, usuario }) {
                                 </div>
                             </div>
                             <button
-                                onClick={() => navigate('/correcciones-metrologia')}
+                                onClick={() => setChatEquipo({ id: e.id, nombre: e.nombre_instrumento })}
                                 className={`relative p-2 rounded-lg ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-100'}`}
-                                title={e.comentarios_count > 0 ? `Ver chat (${e.comentarios_count})` : 'Sin mensajes aún'}
+                                title={e.comentarios_count > 0 ? `Ver chat (${e.comentarios_count})` : 'Abrir chat con aseguramiento'}
                             >
                                 <MessageSquare size={18} className={e.comentarios_count > 0 ? 'text-amber-500' : textMuted} />
                                 {e.comentarios_count > 0 && (
@@ -183,6 +185,15 @@ export default function MisEnvios({ darkMode, usuario }) {
                     );
                 })}
             </div>
+
+            {chatEquipo && (
+                <ChatEquipo
+                    darkMode={darkMode}
+                    equipoId={chatEquipo.id}
+                    equipoNombre={chatEquipo.nombre}
+                    onClose={() => { setChatEquipo(null); cargar(); }}
+                />
+            )}
         </div>
     );
 }

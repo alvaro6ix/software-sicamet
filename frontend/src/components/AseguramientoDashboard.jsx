@@ -46,7 +46,8 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
         en_correccion: []
     });
     const [cargando, setCargando] = useState(true);
-    const [tabCorreccion, setTabCorreccion] = useState('pendientes'); // 'pendientes' | 'corregidos'
+    // tabCorreccion eliminado: usábamos dos estados (tabCorreccion / tabMonitor) que se
+    // desincronizaban. Ahora usamos solo tabMonitor para todo el panel de correcciones.
     const navigate = useNavigate();
     
     // Chat states
@@ -260,33 +261,31 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
                     </div>
                 </div>
 
-                {/* Tabs */}
+                {/* Tabs unificados — controlan tanto el filtrado como el conteo */}
                 <div className={`flex gap-1 p-1 rounded-2xl mb-6 ${darkMode ? 'bg-white/5' : 'bg-slate-100'}`}>
-                    {[{ id: 'pendientes', label: 'Pendientes', filter: eq => eq.metrologo_estatus !== 'terminado' },
-                      { id: 'corregidos', label: 'Corregidos', filter: eq => eq.metrologo_estatus === 'terminado' }]
-                    .map(tab => {
-                        const count = (stats.en_correccion || []).filter(tab.filter).length;
-                        return (
-                            <button
-                                key={tab.id}
-                                onClick={() => setTabCorreccion(tab.id)}
-                                className={`flex-1 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
-                                    tabCorreccion === tab.id
-                                        ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-lg' : 'bg-white text-slate-800 shadow-md')
-                                        : (darkMode ? 'text-white/40 hover:text-white/70' : 'text-slate-400 hover:text-slate-600')
-                                }`}
-                            >
-                                {tab.label}
-                                {count > 0 && (
-                                    <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${
-                                        tabCorreccion === tab.id
-                                            ? (darkMode ? 'bg-[#141f0b] text-[#C9EA63]' : 'bg-emerald-600 text-white')
-                                            : 'bg-rose-500 text-white'
-                                    }`}>{count}</span>
-                                )}
-                            </button>
-                        );
-                    })}
+                    {[
+                        { id: 'Pendientes', label: 'Pendientes', count: (stats.en_correccion || []).length },
+                        { id: 'Corregidos', label: 'Corregidos', count: (stats.corregidos || []).length }
+                    ].map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setTabMonitor(tab.id)}
+                            className={`flex-1 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
+                                tabMonitor === tab.id
+                                    ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] shadow-lg' : 'bg-white text-slate-800 shadow-md')
+                                    : (darkMode ? 'text-white/40 hover:text-white/70' : 'text-slate-400 hover:text-slate-600')
+                            }`}
+                        >
+                            {tab.label}
+                            {tab.count > 0 && (
+                                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${
+                                    tabMonitor === tab.id
+                                        ? (darkMode ? 'bg-[#141f0b] text-[#C9EA63]' : 'bg-emerald-600 text-white')
+                                        : 'bg-rose-500 text-white'
+                                }`}>{tab.count}</span>
+                            )}
+                        </button>
+                    ))}
                 </div>
 
                 {/* Equipment list */}
@@ -294,20 +293,9 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
                     {/* Equipos en Corrección Section */}
                     <div className={`${darkMode ? 'bg-[#141f0b]' : 'bg-white'} rounded-2xl border ${darkMode ? 'border-[#C9EA63]/20' : 'border-slate-200'} shadow-sm overflow-hidden`}>
                         <div className="p-4 border-b flex justify-between items-center bg-slate-50/50 dark:bg-white/5">
-                            <div className="flex gap-4">
-                                <button 
-                                    onClick={() => setTabMonitor('Pendientes')}
-                                    className={`text-sm font-bold pb-2 transition-all border-b-2 ${tabMonitor === 'Pendientes' ? 'border-[#008a5e] text-[#008a5e]' : 'border-transparent opacity-50'}`}
-                                >
-                                    Pendientes
-                                </button>
-                                <button 
-                                    onClick={() => setTabMonitor('Corregidos')}
-                                    className={`text-sm font-bold pb-2 transition-all border-b-2 ${tabMonitor === 'Corregidos' ? 'border-[#008a5e] text-[#008a5e]' : 'border-transparent opacity-50'}`}
-                                >
-                                    Corregidos
-                                </button>
-                            </div>
+                            <h5 className={`text-sm font-black ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                                {tabMonitor === 'Pendientes' ? 'Pendientes de corrección' : 'Equipos corregidos'}
+                            </h5>
                             <span className={`text-[10px] uppercase font-black opacity-40 px-2 py-0.5 rounded ${darkMode ? 'bg-[#C9EA63]/10' : 'bg-slate-200'}`}>Monitor de Calidad</span>
                         </div>
 
