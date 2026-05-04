@@ -1,10 +1,16 @@
 const mysql = require('mysql2/promise');
 
-// Crear el "pool" de conexiones
+// Las credenciales se leen exclusivamente del entorno (no hay fallback hardcoded).
+// docker-compose se encarga de pasar DB_PASS desde el .env de la raíz.
+if (!process.env.DB_PASS) {
+    console.error('FATAL: DB_PASS no está definido. Verifica que el archivo .env exista en la raíz del proyecto.');
+    process.exit(1);
+}
+
 const pool = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',      // En Docker será 'db'
-    user: process.env.DB_USER || 'root',           
-    password: process.env.DB_PASS || '***REDACTED***', 
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASS,
     database: process.env.DB_NAME || 'sicamet_crm',
     waitForConnections: true,
     connectionLimit: 10,

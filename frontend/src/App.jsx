@@ -31,6 +31,7 @@ import io from 'socket.io-client';
 
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { PermisosProvider, usePermisos } from './hooks/usePermisos';
 
 window.alert = (msg) => {
   if (!msg) return;
@@ -70,46 +71,34 @@ import {
 const Sidebar = ({ darkMode, toggleDarkMode, mobileOpen, setMobileOpen, usuario, onLogout, counts, sidebarOculta, setSidebarOculta }) => {
   const location = useLocation();
   const esAdmin = usuario?.rol === 'admin';
+  const { tiene, listo: permisosListos } = usePermisos();
 
+  // Cada item declara qué permiso atómico lo activa.
+  // Admin tiene acceso a todo implícitamente (manejado por usePermisos).
   const navItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['admin', 'recepcionista'] },
-    { name: 'Registro Ágil', path: '/registro', icon: FileText, roles: ['admin', 'recepcionista'] },
-    { name: 'Entregas', path: '/entregas', icon: Truck, roles: ['admin', 'recepcionista'] },
-    { name: 'Dashboard Aseguramiento', path: '/aseguramiento-dashboard', icon: LayoutDashboard, roles: ['admin', 'aseguramiento', 'validacion'] },
-    { name: 'Gestión Operativa', path: '/validacion', icon: FileCheck, roles: ['admin', 'aseguramiento', 'validacion'] },
-    { name: 'Certificación Ágil', path: '/certificacion-agil', icon: FileCheck, roles: ['admin', 'aseguramiento', 'validacion'] },
-    { name: 'Lista Gral. Equipos', path: '/equipos', icon: List, roles: ['admin', 'recepcionista', 'aseguramiento', 'validacion'] },
-    { name: 'Pipelines Kanban', path: '/kanban', icon: Package, roles: ['admin', 'recepcionista', 'operador', 'metrologo', 'aseguramiento', 'validacion'] },
-    // Centro de Metrología - Sub-módulos
-    { name: 'Mi Bandeja', path: '/mi-bandeja', icon: Inbox, roles: ['admin', 'operador', 'metrologo'] },
-    { name: 'Centro Metrología', path: '/metrologia', icon: Package, roles: ['admin', 'operador', 'metrologo'] },
-    { name: 'Correcciones', path: '/correcciones-metrologia', icon: AlertTriangle, roles: ['admin', 'operador', 'metrologo'] },
-    { name: 'Sin Certificado', path: '/sin-certificado', icon: FileTextIcon, roles: ['admin', 'aseguramiento', 'validacion'] },
-    // Catálogos y Admin
-    { name: 'Clientes', path: '/clientes', icon: Users, roles: ['admin', 'recepcionista'] },
-    { name: 'Catálogo Inst.', path: '/catalogo-instrumentos', icon: BookOpen, roles: ['admin', 'recepcionista'] },
-    { name: 'Catálogo Marcas', path: '/marcas', icon: Tag, roles: ['admin'] },
-    { name: 'Catálogo Modelos', path: '/modelos', icon: Package, roles: ['admin'] },
-    { name: 'Flujos WhatsApp', path: '/flujos-whatsapp', icon: Bot, roles: ['admin', 'recepcionista'] },
-    { name: 'Conversaciones WA', path: '/conversaciones', icon: MessageSquare, roles: ['admin', 'recepcionista'] },
-    { name: 'Posibles Clientes', path: '/leads', icon: Target, roles: ['admin', 'recepcionista'] },
-    { name: 'Vincular WhatsApp', path: '/whatsapp-qr', icon: ScanLine, roles: ['admin', 'recepcionista'] },
-    { name: 'Feedback Bot', path: '/feedback-bot', icon: MessageSquare, roles: ['admin'] },
-    { name: 'Gestión Usuarios', path: '/usuarios', icon: Users, roles: ['admin'] },
-  ].filter(item => {
-      // Si el usuario tiene permisos específicos (y no es array vacío), filtramos por eso
-      let permisosList = [];
-      try {
-          if (usuario?.permisos) permisosList = typeof usuario.permisos === 'string' ? JSON.parse(usuario.permisos) : usuario.permisos;
-      } catch(e) {}
-      
-      if (permisosList && permisosList.length > 0 && usuario.rol !== 'admin') {
-          return permisosList.includes(item.path);
-      }
-      
-      // Fallback a lógica de roles si no hay permisos customizados
-      return item.roles.includes(usuario?.rol || 'recepcionista');
-  });
+    { name: 'Dashboard',                path: '/',                          icon: LayoutDashboard, permiso: 'dashboard.ver' },
+    { name: 'Registro Ágil',            path: '/registro',                  icon: FileText,        permiso: 'registro.ver' },
+    { name: 'Entregas',                 path: '/entregas',                  icon: Truck,           permiso: 'entregas.ver' },
+    { name: 'Dashboard Aseguramiento',  path: '/aseguramiento-dashboard',   icon: LayoutDashboard, permiso: 'dashboard.aseguramiento.ver' },
+    { name: 'Gestión Operativa',        path: '/validacion',                icon: FileCheck,       permiso: 'aseguramiento.ver' },
+    { name: 'Certificación Ágil',       path: '/certificacion-agil',        icon: FileCheck,       permiso: 'certificacion.ver' },
+    { name: 'Lista Gral. Equipos',      path: '/equipos',                   icon: List,            permiso: 'equipos.ver' },
+    { name: 'Pipelines Kanban',         path: '/kanban',                    icon: Package,         permiso: 'kanban.ver' },
+    { name: 'Mi Bandeja',               path: '/mi-bandeja',                icon: Inbox,           permiso: 'metrologia.bandeja.ver' },
+    { name: 'Centro Metrología',        path: '/metrologia',                icon: Package,         permiso: 'metrologia.centro.ver' },
+    { name: 'Correcciones',             path: '/correcciones-metrologia',   icon: AlertTriangle,   permiso: 'metrologia.correcciones.ver' },
+    { name: 'Sin Certificado',          path: '/sin-certificado',           icon: FileTextIcon,    permiso: 'sin_certificado.ver' },
+    { name: 'Clientes',                 path: '/clientes',                  icon: Users,           permiso: 'clientes.ver' },
+    { name: 'Catálogo Inst.',           path: '/catalogo-instrumentos',     icon: BookOpen,        permiso: 'catalogos.ver' },
+    { name: 'Catálogo Marcas',          path: '/marcas',                    icon: Tag,             permiso: 'catalogos.ver' },
+    { name: 'Catálogo Modelos',         path: '/modelos',                   icon: Package,         permiso: 'catalogos.ver' },
+    { name: 'Flujos WhatsApp',          path: '/flujos-whatsapp',           icon: Bot,             permiso: 'bot.flujos.ver' },
+    { name: 'Conversaciones WA',        path: '/conversaciones',            icon: MessageSquare,   permiso: 'bot.conversaciones.ver' },
+    { name: 'Posibles Clientes',        path: '/leads',                     icon: Target,          permiso: 'leads.ver' },
+    { name: 'Vincular WhatsApp',        path: '/whatsapp-qr',               icon: ScanLine,        permiso: 'bot.qr.ver' },
+    { name: 'Feedback Bot',             path: '/feedback-bot',              icon: MessageSquare,   permiso: 'bot.feedback.ver' },
+    { name: 'Gestión Usuarios',         path: '/usuarios',                  icon: Users,           permiso: 'usuarios.ver' },
+  ].filter(item => permisosListos && tiene(item.permiso));
 
   const NavContent = () => (
     <div className="flex flex-col h-full overflow-y-auto custom-scrollbar relative">
@@ -383,6 +372,7 @@ const Layout = () => {
   if (!usuario) return <Login onLogin={handleLogin} darkMode={darkMode} setDarkMode={setDarkMode} />;
 
   return (
+    <PermisosProvider usuario={usuario}>
     <Router>
       <ToastContainer position="bottom-right" autoClose={3000} theme="colored" />
       <div translate="no" className={`flex h-screen overflow-hidden transition-all duration-300 ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]' : 'bg-slate-50 text-[#253916]'}`}>
@@ -472,6 +462,7 @@ const Layout = () => {
         </div>
       </div>
     </Router>
+    </PermisosProvider>
   );
 };
 

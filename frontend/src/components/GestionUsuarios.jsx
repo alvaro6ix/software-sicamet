@@ -25,29 +25,21 @@ const GestionUsuarios = ({ darkMode }) => {
   const [rolPersonalizado, setRolPersonalizado] = useState(false);
   const [rolesBase, setRolesBase] = useState(['admin', 'recepcionista', 'metrologo', 'aseguramiento']);
 
-  const MODULOS_DISPONIBLES = [
-    { id: '/', nombre: 'Dashboard Admin' },
-    { id: '/aseguramiento-dashboard', nombre: 'Dashboard Aseguramiento' },
-    { id: '/registro', nombre: 'Registro Ágil' },
-    { id: '/equipos', nombre: 'Lista Gral. Equipos' },
-    { id: '/entregas', nombre: 'Entregas' },
-    { id: '/kanban', nombre: 'Pipeline Kanban' },
-    { id: '/mi-bandeja', nombre: 'Mi Bandeja' },
-    { id: '/metrologia', nombre: 'Centro Metrología' },
-    { id: '/correcciones-metrologia', nombre: 'Correcciones' },
-    { id: '/validacion', nombre: 'Gestión Operativa (Aseg.)' },
-    { id: '/certificacion-agil', nombre: 'Certificación Ágil' },
-    { id: '/clientes', nombre: 'Clientes' },
-    { id: '/catalogo-instrumentos', nombre: 'Catálogos' },
-    { id: '/flujos-whatsapp', nombre: 'Flujos WhatsApp' },
-    { id: '/conversaciones', nombre: 'Conversaciones WA' },
-    { id: '/leads', nombre: 'Posibles Clientes' },
-    { id: '/marcas', nombre: 'Catálogo Marcas' },
-    { id: '/modelos', nombre: 'Catálogo Modelos' },
-    { id: '/whatsapp-qr', nombre: 'Vincular WhatsApp' },
-    { id: '/usuarios', nombre: 'Gestión Usuarios' },
-    { id: 'supervisor_area', nombre: '⭐ Supervisor de Área' },
-  ];
+  // Catálogo de permisos atómicos servido por el backend.
+  // Cada item: { clave, grupo, descripcion }
+  const [permisosCatalogo, setPermisosCatalogo] = useState([]);
+  useEffect(() => {
+    axios.get('/api/permisos/catalogo')
+      .then(res => setPermisosCatalogo(res.data?.permisos || []))
+      .catch(() => setPermisosCatalogo([]));
+  }, []);
+
+  // Agrupar permisos por sección para la UI.
+  const permisosPorGrupo = permisosCatalogo.reduce((acc, p) => {
+    if (!acc[p.grupo]) acc[p.grupo] = [];
+    acc[p.grupo].push(p);
+    return acc;
+  }, {});
 
   const boxBg = darkMode ? 'bg-[#253916] border-[#C9EA63]/20' : 'bg-white border-gray-100 shadow-xl';
   const textTitle = darkMode ? 'text-[#F2F6F0]' : 'text-slate-800';
@@ -573,32 +565,65 @@ const GestionUsuarios = ({ darkMode }) => {
                   </div>
                 )}
 
-                {/* Permisos de módulos */}
+                {/* Permisos atómicos por grupo */}
                 {form.rol !== 'admin' && (
                   <div className="pt-1">
-                    <label className={`block text-[10px] font-black mb-2 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Permisos de Módulos</label>
-                    <p className={`text-[10px] mb-2 italic ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>Selecciona "⭐ Supervisor de Área" para que el metrólogo vea todos los equipos de su área.</p>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                      {MODULOS_DISPONIBLES.map(mod => {
-                          const seleccionado = form.permisos.includes(mod.id);
-                          return (
+                    <div className="flex items-center justify-between mb-2">
+                      <label className={`block text-[10px] font-black uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Permisos Detallados</label>
+                      <div className="flex gap-2 text-[10px]">
+                        <button type="button" onClick={() => setForm({...form, permisos: permisosCatalogo.map(p => p.clave)})} className={`px-2 py-0.5 rounded font-bold ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63] hover:bg-[#C9EA63]/30' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}>Todos</button>
+                        <button type="button" onClick={() => setForm({...form, permisos: []})} className={`px-2 py-0.5 rounded font-bold ${darkMode ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-rose-100 text-rose-700 hover:bg-rose-200'}`}>Ninguno</button>
+                      </div>
+                    </div>
+                    <p className={`text-[10px] mb-3 italic ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>
+                      Si dejas todo vacío, se aplicarán los permisos por defecto del rol seleccionado.
+                    </p>
+                    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
+                      {Object.entries(permisosPorGrupo).map(([grupo, items]) => {
+                        const todosEnGrupo = items.every(p => form.permisos.includes(p.clave));
+                        return (
+                          <div key={grupo} className={`p-3 rounded-xl border ${darkMode ? 'border-[#C9EA63]/15 bg-[#1b2b10]/50' : 'border-slate-200 bg-slate-50/50'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className={`text-[11px] font-black uppercase tracking-wider ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-700'}`}>{grupo}</h4>
                               <button
-                                  key={mod.id} type="button"
-                                  onClick={() => {
-                                      if (seleccionado) {
-                                          setForm({...form, permisos: form.permisos.filter(p => p !== mod.id)});
-                                      } else {
-                                          setForm({...form, permisos: [...form.permisos, mod.id]});
-                                      }
-                                  }}
-                                  className={`text-left p-2 rounded-lg border text-[11px] font-bold transition-all flex items-center gap-2 ${seleccionado ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-100 text-emerald-800 border-emerald-300') : (darkMode ? 'bg-transparent border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:border-[#C9EA63]/40' : 'bg-transparent border-slate-200 text-slate-500 hover:bg-slate-50')}`}
+                                type="button"
+                                onClick={() => {
+                                  const claves = items.map(p => p.clave);
+                                  if (todosEnGrupo) {
+                                    setForm({...form, permisos: form.permisos.filter(p => !claves.includes(p))});
+                                  } else {
+                                    setForm({...form, permisos: [...new Set([...form.permisos, ...claves])]});
+                                  }
+                                }}
+                                className={`text-[9px] font-bold px-2 py-0.5 rounded ${darkMode ? 'text-[#F2F6F0]/60 hover:text-[#C9EA63]' : 'text-slate-500 hover:text-emerald-700'}`}
                               >
-                                  <div className={`w-3 h-3 flex-shrink-0 rounded flex items-center justify-center border ${seleccionado ? (darkMode ? 'bg-[#141f0b] border-transparent' : 'bg-emerald-600 border-emerald-600 text-white') : (darkMode ? 'border-[#C9EA63]/40' : 'border-slate-300')}`}>
-                                      {seleccionado && <div className={`w-1.5 h-1.5 rounded-sm ${darkMode ? 'bg-[#C9EA63]' : 'bg-white'}`} />}
-                                  </div>
-                                  <span className="truncate">{mod.nombre}</span>
+                                {todosEnGrupo ? 'Quitar grupo' : 'Marcar grupo'}
                               </button>
-                          );
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                              {items.map(p => {
+                                const seleccionado = form.permisos.includes(p.clave);
+                                return (
+                                  <button
+                                    key={p.clave}
+                                    type="button"
+                                    onClick={() => {
+                                      if (seleccionado) setForm({...form, permisos: form.permisos.filter(x => x !== p.clave)});
+                                      else setForm({...form, permisos: [...form.permisos, p.clave]});
+                                    }}
+                                    className={`text-left p-2 rounded-lg border text-[11px] transition-all flex items-start gap-2 ${seleccionado ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]' : 'bg-emerald-100 text-emerald-800 border-emerald-300') : (darkMode ? 'bg-transparent border-[#C9EA63]/20 text-[#F2F6F0]/60 hover:border-[#C9EA63]/40' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50')}`}
+                                    title={p.clave}
+                                  >
+                                    <div className={`w-3 h-3 flex-shrink-0 mt-0.5 rounded flex items-center justify-center border ${seleccionado ? (darkMode ? 'bg-[#141f0b] border-transparent' : 'bg-emerald-600 border-emerald-600 text-white') : (darkMode ? 'border-[#C9EA63]/40' : 'border-slate-300')}`}>
+                                      {seleccionado && <div className={`w-1.5 h-1.5 rounded-sm ${darkMode ? 'bg-[#C9EA63]' : 'bg-white'}`} />}
+                                    </div>
+                                    <span className="font-semibold leading-tight">{p.descripcion}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
                       })}
                     </div>
                   </div>

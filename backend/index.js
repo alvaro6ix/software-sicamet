@@ -30,6 +30,7 @@ const { ejecutarRecordatorios } = require('./bot_recordatorios');
 
 // Autenticación
 const { generarToken, verificarToken, verificarPassword } = require('./auth');
+const { requirePermiso } = require('./middleware/permisos');
 
 const app = express();
 const httpServer = require('http').createServer(app);
@@ -1048,7 +1049,7 @@ app.get('/api/lideres-area', verificarToken(), async (req, res) => {
 });
 
 // ─── ASIGNACIÓN MÚLTIPLE Y FLUJO TÉCNICO ───
-app.post('/api/instrumentos/:id/asignar_metrologos', verificarToken(['admin', 'recepcionista']), async (req, res) => {
+app.post('/api/instrumentos/:id/asignar_metrologos', requirePermiso('metrologia.asignar'), async (req, res) => {
     try {
         const { id } = req.params;
         const { metrologos_ids } = req.body; // Array de IDs
@@ -1283,7 +1284,7 @@ app.post('/api/instrumentos/:id/solicitar_correccion', verificarToken(), async (
 // ═══════════════════════════════════════════════════════════
 
 // --- RECHAZO DE ASEGURAMIENTO (con trazabilidad completa) ---
-app.post('/api/instrumentos/:id/rechazar_aseguramiento', verificarToken(), async (req, res) => {
+app.post('/api/instrumentos/:id/rechazar_aseguramiento', requirePermiso('aseguramiento.rechazar'), async (req, res) => {
     try {
         const { id } = req.params;
         const { motivo, metrologo_destino_id } = req.body;
@@ -1739,7 +1740,7 @@ app.get('/api/metrologia/kpis', verificarToken(), async (req, res) => {
 
 
 // SUBIR CERTIFICADO (PDF) POR ASEGURAMIENTO
-app.post('/api/instrumentos/:id/certificado', verificarToken(['admin', 'aseguramiento', 'validacion', 'validacin']), uploadCert.single('archivo'), async (req, res) => {
+app.post('/api/instrumentos/:id/certificado', requirePermiso('certificacion.subir'), uploadCert.single('archivo'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo o no es PDF' });
         
@@ -1825,7 +1826,7 @@ app.post('/api/instrumentos-multiple-certificados', verificarToken(['admin', 'as
 });
 
 
-app.put('/api/instrumentos/:id/estatus', verificarToken(), async (req, res) => {
+app.put('/api/instrumentos/:id/estatus', requirePermiso('kanban.mover'), async (req, res) => {
     try {
         const { estatus, comentario } = req.body;
         const id = req.params.id;
@@ -1990,7 +1991,7 @@ app.post('/api/instrumentos/:id/comentarios', verificarToken(), uploadComentario
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/instrumentos/:id', verificarToken(), async (req, res) => {
+app.put('/api/instrumentos/:id', requirePermiso('equipos.editar'), async (req, res) => {
     const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
@@ -2041,7 +2042,7 @@ app.put('/api/instrumentos/:id', verificarToken(), async (req, res) => {
 
 // Endpoint interno (sin token) eliminado - usar el verificado de arriba
 
-app.delete('/api/instrumentos/:id', async (req, res) => {
+app.delete('/api/instrumentos/:id', requirePermiso('equipos.eliminar'), async (req, res) => {
     try {
         await db.query('DELETE FROM instrumentos_estatus WHERE id = ?', [req.params.id]);
         
@@ -3462,11 +3463,14 @@ app.post('/api/usuarios', verificarToken(['admin']), async (req, res) => {
 
 app.put('/api/usuarios/:id', verificarToken(['admin']), async (req, res) => {
     try {
+        const { permisosValidos } = require('./permisos_catalogo');
+        const { invalidarCachePermisos } = require('./middleware/permisos');
         const { nombre, email, password, rol, area, permisos, es_lider_area } = req.body;
         const id = req.params.id;
+        const permisosFiltrados = Array.isArray(permisos) ? permisosValidos(permisos) : null;
 
         let query = 'UPDATE usuarios SET nombre = ?, email = ?, rol = ?, area = ?, es_lider_area = ?, permisos = ?';
-        let params = [nombre, email.toLowerCase(), rol, area || null, es_lider_area ? 1 : 0, permisos ? JSON.stringify(permisos) : null];
+        let params = [nombre, email.toLowerCase(), rol, area || null, es_lider_area ? 1 : 0, permisosFiltrados ? JSON.stringify(permisosFiltrados) : null];
 
         if (password && password.trim() !== "") {
             const bcrypt = require('bcryptjs');
@@ -3479,7 +3483,49 @@ app.put('/api/usuarios/:id', verificarToken(['admin']), async (req, res) => {
         params.push(id);
 
         await db.query(query, params);
+        invalidarCachePermisos(Number(id));
         res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Catálogo público de permisos (cualquier usuario autenticado puede leerlo
+// para que el frontend conozca lo que existe y muestre/oculte UI).
+app.get('/api/permisos/catalogo', verificarToken(), (req, res) => {
+    const { PERMISOS } = require('./permisos_catalogo');
+    res.json({ permisos: PERMISOS });
+});
+
+// Permisos efectivos del usuario autenticado (para hidratar el frontend).
+// Devuelve la lista de permisos vigentes (custom o defaults por rol).
+app.get('/api/permisos/yo', verificarToken(), async (req, res) => {
+    try {
+        const { permisosPorDefectoParaRol } = require('./permisos_catalogo');
+        if (req.usuario.rol === 'admin') {
+            const { PERMISOS } = require('./permisos_catalogo');
+            return res.json({ permisos: PERMISOS.map(p => p.clave), esAdmin: true });
+        }
+        const [rows] = await db.query('SELECT permisos FROM usuarios WHERE id = ? LIMIT 1', [req.usuario.id]);
+        let lista = null;
+        if (rows[0]?.permisos) {
+            const raw = rows[0].permisos;
+            try { lista = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) {}
+        }
+        if (!Array.isArray(lista) || lista.length === 0) {
+            lista = permisosPorDefectoParaRol(req.usuario.rol);
+        }
+        res.json({ permisos: lista, esAdmin: false });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Endpoint dedicado para asignar permisos por usuario (solo admin).
+app.put('/api/usuarios/:id/permisos', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { permisosValidos } = require('./permisos_catalogo');
+        const { invalidarCachePermisos } = require('./middleware/permisos');
+        const lista = permisosValidos(req.body?.permisos);
+        await db.query('UPDATE usuarios SET permisos = ? WHERE id = ?', [JSON.stringify(lista), req.params.id]);
+        invalidarCachePermisos(Number(req.params.id));
+        res.json({ success: true, permisos: lista });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

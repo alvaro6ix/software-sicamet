@@ -4,7 +4,11 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
-const JWT_SECRET = process.env.JWT_SECRET || '***REDACTED-OLD-JWT***';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+    console.error('FATAL: JWT_SECRET no está definido o es demasiado corto (>=32 chars). Defínelo en .env');
+    process.exit(1);
+}
 const JWT_EXPIRES = '8h'; // Duración de un turno laboral
 
 /**

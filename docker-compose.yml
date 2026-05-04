@@ -9,7 +9,7 @@ services:
       - --skip-character-set-client-handshake
     environment:
       - TZ=America/Mexico_City
-      - MYSQL_ROOT_PASSWORD=***REDACTED***
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required (see .env.example)}
       - MYSQL_DATABASE=sicamet_crm
     ports:
       - "3306:3306"
@@ -29,8 +29,11 @@ services:
       - TZ=America/Mexico_City
       - DB_HOST=db
       - DB_USER=root
-      - DB_PASS=***REDACTED***
+      - DB_PASS=${DB_PASSWORD:?DB_PASSWORD is required}
       - DB_NAME=sicamet_crm
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - APP_URL=${APP_URL:-http://localhost:5173}
       - NODE_ENV=development
     volumes:
       - ./backend:/app

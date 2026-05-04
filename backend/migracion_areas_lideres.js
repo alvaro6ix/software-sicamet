@@ -3,13 +3,18 @@
 // el estatus 'Listo' a 'Facturación' en el kanban.
 //
 // Idempotente: solo inserta usuarios si no existen, solo actualiza áreas si están vacías.
-// El password temporal de los líderes nuevos se loggea para que el admin lo entregue
-// y el propio usuario lo cambie en su primer login.
+// El password temporal se genera ALEATORIAMENTE por usuario en cada ejecución y se
+// imprime en logs UNA SOLA VEZ. El admin debe entregarlo de inmediato y forzar a
+// que cada usuario lo cambie en su primer login.
 
+const crypto = require('crypto');
 const db = require('./bd');
 const { hashPassword } = require('./auth');
 
-const PASSWORD_TEMPORAL = '***REDACTED-OLD-TEMP-PWD***';
+function generarPasswordTemporal() {
+    // 16 chars URL-safe: suficientemente fuerte y fácil de comunicar verbalmente.
+    return crypto.randomBytes(12).toString('base64url') + '!';
+}
 
 // Nombre canónico del área operativa, el rol que le corresponde,
 // y el nombre/email del encargado por defecto.
@@ -51,10 +56,9 @@ async function asegurarAreasOperativas() {
 }
 
 async function asegurarLideresArea() {
-    const hashTemporal = await hashPassword(PASSWORD_TEMPORAL);
     let creados = 0;
     let actualizados = 0;
-    let credencialesNuevas = [];
+    let credencialesNuevas = []; // [{email, passwordTemporal}]
 
     for (const lider of LIDERES_AREA) {
         try {
@@ -64,14 +68,16 @@ async function asegurarLideresArea() {
             );
 
             if (rows.length === 0) {
-                // Usuario no existe: crearlo con password temporal
+                // Usuario no existe: crearlo con un password temporal único e irrepetible
+                const passwordTemporal = generarPasswordTemporal();
+                const hashTemporal = await hashPassword(passwordTemporal);
                 await db.query(
                     `INSERT INTO usuarios (nombre, email, password_hash, rol, area, es_lider_area, activo)
                      VALUES (?, ?, ?, ?, ?, 1, 1)`,
                     [lider.nombre, lider.email, hashTemporal, lider.rol, lider.area]
                 );
                 creados++;
-                credencialesNuevas.push(lider.email);
+                credencialesNuevas.push({ email: lider.email, passwordTemporal });
             } else {
                 // Usuario existe: actualizar área y es_lider_area solo si están vacíos
                 const u = rows[0];
@@ -117,14 +123,15 @@ async function migrarAreasLideres() {
         if (credencialesNuevas.length > 0) {
             console.log('');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            console.log('🔑 USUARIOS NUEVOS CREADOS — PASSWORD TEMPORAL');
-            console.log(`   Password: ${PASSWORD_TEMPORAL}`);
-            console.log('   Cuentas:');
-            for (const email of credencialesNuevas) {
-                console.log(`     • ${email}`);
+            console.log('🔑 USUARIOS NUEVOS CREADOS — PASSWORDS TEMPORALES');
+            console.log('   (cada uno es único, NO se imprimirán de nuevo)');
+            console.log('');
+            for (const { email, passwordTemporal } of credencialesNuevas) {
+                console.log(`     • ${email}  →  ${passwordTemporal}`);
             }
-            console.log('   Pídele a cada usuario que cambie su contraseña en su primer login');
-            console.log('   desde Gestión de Usuarios.');
+            console.log('');
+            console.log('   Entrega cada password al usuario correspondiente y pídele que');
+            console.log('   la cambie inmediatamente en su primer login.');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('');
         }
