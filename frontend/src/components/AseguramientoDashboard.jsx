@@ -134,8 +134,8 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
                 </div>
             </div>
 
-            {/* KPI Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* KPI Grid — cards de acciones rápidas (sin duplicar buckets de SLA del panel) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 <KPICard
                     title="Por Validar"
                     value={stats.pendientes_aseguramiento}
@@ -144,25 +144,15 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
                     subtitle="Pase QA"
                     onClick={() => navigate('/validacion')}
                 />
-                {/* Aseguramiento — equipos en estado actual */}
                 <KPICard
-                    title="SLA Crítico"
-                    value={stats.sla_critico}
-                    icon={AlertTriangle}
-                    color="rose"
-                    isDark={darkMode}
-                    subtitle="< 24h"
-                    onClick={() => navigate('/equipos?filtro=sla_critico')}
-                />
-                <KPICard 
-                    title="En Certificación" 
-                    value={stats.en_certificacion} 
-                    icon={FileText} 
+                    title="En Certificación"
+                    value={stats.en_certificacion}
+                    icon={FileText}
                     isDark={darkMode}
                     subtitle="En Proceso"
                     onClick={() => navigate('/certificacion-agil')}
                 />
-                <KPICard 
+                <KPICard
                     title="Listos Hoy"
                     value={stats.listos_hoy}
                     icon={CheckCircle}
@@ -172,7 +162,8 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
                 />
             </div>
 
-            {/* Panel SLA — buckets por proximidad de vencimiento, fase Aseguramiento */}
+            {/* Panel SLA — buckets por proximidad de vencimiento, fase Aseguramiento.
+                Sustituye al card "SLA Crítico" duplicado: aquí se ve granular por bucket. */}
             <PanelSLA
                 darkMode={darkMode}
                 fase="Aseguramiento"
