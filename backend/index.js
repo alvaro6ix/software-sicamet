@@ -405,6 +405,14 @@ async function ensureWhatsappChatsColumns() {
         try { await db.query(sql); } catch (e) { /* columna ya existe o tabla ya existe */ }
     }
     console.log('✅ Migraciones SICAMET 2026 verificadas.');
+
+    // Repara emojis perdidos por dumps con --default-character-set=utf8 (3 bytes).
+    try {
+        const { migrarEmojis } = require('./migracion_emojis');
+        await migrarEmojis();
+    } catch (e) {
+        console.warn('⚠️ migracion_emojis no se pudo cargar:', e.message);
+    }
 }
 
 /** Limpia sesión del motor del bot y memoria de conversación bot por número CRM (solo dígitos). */

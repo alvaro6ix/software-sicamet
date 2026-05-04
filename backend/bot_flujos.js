@@ -858,7 +858,9 @@ async function flujosCotizacionLogic(wa, texto, sesion) {
     const pasoCalib = datos.paso || 1;
     switch (pasoCalib) {
         case 1: { // Inicio: Tipo de equipo o descripción
-            if (!textoTrim || textoTrim.length < 2) {
+            // Aceptar opción 1-7 del menú aunque sea un solo dígito
+            const esOpcionMenu = !!TIPOS_EQUIPO[textoTrim];
+            if (!textoTrim || (textoTrim.length < 2 && !esOpcionMenu)) {
                 return await manejarFalloIntento(wa, sesion, {
                     reintento: MSG_COTIZ_REINTENTO,
                     escala: MSG_COTIZ_ESCALA,
