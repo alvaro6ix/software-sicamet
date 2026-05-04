@@ -3,6 +3,7 @@ import axios from 'axios';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { MessageCircle, Clock, CheckCircle, AlertTriangle, Users, Bot, Zap, Calendar, ArrowRight, Activity, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import PanelSLA from './PanelSLA';
 
 const Dashboard = ({ darkMode }) => {
   const navigate = useNavigate();
@@ -155,8 +156,15 @@ const Dashboard = ({ darkMode }) => {
         </div>
       </div>
 
+      {/* Panel SLA global — visión administrativa de toda la operación */}
+      <PanelSLA
+        darkMode={darkMode}
+        titulo="SLA — Visión global"
+        descripcion="Todos los equipos activos agrupados por proximidad de vencimiento."
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* ALERTS E IA INSIGHTS */}
         <div className={`p-6 rounded-2xl border flex flex-col gap-4 ${boxBg}`}>
             <h3 className={`text-lg font-black flex items-center gap-2 ${textValue}`}>

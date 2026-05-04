@@ -7,11 +7,12 @@ import {
     FileText, ArrowRight, Activity, Zap,
     MessageSquare, X, Send, RefreshCw, Paperclip, Camera
 } from 'lucide-react';
-import { 
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, 
+import {
+    BarChart, Bar, XAxis, YAxis, CartesianGrid,
     Tooltip, ResponsiveContainer,
     Cell
 } from 'recharts';
+import PanelSLA from './PanelSLA';
 
 const cardStyle = (isDark) => `
     p-6 rounded-[2rem] border transition-all duration-300 hover:shadow-2xl 
@@ -162,14 +163,22 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
                     onClick={() => navigate('/certificacion-agil')}
                 />
                 <KPICard 
-                    title="Listos Hoy" 
-                    value={stats.listos_hoy} 
-                    icon={CheckCircle} 
+                    title="Listos Hoy"
+                    value={stats.listos_hoy}
+                    icon={CheckCircle}
                     isDark={darkMode}
                     subtitle="Completado"
                     onClick={() => navigate('/entregas')}
                 />
             </div>
+
+            {/* Panel SLA — buckets por proximidad de vencimiento, fase Aseguramiento */}
+            <PanelSLA
+                darkMode={darkMode}
+                fase="Aseguramiento"
+                titulo="Carga de Aseguramiento por SLA"
+                descripcion="Equipos en aseguramiento agrupados por urgencia. Click en una tarjeta abre la lista filtrada."
+            />
 
             {/* Charts & Insights Section */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

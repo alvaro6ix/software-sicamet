@@ -1822,6 +1822,75 @@ app.post('/api/instrumentos/:id/certificado', requirePermiso('certificacion.subi
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Sprint 3 / S3-B — Buckets de SLA para dashboards por rol/fase.
+// Query: ?fase=Aseguramiento  (opcional; sin fase = todas las fases activas).
+// Devuelve: { vencidos, vence_3_dias, vence_4_7_dias, en_tiempo, total }
+//           Cada bucket: { count, equipos: [...top 20...] }
+app.get('/api/dashboard/sla-buckets', verificarToken(), async (req, res) => {
+    try {
+        const fase = req.query.fase ? String(req.query.fase) : null;
+        let where = "WHERE estatus_actual NOT IN ('Entregado','Cancelado')";
+        const params = [];
+        if (fase) {
+            where += ' AND estatus_actual = ?';
+            params.push(fase);
+        }
+        const [equipos] = await db.query(
+            `SELECT id, nombre_instrumento, marca, modelo, no_serie, orden_cotizacion, empresa,
+                    estatus_actual, sla, sla_dias_extra,
+                    fecha_recepcion, fecha_recepcion_parsed, fecha_ingreso
+             FROM instrumentos_estatus
+             ${where}
+             ORDER BY fecha_ingreso DESC`,
+            params
+        );
+
+        const conSLA = equipos.map(e => ({
+            ...e,
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
+        }));
+
+        const buckets = {
+            vencidos:        { count: 0, equipos: [] },
+            vence_3_dias:    { count: 0, equipos: [] },
+            vence_4_7_dias:  { count: 0, equipos: [] },
+            en_tiempo:       { count: 0, equipos: [] }
+        };
+
+        for (const eq of conSLA) {
+            let bucket;
+            if (eq.slaRestante <= 0) bucket = 'vencidos';
+            else if (eq.slaRestante <= 3) bucket = 'vence_3_dias';
+            else if (eq.slaRestante <= 7) bucket = 'vence_4_7_dias';
+            else bucket = 'en_tiempo';
+
+            buckets[bucket].count++;
+            if (buckets[bucket].equipos.length < 20) {
+                buckets[bucket].equipos.push({
+                    id: eq.id,
+                    nombre_instrumento: eq.nombre_instrumento,
+                    marca: eq.marca,
+                    modelo: eq.modelo,
+                    orden_cotizacion: eq.orden_cotizacion,
+                    empresa: eq.empresa,
+                    estatus_actual: eq.estatus_actual,
+                    slaRestante: eq.slaRestante,
+                    fechaVencimiento: eq.fechaVencimiento
+                });
+            }
+        }
+
+        res.json({
+            fase: fase || 'todas',
+            total: conSLA.length,
+            buckets
+        });
+    } catch (err) {
+        console.error('GET /api/dashboard/sla-buckets error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // NUEVO: Obtener instrumentos de una orden específica
 app.get('/api/ordenes/:orden/instrumentos', verificarToken(), async (req, res) => {
     try {
@@ -1829,6 +1898,105 @@ app.get('/api/ordenes/:orden/instrumentos', verificarToken(), async (req, res) =
         const [rows] = await db.query('SELECT * FROM instrumentos_estatus WHERE orden_cotizacion = ? OR orden_cotizacion LIKE ?', [orden, `%${orden}%`]);
         res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sprint 3 / S3-A — Detalle completo de una OS para la página dedicada /orden/:os
+// Devuelve: cabecera (cliente, fechas, sla acumulado), todos los equipos con su SLA y
+// asignaciones, comentarios por equipo (count), historial de auditoría de la OS
+// completa, certificados emitidos. Una sola llamada para hidratar toda la vista.
+app.get('/api/ordenes/:orden', requirePermiso('busqueda.ver'), async (req, res) => {
+    try {
+        const { orden } = req.params;
+        const [equiposRaw] = await db.query(
+            `SELECT ie.*,
+                    (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', u.id, 'nombre', u.nombre, 'estatus', im.estatus, 'fecha_fin', im.fecha_fin))
+                     FROM instrumento_metrologos im
+                     JOIN usuarios u ON u.id = im.usuario_id
+                     WHERE im.instrumento_id = ie.id) AS metrologos_asignados,
+                    (SELECT COUNT(*) FROM instrumentos_comentarios c WHERE c.instrumento_id = ie.id) AS comentarios_count,
+                    (SELECT COUNT(*) FROM rechazos_aseguramiento r WHERE r.instrumento_id = ie.id) AS rechazos_count
+             FROM instrumentos_estatus ie
+             WHERE ie.orden_cotizacion = ?
+             ORDER BY ie.id ASC`,
+            [orden]
+        );
+
+        if (!equiposRaw.length) return res.status(404).json({ error: 'Orden no encontrada' });
+
+        const equipos = equiposRaw.map(e => {
+            const metrologos = typeof e.metrologos_asignados === 'string' ? JSON.parse(e.metrologos_asignados) : (e.metrologos_asignados || []);
+            return {
+                ...e,
+                metrologos_asignados: metrologos,
+                ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
+            };
+        });
+
+        // Cabecera derivada de los datos comunes a todos los equipos.
+        const primer = equipos[0];
+        const cabecera = {
+            orden_cotizacion: primer.orden_cotizacion,
+            empresa: primer.empresa,
+            persona: primer.persona,
+            contacto_email: primer.contacto_email,
+            direccion: primer.direccion,
+            tipo_servicio: primer.tipo_servicio,
+            servicio_solicitado: primer.servicio_solicitado,
+            fecha_recepcion: primer.fecha_recepcion,
+            fecha_recepcion_parsed: primer.fecha_recepcion_parsed,
+            fecha_ingreso: primer.fecha_ingreso,
+            sla_base: primer.sla,
+            sla_dias_extra: primer.sla_dias_extra,
+            sla_total: primer.slaTotal,
+            sla_fecha_vencimiento: primer.fechaVencimiento,
+            total_equipos: equipos.length,
+            equipos_por_fase: equipos.reduce((acc, e) => {
+                acc[e.estatus_actual] = (acc[e.estatus_actual] || 0) + 1;
+                return acc;
+            }, {})
+        };
+
+        // Historial: todos los eventos de auditoría de los equipos de esta OS, ordenados.
+        const ids = equipos.map(e => e.id);
+        let historial = [];
+        if (ids.length) {
+            const placeholders = ids.map(() => '?').join(',');
+            const [rows] = await db.query(
+                `SELECT a.*, u.nombre AS usuario_nombre, u.rol AS usuario_rol, ie.nombre_instrumento
+                 FROM auditoria_instrumentos a
+                 LEFT JOIN usuarios u ON u.id = a.usuario_id
+                 LEFT JOIN instrumentos_estatus ie ON ie.id = a.instrumento_id
+                 WHERE a.instrumento_id IN (${placeholders})
+                 ORDER BY a.fecha DESC LIMIT 200`,
+                ids
+            );
+            historial = rows.map(r => ({
+                ...r,
+                detalles: typeof r.detalles === 'string' ? (() => { try { return JSON.parse(r.detalles); } catch { return r.detalles; } })() : r.detalles
+            }));
+        }
+
+        // Rechazos detallados (para mostrar en sección "Aseguramiento").
+        let rechazos = [];
+        if (ids.length) {
+            const placeholders = ids.map(() => '?').join(',');
+            const [rows] = await db.query(
+                `SELECT r.*, ie.nombre_instrumento, u.nombre AS usuario_rechaza_nombre
+                 FROM rechazos_aseguramiento r
+                 LEFT JOIN instrumentos_estatus ie ON ie.id = r.instrumento_id
+                 LEFT JOIN usuarios u ON u.id = r.usuario_rechaza_id
+                 WHERE r.instrumento_id IN (${placeholders})
+                 ORDER BY r.fecha_rechazo DESC`,
+                ids
+            );
+            rechazos = rows;
+        }
+
+        res.json({ cabecera, equipos, historial, rechazos });
+    } catch (err) {
+        console.error('GET /api/ordenes/:orden error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // NUEVO: Guardado múltiple de certificados (Certificación Ágil)

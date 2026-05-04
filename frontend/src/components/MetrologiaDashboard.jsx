@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Package, Clock, AlertTriangle, AlertCircle, CheckCircle, Search, MessageSquare, ChevronDown, ChevronUp, CheckSquare, Square, ThumbsUp, HelpCircle, X, Paperclip, Tag, BookOpen, Hash, User, Calendar, FileText, FileCheck, Image as ImageIcon, Eye, ArrowRight, Camera, Send } from 'lucide-react';
 import { toast } from 'react-toastify';
+import PanelSLA from './PanelSLA';
 
 const getOsaColor = (osStr, isDark) => {
     if (!osStr) return isDark ? '#2a401c' : '#ffffff';
@@ -289,9 +290,20 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                     </p>
                 </div>
             </div>
+
+            {/* Panel SLA — buckets para fase Laboratorio */}
+            <div className="mb-6">
+                <PanelSLA
+                    darkMode={darkMode}
+                    fase="Laboratorio"
+                    titulo="SLA de equipos en Laboratorio"
+                    descripcion="Equipos asignados al laboratorio agrupados por urgencia."
+                />
+            </div>
+
             <div className="mb-6">
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                    <div 
+                    <div
                         onClick={() => { setTabActual('Laboratorio'); setPrioridadFiltro(null); }}
                         className={`p-4 rounded-xl border flex flex-col cursor-pointer transition-all hover:scale-105 active:scale-95 ${prioridadFiltro === null && tabActual === 'Laboratorio' ? 'ring-2 ring-slate-400' : ''} ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}
                     >

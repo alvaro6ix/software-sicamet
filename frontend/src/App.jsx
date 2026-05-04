@@ -27,6 +27,7 @@ import MiBandeja from './components/MiBandeja';
 import CorreccionesMetrologia from './components/CorreccionesMetrologia';
 import SinCertificado from './components/SinCertificado';
 import FeedbackBot from './components/FeedbackBot';
+import OrdenDetalle from './components/OrdenDetalle';
 import io from 'socket.io-client';
 
 import { ToastContainer, toast } from 'react-toastify';
@@ -441,6 +442,7 @@ const Layout = () => {
               <Route path="/equipos" element={<ListaEquipos darkMode={darkMode} />} />
               <Route path="/kanban" element={<TableroKanban darkMode={darkMode} />} />
               <Route path="/equipos/grupo/:oc" element={<GestionGrupo darkMode={darkMode} usuario={usuario} />} />
+              <Route path="/orden/:os" element={<OrdenDetalle darkMode={darkMode} />} />
               <Route path="/metrologia" element={<MetrologiaDashboard darkMode={darkMode} usuario={usuario} />} />
               <Route path="/mi-bandeja" element={<MiBandeja darkMode={darkMode} usuario={usuario} />} />
               <Route path="/correcciones-metrologia" element={<CorreccionesMetrologia darkMode={darkMode} usuario={usuario} />} />

@@ -152,7 +152,12 @@ const BusquedaGlobal = ({ darkMode }) => {
   }, []);
 
   const irAEquipo = (eq) => {
-    navigate('/equipos', { state: { busquedaInicial: eq.orden_cotizacion || '' } });
+    // Si tenemos OS, vamos a la página dedicada de la orden. Si no, fallback a la lista.
+    if (eq.orden_cotizacion) {
+      navigate(`/orden/${encodeURIComponent(eq.orden_cotizacion)}`);
+    } else {
+      navigate('/equipos', { state: { busquedaInicial: eq.folio_rastreo || '' } });
+    }
     setQuery('');
     setResultados(null);
     setAbierto(false);
