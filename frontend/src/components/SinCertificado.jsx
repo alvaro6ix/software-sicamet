@@ -42,31 +42,36 @@ const SinCertificado = ({ darkMode, usuario }) => {
         if (!certificadoFile || !equipoDetalle) return;
         try {
             setValidando(true);
-            const fd = new FormData();
-            fd.append('archivo', certificadoFile);
 
-            // Primero validar con IA
-            const validRes = await axios.post(`/api/instrumentos/${equipoDetalle.id}/validar-certificado`, fd);
-            const validacion = validRes.data.validacion;
-
-            if (!validacion.coincide && validacion.campos_fail.length > 0) {
-                const campos = validacion.campos_fail.map(c => c.campo).join(', ');
-                const continuar = window.confirm(
-                    `⚠️ La IA detectó diferencias en: ${campos}\n\n` +
-                    `¿Deseas subir el certificado de todos modos?`
-                );
-                if (!continuar) {
-                    setValidando(false);
-                    return;
+            // Intentar validar con IA. Si la IA falla o detecta diferencias,
+            // ofrecemos subir igual; no bloqueamos la operación (la IA es asistiva).
+            try {
+                const fd = new FormData();
+                fd.append('archivo', certificadoFile);
+                const validRes = await axios.post(`/api/instrumentos/${equipoDetalle.id}/validar-certificado`, fd);
+                const validacion = validRes.data?.validacion;
+                if (validacion && !validacion.coincide && validacion.campos_fail?.length > 0) {
+                    const campos = validacion.campos_fail.map(c => c.campo).join(', ');
+                    const continuar = window.confirm(
+                        `⚠️ La IA detectó diferencias en: ${campos}\n\n¿Deseas subir el certificado de todos modos?`
+                    );
+                    if (!continuar) {
+                        setValidando(false);
+                        return;
+                    }
                 }
+            } catch (errIA) {
+                // La validación con IA es best-effort. Si falla, registrar y seguir.
+                console.warn('Validación IA falló (no bloqueante):', errIA?.response?.data?.error || errIA.message);
+                toast.info('La validación con IA no pudo ejecutarse. Subiendo el PDF directo.');
             }
 
-            // Subir certificado
+            // Subir certificado real (siempre intenta)
             const fd2 = new FormData();
             fd2.append('archivo', certificadoFile);
             await axios.post(`/api/instrumentos/${equipoDetalle.id}/certificado`, fd2);
 
-            toast.success('Certificado subido y validado correctamente');
+            toast.success('Certificado subido correctamente');
             setModalDetalle(false);
             setCertificadoFile(null);
             fetchData();

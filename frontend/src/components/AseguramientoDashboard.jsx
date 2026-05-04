@@ -13,6 +13,7 @@ import {
     Cell
 } from 'recharts';
 import PanelSLA from './PanelSLA';
+import ChatEquipo from './ChatEquipo';
 
 const cardStyle = (isDark) => `
     p-6 rounded-[2rem] border transition-all duration-300 hover:shadow-2xl 
@@ -359,94 +360,14 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
                 </div>
             </div>
 
-            {/* Chat Modal — WhatsApp style */}
+            {/* Chat reutilizable (mismo lógica que Mis Decisiones / Mis Envíos) */}
             {comentariosActivos && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex justify-end">
-                    <div className={`w-full md:w-[420px] h-full shadow-2xl flex flex-col border-l animate-in slide-in-from-right duration-300 ${darkMode ? 'bg-[#0b141a] border-[#C9EA63]/20' : 'bg-[#efeae2] border-slate-200'}`}>
-                        <div className={`p-4 border-b flex justify-between items-center flex-shrink-0 ${darkMode ? 'bg-[#202c33] border-slate-700' : 'bg-[#008a5e] border-transparent'}`}>
-                            <div className="flex items-center gap-3">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white/20 text-white'}`}>AS</div>
-                                <div>
-                                    <h3 className={`font-black text-sm ${darkMode ? 'text-[#e9edef]' : 'text-white'}`}>Chat de Calidad</h3>
-                                    <p className={`text-[10px] ${darkMode ? 'text-[#8696a0]' : 'text-white/70'}`}>Comunicación Aseguramiento ↔ Metrología</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setComentariosActivos(null)} className={`p-2 rounded-full ${darkMode ? 'hover:bg-white/10 text-[#8696a0]' : 'hover:bg-white/20 text-white'}`}>
-                                <X size={20} />
-                            </button>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                            {listaComentarios.length === 0 ? (
-                                <div className="flex justify-center mt-8">
-                                    <div className={`px-4 py-2 rounded-lg text-xs shadow-sm ${darkMode ? 'bg-[#182229] text-[#8696a0]' : 'bg-[#ffeecd] text-[#54656f]'}`}>
-                                        Sin mensajes aún.
-                                    </div>
-                                </div>
-                            ) : (
-                                listaComentarios.map(c => {
-                                    const soyYo = Number(c.usuario_id) === Number(usuario?.id);
-                                    return (
-                                        <div key={c.id} className={`flex flex-col ${soyYo ? 'items-end' : 'items-start'}`}>
-                                            <div className={`max-w-[85%] px-3 py-2 rounded-lg shadow-sm text-sm ${soyYo ? (darkMode ? 'bg-[#005c4b] text-[#e9edef]' : 'bg-[#d9fdd3] text-[#111b21]') : (darkMode ? 'bg-[#202c33] text-[#e9edef]' : 'bg-white text-[#111b21]')}`}>
-                                                {!soyYo && <p className={`text-[10px] font-black mb-1 ${darkMode ? 'text-[#53bdeb]' : 'text-[#1fa855]'}`}>{c.usuario_nombre || 'Sistema'}</p>}
-                                                <p className="whitespace-pre-wrap break-words">{c.mensaje}</p>
-
-                                                {c.archivo_url && (
-                                                    <div className="mt-2 mb-1">
-                                                        {c.archivo_url.match(/\.(jpeg|jpg|gif|png|webp)$/i) ? (
-                                                            <a href={c.archivo_url} target="_blank" rel="noreferrer" className="block cursor-zoom-in">
-                                                                <img src={c.archivo_url} alt="Evidencia" className="rounded-lg max-w-full max-h-[250px] object-cover" />
-                                                            </a>
-                                                        ) : (
-                                                            <a href={c.archivo_url} target="_blank" rel="noreferrer" className={`flex items-center gap-3 p-3 rounded border text-xs font-bold transition-colors ${darkMode ? 'bg-[#182229] border-[#2a3942] text-[#8696a0] hover:bg-[#202c33]' : 'bg-[#f0f2f5] border-[#d1d7db] text-[#54656f] hover:bg-[#e9edef]'}`}>
-                                                                <FileText size={18}/> <span>Ver Adjunto</span>
-                                                            </a>
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                <p className="text-[10px] opacity-40 text-right mt-1">{new Date(c.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                                            </div>
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </div>
-
-                        <form onSubmit={enviarComentario} className={`p-3 border-t flex flex-col gap-2 ${darkMode ? 'bg-[#202c33] border-slate-700' : 'bg-[#f0f2f5] border-slate-200'}`}>
-                            {archivoChat && (
-                                <div className={`p-2 rounded-lg flex justify-between items-center text-xs ${darkMode ? 'bg-white/5' : 'bg-white'}`}>
-                                    <span className="truncate flex items-center gap-2"><Paperclip size={14}/> {archivoChat.name}</span>
-                                    <button type="button" onClick={() => setArchivoChat(null)} className="text-rose-500"><X size={14}/></button>
-                                </div>
-                            )}
-                            <div className="flex items-end gap-2">
-                                <div className="flex gap-1">
-                                    <label className={`p-2 rounded-full cursor-pointer transition-colors ${darkMode ? 'hover:bg-white/10 text-[#8696a0]' : 'hover:bg-white/50 text-slate-500'}`}>
-                                        <Paperclip size={18} />
-                                        <input type="file" className="hidden" onChange={e => setArchivoChat(e.target.files[0])} />
-                                    </label>
-                                    <label className={`p-2 rounded-full cursor-pointer transition-colors ${darkMode ? 'hover:bg-white/10 text-[#8696a0]' : 'hover:bg-white/50 text-slate-500'}`}>
-                                        <Camera size={18} />
-                                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => setArchivoChat(e.target.files[0])} />
-                                    </label>
-                                </div>
-                                <textarea
-                                    value={nuevoComentario}
-                                    onChange={e => setNuevoComentario(e.target.value)}
-                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarComentario(); } }}
-                                    placeholder="Responder..."
-                                    rows={1}
-                                    className={`flex-1 p-3 rounded-2xl text-sm outline-none resize-none ${darkMode ? 'bg-[#2a3942] text-[#e9edef] placeholder:text-[#8696a0]' : 'bg-white text-[#111b21]'}`}
-                                />
-                                <button type="submit" disabled={(!nuevoComentario.trim() && !archivoChat) || enviandoChat} className="w-11 h-11 rounded-full bg-[#008a5e] text-white flex items-center justify-center disabled:opacity-40 hover:bg-[#007b55] transition-colors flex-shrink-0">
-                                    <Send size={18} />
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
+                <ChatEquipo
+                    darkMode={darkMode}
+                    equipoId={comentariosActivos}
+                    equipoNombre={(stats.en_correccion || []).concat(stats.corregidos || []).find(e => e.id === comentariosActivos)?.nombre_instrumento}
+                    onClose={() => setComentariosActivos(null)}
+                />
             )}
         </div>
     );

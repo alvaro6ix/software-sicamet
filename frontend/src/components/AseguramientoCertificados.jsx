@@ -26,6 +26,33 @@ const AseguramientoCertificados = ({ darkMode }) => {
   const [certificadosProcesados, setCertificadosProcesados] = useState([]);
   const [guardando, setGuardando] = useState(false);
 
+  // Panel automático de equipos pendientes / con certificado (sin búsqueda manual).
+  const [tabAuto, setTabAuto] = useState('pendientes'); // 'pendientes' | 'con_cert'
+  const [pendientes, setPendientes] = useState([]);
+  const [conCert, setConCert] = useState([]);
+  const [cargandoAuto, setCargandoAuto] = useState(true);
+
+  const cargarAutomaticos = async () => {
+    setCargandoAuto(true);
+    try {
+      const [resPend, resTodos] = await Promise.all([
+        axios.get('/api/instrumentos/sin-certificado'),
+        axios.get('/api/instrumentos')
+      ]);
+      setPendientes(resPend.data || []);
+      const conCertList = (resTodos.data || []).filter(e =>
+        e.certificado_url &&
+        ['Certificación', 'Facturación', 'Entregado'].includes(e.estatus_actual)
+      );
+      setConCert(conCertList);
+    } catch (err) {
+      console.error('Error cargando equipos certif:', err);
+    } finally {
+      setCargandoAuto(false);
+    }
+  };
+  useEffect(() => { cargarAutomaticos(); }, []);
+
   // --- BUSCAR INSTRUMENTOS POR ORDEN ---
   const buscarOrden = async () => {
     if (!ordenBusqueda) return;
@@ -221,7 +248,83 @@ const AseguramientoCertificados = ({ darkMode }) => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
-      
+
+      {/* PANEL AUTOMÁTICO — Pendientes / Con certificado (sin búsqueda manual) */}
+      <div className={`p-6 rounded-2xl border ${boxBg}`}>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <div>
+            <h3 className={`text-lg font-black flex items-center gap-2 ${textTitle}`}>
+              <ClipboardList size={18} className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'} />
+              Equipos en Certificación
+            </h3>
+            <p className={`text-xs mt-1 ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
+              Equipos aprobados por Aseguramiento esperando certificado, y los que ya lo tienen.
+            </p>
+          </div>
+          <button onClick={cargarAutomaticos} className={`text-xs font-bold px-3 py-1.5 rounded-lg ${darkMode ? 'bg-[#1b2b10] text-[#C9EA63] hover:bg-[#253916]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            Refrescar
+          </button>
+        </div>
+
+        <div className={`flex gap-1 p-1 rounded-xl mb-4 ${darkMode ? 'bg-white/5' : 'bg-slate-100'}`}>
+          <button onClick={() => setTabAuto('pendientes')} className={`flex-1 py-2 rounded-lg text-xs font-black transition-all ${tabAuto === 'pendientes' ? (darkMode ? 'bg-amber-500 text-amber-950' : 'bg-amber-500 text-white') : (darkMode ? 'text-white/40' : 'text-slate-400')}`}>
+            Pendientes ({pendientes.length})
+          </button>
+          <button onClick={() => setTabAuto('con_cert')} className={`flex-1 py-2 rounded-lg text-xs font-black transition-all ${tabAuto === 'con_cert' ? (darkMode ? 'bg-emerald-500 text-emerald-950' : 'bg-emerald-500 text-white') : (darkMode ? 'text-white/40' : 'text-slate-400')}`}>
+            Con certificado ({conCert.length})
+          </button>
+        </div>
+
+        {cargandoAuto ? (
+          <div className="text-center py-8 opacity-60"><Loader2 className="animate-spin inline" size={20}/></div>
+        ) : (() => {
+          const lista = tabAuto === 'pendientes' ? pendientes : conCert;
+          if (lista.length === 0) {
+            return (
+              <div className={`p-8 text-center rounded-xl border-2 border-dashed ${darkMode ? 'border-[#C9EA63]/15 text-[#F2F6F0]/40' : 'border-slate-200 text-slate-400'}`}>
+                <CheckCircle2 size={28} className="mx-auto mb-2 opacity-50"/>
+                <p className="text-sm font-bold">{tabAuto === 'pendientes' ? 'Nada pendiente — todo certificado al día' : 'Aún no hay certificados subidos'}</p>
+              </div>
+            );
+          }
+          return (
+            <div className="space-y-2 max-h-[420px] overflow-y-auto custom-scrollbar pr-2">
+              {lista.map(eq => (
+                <div key={eq.id} className={`p-3 rounded-xl border flex items-center gap-3 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`p-2 rounded-lg ${tabAuto === 'pendientes' ? (darkMode ? 'bg-amber-900/30 text-amber-400' : 'bg-amber-100 text-amber-600') : (darkMode ? 'bg-emerald-900/30 text-emerald-400' : 'bg-emerald-100 text-emerald-600')}`}>
+                    <FileCheck size={14}/>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-bold truncate ${textTitle}`}>{eq.nombre_instrumento}</p>
+                    <div className={`text-[11px] flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-0.5 ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>
+                      <span>OC {eq.orden_cotizacion}</span>
+                      <span>{eq.empresa}</span>
+                      <span className={darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'}>{eq.estatus_actual}</span>
+                    </div>
+                  </div>
+                  {tabAuto === 'pendientes' ? (
+                    <button
+                      onClick={() => { setOrdenBusqueda(eq.orden_cotizacion); setTimeout(() => buscarOrden(), 100); }}
+                      className={`text-[10px] font-bold px-3 py-1.5 rounded-lg ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                    >
+                      Subir cert
+                    </button>
+                  ) : (
+                    <a
+                      href={eq.certificado_url}
+                      target="_blank" rel="noreferrer"
+                      className={`text-[10px] font-bold px-3 py-1.5 rounded-lg ${darkMode ? 'bg-[#1b2b10] text-[#C9EA63] hover:bg-[#253916] border border-[#C9EA63]/20' : 'bg-white text-emerald-700 hover:bg-emerald-50 border border-emerald-200'}`}
+                    >
+                      Ver PDF
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </div>
+
       {/* 1. BUSCADOR DE ORDEN */}
       <div className={`p-8 rounded-2xl border transition-all ${boxBg}`}>
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
