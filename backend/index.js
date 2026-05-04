@@ -58,7 +58,11 @@ function limpiarID(wa) {
 }
 
 // === FUNCION CRITICA: Calcular SLA real desde fecha_recepcion del PDF ===
-function calcularSLAReal(fechaRecepcionParsed, fechaRecepcionStr, fechaIngreso, slaDias) {
+// El SLA se cuenta SIEMPRE desde la fecha de creación de la OS (no la fecha
+// de subida al sistema). Cuando se versiona y se agregan días, esos días se
+// SUMAN a `slaDias` via la columna `sla_dias_extra`, pero la fecha base no
+// cambia. Ejemplo: OS del 1/05 con sla=10 y extra=10 → vence el 21/05.
+function calcularSLAReal(fechaRecepcionParsed, fechaRecepcionStr, fechaIngreso, slaDias, slaDiasExtra) {
     let fechaBase;
     if (fechaRecepcionParsed) {
         fechaBase = new Date(fechaRecepcionParsed);
@@ -85,8 +89,17 @@ function calcularSLAReal(fechaRecepcionParsed, fechaRecepcionStr, fechaIngreso, 
     }
     const hoy = new Date();
     const diasPasados = Math.floor((hoy - fechaBase) / (1000 * 60 * 60 * 24));
-    const slaRestante = (slaDias || 10) - diasPasados;
-    return { diasPasados, slaRestante, fechaBase: fechaBase.toISOString().split('T')[0] };
+    const slaTotal = Number(slaDias || 10) + Number(slaDiasExtra || 0);
+    const slaRestante = slaTotal - diasPasados;
+    const fechaVencimiento = new Date(fechaBase);
+    fechaVencimiento.setDate(fechaVencimiento.getDate() + slaTotal);
+    return {
+        diasPasados,
+        slaRestante,
+        slaTotal,
+        fechaBase: fechaBase.toISOString().split('T')[0],
+        fechaVencimiento: fechaVencimiento.toISOString().split('T')[0]
+    };
 }
 
 async function ensureBasicSchema() {
@@ -369,6 +382,11 @@ async function ensureWhatsappChatsColumns() {
     }
     // Migración de nuevas columnas SICAMET 2026
     const nuevasMigraciones = [
+        // Sprint 2 / S2-A — SLA acumulable por versionado de OS.
+        "ALTER TABLE instrumentos_estatus ADD COLUMN sla_dias_extra INT NOT NULL DEFAULT 0 AFTER sla",
+        // Sprint 2 / S2-B — Audiencia de notificaciones para filtrar destinatarios.
+        // Formato: 'todos' | 'rol:admin' | 'permiso:equipos.editar' | 'usuario:42'
+        "ALTER TABLE notificaciones_globales ADD COLUMN audiencia VARCHAR(120) NOT NULL DEFAULT 'todos' AFTER metadata",
         "ALTER TABLE usuarios ADD COLUMN area VARCHAR(100) NULL AFTER rol",
         "ALTER TABLE instrumentos_estatus ADD COLUMN area_laboratorio VARCHAR(100) NULL AFTER sla",
         "ALTER TABLE instrumentos_estatus ADD COLUMN metrologo_asignado_id INT NULL AFTER area_laboratorio",
@@ -956,7 +974,8 @@ app.get('/api/instrumentos', verificarToken(), async (req, res) => {
                 e.fecha_recepcion_parsed,
                 e.fecha_recepcion,
                 e.fecha_ingreso,
-                e.sla
+                e.sla,
+                e.sla_dias_extra
             );
 
             return {
@@ -964,7 +983,9 @@ app.get('/api/instrumentos', verificarToken(), async (req, res) => {
                 metrologos_asignados: metrologosParsed,
                 dias_pasados: slaInfo.diasPasados,
                 sla_restante: slaInfo.slaRestante,
-                sla_fecha_base: slaInfo.fechaBase
+                sla_total: slaInfo.slaTotal,
+                sla_fecha_base: slaInfo.fechaBase,
+                sla_fecha_vencimiento: slaInfo.fechaVencimiento
             };
         });
         res.json(finalEquipos);
@@ -1517,7 +1538,7 @@ app.get('/api/metrologia/mi-bandeja', verificarToken(), async (req, res) => {
         // Calcular SLA real para cada equipo
         const conSLA = equipos.map(e => ({
             ...e,
-            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla)
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
         }));
 
         res.json(conSLA);
@@ -1551,7 +1572,7 @@ app.get('/api/metrologia/laboratorio-general', verificarToken(), async (req, res
         const finalEquipos = equipos.map(e => ({
             ...e,
             metrologos_asignados: typeof e.metrologos_asignados === 'string' ? JSON.parse(e.metrologos_asignados) : [],
-            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla)
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
         }));
 
         res.json(finalEquipos);
@@ -1582,7 +1603,7 @@ app.get('/api/metrologia/correcciones', verificarToken(), async (req, res) => {
 
         const conSLA = equipos.map(e => ({
             ...e,
-            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla)
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
         }));
 
         res.json(conSLA);
@@ -1696,7 +1717,7 @@ app.get('/api/metrologia/kpis', verificarToken(), async (req, res) => {
         // Calcular SLA real para cada uno
         const conSLA = equiposLab.map(e => ({
             ...e,
-            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla)
+            ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
         }));
 
         const countTotal = conSLA.length;
@@ -1991,27 +2012,89 @@ app.post('/api/instrumentos/:id/comentarios', verificarToken(), uploadComentario
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// SLA — ajustar días totales o agregar extensión.
+// Solo usuarios con permiso `equipos.editar` (admin/recepción) pueden modificar SLA.
+// PATCH ajusta directamente el valor base; POST /sla/extension SUMA días al extra
+// (caso de versionado/extensión que el usuario solicitó).
+app.patch('/api/instrumentos/:id/sla', requirePermiso('equipos.editar'), async (req, res) => {
+    try {
+        const { sla, sla_dias_extra } = req.body;
+        const fields = [];
+        const params = [];
+        if (Number.isFinite(Number(sla))) {
+            fields.push('sla = ?');
+            params.push(Math.max(1, Math.floor(Number(sla))));
+        }
+        if (Number.isFinite(Number(sla_dias_extra))) {
+            fields.push('sla_dias_extra = ?');
+            params.push(Math.max(0, Math.floor(Number(sla_dias_extra))));
+        }
+        if (!fields.length) return res.status(400).json({ error: 'Nada que actualizar' });
+        params.push(req.params.id);
+        await db.query(`UPDATE instrumentos_estatus SET ${fields.join(', ')} WHERE id = ?`, params);
+        if (global.io) global.io.emit('sla_actualizado', { id: Number(req.params.id) });
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/instrumentos/:id/sla/extension', requirePermiso('equipos.editar'), async (req, res) => {
+    try {
+        const dias = Math.max(1, Math.floor(Number(req.body?.dias)));
+        const motivo = String(req.body?.motivo || '').slice(0, 255);
+        if (!Number.isFinite(dias) || dias <= 0) return res.status(400).json({ error: 'dias debe ser un entero positivo' });
+        await db.query('UPDATE instrumentos_estatus SET sla_dias_extra = sla_dias_extra + ? WHERE id = ?', [dias, req.params.id]);
+        try {
+            await db.query(
+                'INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) VALUES (?, ?, ?, ?)',
+                [req.params.id, 'extension_sla', req.usuario.id, JSON.stringify({ dias, motivo })]
+            );
+        } catch (_) { /* auditoría es best-effort */ }
+        if (global.io) global.io.emit('sla_actualizado', { id: Number(req.params.id), dias_extension: dias });
+
+        // Notificación importante: SLA ampliado afecta a todos los que trabajan la OS.
+        try {
+            const [eq] = await db.query('SELECT orden_cotizacion, nombre_instrumento, empresa FROM instrumentos_estatus WHERE id = ? LIMIT 1', [req.params.id]);
+            const e = eq[0];
+            const { emitirNotificacion } = require('./notificaciones');
+            if (e) emitirNotificacion({
+                tipo: 'sla_extension',
+                titulo: `SLA ampliado +${dias} días · OC ${e.orden_cotizacion || '—'}`,
+                detalle: `${req.usuario.nombre || 'Un usuario'} extendió el SLA de "${e.nombre_instrumento || '—'}" (${e.empresa || '—'})${motivo ? ' — ' + motivo : ''}`,
+                audiencia: 'todos',
+                urgencia: 'media',
+                ruta: '/equipos',
+                creadorId: req.usuario.id,
+                metadata: { instrumento_id: Number(req.params.id), dias }
+            });
+        } catch (_) {}
+
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.put('/api/instrumentos/:id', requirePermiso('equipos.editar'), async (req, res) => {
     const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
         const { id } = req.params;
-        const { 
-            orden_cotizacion, nombre_instrumento, marca, modelo, no_serie, empresa, 
+        const {
+            orden_cotizacion, nombre_instrumento, marca, modelo, no_serie, empresa,
             identificacion, ubicacion, requerimientos_especiales, puntos_calibrar,
-            tipo_servicio, area_laboratorio, persona, sla, metrologos_asignados 
+            tipo_servicio, area_laboratorio, persona, sla, sla_dias_extra, metrologos_asignados
         } = req.body;
 
+        const slaExtraNorm = Number.isFinite(Number(sla_dias_extra)) ? Math.max(0, Math.floor(Number(sla_dias_extra))) : 0;
+
         await connection.query(
-            `UPDATE instrumentos_estatus SET 
+            `UPDATE instrumentos_estatus SET
                 orden_cotizacion=?, nombre_instrumento=?, marca=?, modelo=?, no_serie=?, empresa=?,
                 identificacion=?, ubicacion=?, requerimientos_especiales=?, puntos_calibrar=?,
-                tipo_servicio=?, area_laboratorio=?, persona=?, sla=?
-             WHERE id=?`, 
+                tipo_servicio=?, area_laboratorio=?, persona=?, sla=?, sla_dias_extra=?
+             WHERE id=?`,
             [
-                orden_cotizacion, nombre_instrumento, marca, modelo, no_serie, empresa, 
+                orden_cotizacion, nombre_instrumento, marca, modelo, no_serie, empresa,
                 identificacion, ubicacion, requerimientos_especiales, puntos_calibrar,
-                tipo_servicio, area_laboratorio, persona, sla,
+                tipo_servicio, area_laboratorio, persona, sla, slaExtraNorm,
                 id
             ]
         );
@@ -2030,11 +2113,27 @@ app.put('/api/instrumentos/:id', requirePermiso('equipos.editar'), async (req, r
         
         await connection.commit();
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'edicion_instrumento', id: id });
+
+        // Notificación globar para que todos los que tocan OS sepan del cambio.
+        try {
+            const { emitirNotificacion } = require('./notificaciones');
+            emitirNotificacion({
+                tipo: 'os_modificada',
+                titulo: `OS ${orden_cotizacion || '—'} modificada`,
+                detalle: `${req.usuario.nombre || 'Un usuario'} editó el equipo "${nombre_instrumento || '—'}" de ${empresa || '—'}`,
+                audiencia: 'todos',
+                urgencia: 'media',
+                ruta: `/equipos`,
+                metadata: { instrumento_id: Number(id), orden: orden_cotizacion },
+                creadorId: req.usuario.id
+            });
+        } catch (_) { /* best-effort */ }
+
         res.json({ success: true, message: 'Instrumento actualizado correctamente' });
-    } catch (err) { 
+    } catch (err) {
         await connection.rollback();
         console.error("Error actualizando instrumento:", err);
-        res.status(500).json({ error: err.message }); 
+        res.status(500).json({ error: err.message });
     } finally {
         connection.release();
     }
@@ -2044,10 +2143,25 @@ app.put('/api/instrumentos/:id', requirePermiso('equipos.editar'), async (req, r
 
 app.delete('/api/instrumentos/:id', requirePermiso('equipos.eliminar'), async (req, res) => {
     try {
+        const [equipo] = await db.query('SELECT orden_cotizacion, nombre_instrumento, empresa FROM instrumentos_estatus WHERE id = ?', [req.params.id]);
         await db.query('DELETE FROM instrumentos_estatus WHERE id = ?', [req.params.id]);
-        
+
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'eliminacion_instrumento' });
-        
+
+        try {
+            const { emitirNotificacion } = require('./notificaciones');
+            const e = equipo[0];
+            if (e) emitirNotificacion({
+                tipo: 'os_modificada',
+                titulo: `OS ${e.orden_cotizacion || '—'}: equipo eliminado`,
+                detalle: `${req.usuario.nombre || 'Un usuario'} eliminó "${e.nombre_instrumento || '—'}" de ${e.empresa || '—'}`,
+                audiencia: 'todos',
+                urgencia: 'alta',
+                ruta: '/equipos',
+                creadorId: req.usuario.id
+            });
+        } catch (_) {}
+
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3147,28 +3261,38 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
         const esAdmin = rol === 'admin';
         const notifs = [];
 
-        // 1. Notificaciones Globales sin leer por este usuario
-        const [globales] = await db.query(`
-            SELECT ng.* 
-            FROM notificaciones_globales ng
-            LEFT JOIN notificaciones_leidas nl ON nl.notificacion_id = ng.id AND nl.usuario_id = ?
-            WHERE nl.id IS NULL
-            ORDER BY ng.created_at DESC LIMIT 20
-        `, [userId]);
+        // 1. Notificaciones Globales sin leer por este usuario, filtradas por audiencia.
+        const { clausulaSqlPorAudiencia } = require('./notificaciones');
+        const { permisosPorDefectoParaRol } = require('./permisos_catalogo');
+        // Resolver permisos efectivos del usuario para evaluar audiencia 'permiso:*'
+        let permisosUser = [];
+        try {
+            const [pr] = await db.query('SELECT permisos FROM usuarios WHERE id = ? LIMIT 1', [userId]);
+            if (pr[0]?.permisos) {
+                const raw = pr[0].permisos;
+                permisosUser = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            }
+            if (!Array.isArray(permisosUser) || permisosUser.length === 0) {
+                permisosUser = permisosPorDefectoParaRol(rol);
+            }
+        } catch (_) { permisosUser = permisosPorDefectoParaRol(rol); }
+
+        const { whereClause: audClause, params: audParams } = clausulaSqlPorAudiencia(req.usuario, permisosUser);
+
+        const [globales] = await db.query(
+            `SELECT ng.*
+             FROM notificaciones_globales ng
+             LEFT JOIN notificaciones_leidas nl ON nl.notificacion_id = ng.id AND nl.usuario_id = ?
+             WHERE nl.id IS NULL AND ${audClause}
+             ORDER BY ng.created_at DESC LIMIT 30`,
+            [userId, ...audParams]
+        );
 
         globales.forEach(ng => {
-            // Filtrar si es para un usuario específico (guardado en metadata o similar)
-            let meta = {};
-            try { meta = JSON.parse(ng.metadata || '{}'); } catch(_) {}
-            
-            // Si tiene usuario_destino_id en la tabla (no lo agregué pero lo manejamos en el helper logicamente)
-            // Por ahora simplificamos: si metadata tiene targetUserId y no es el actual, saltar.
-            if (meta.usuario_destino_id && meta.usuario_destino_id != userId) return;
-
             notifs.push({
                 tipo: ng.tipo || 'sistema',
                 id: `global_${ng.id}`,
-                global_id: ng.id, // Para marcar como visto
+                global_id: ng.id,
                 titulo: ng.titulo,
                 detalle: ng.detalle,
                 ruta: ng.ruta,
@@ -3178,24 +3302,27 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
             });
         });
 
-        // 2. Equipos con SLA crítico
+        // 2. Equipos con SLA crítico (calculado correctamente desde fecha_recepcion_parsed)
         if (esAdmin || ['operador', 'metrolog', 'laboratorio', 'metrologo', 'aseguramiento'].some(r => rol.includes(r))) {
-            const [vencidos] = await db.query(
-                `SELECT id, nombre_instrumento, orden_cotizacion, empresa, sla, fecha_ingreso, estatus_actual,
-                        (sla - DATEDIFF(NOW(), fecha_ingreso)) as sla_restante
+            const [equiposActivos] = await db.query(
+                `SELECT id, nombre_instrumento, orden_cotizacion, empresa, sla, sla_dias_extra,
+                        fecha_recepcion, fecha_recepcion_parsed, fecha_ingreso, estatus_actual
                  FROM instrumentos_estatus
-                 WHERE (sla - DATEDIFF(NOW(), fecha_ingreso)) <= 2
-                   AND estatus_actual NOT IN ('Facturación','Entregado')
-                 ORDER BY sla_restante ASC LIMIT 10`
+                 WHERE estatus_actual NOT IN ('Facturación','Entregado','Cancelado')`
             );
+            const vencidos = equiposActivos
+                .map(e => ({ ...e, ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra) }))
+                .filter(e => e.slaRestante <= 2)
+                .sort((a, b) => a.slaRestante - b.slaRestante)
+                .slice(0, 10);
             vencidos.forEach(e => {
-                const vencido = e.sla_restante <= 0;
+                const vencido = e.slaRestante <= 0;
                 notifs.push({
                     tipo: 'sla',
                     id: `sla_${e.id}`,
-                    titulo: vencido ? `SLA VENCIDO: ${e.nombre_instrumento}` : `SLA crítico (${e.sla_restante}d): ${e.nombre_instrumento}`,
+                    titulo: vencido ? `SLA VENCIDO: ${e.nombre_instrumento}` : `SLA crítico (${e.slaRestante}d): ${e.nombre_instrumento}`,
                     detalle: `OC ${e.orden_cotizacion || '—'} · ${e.empresa || '—'} · Etapa: ${e.estatus_actual}`,
-                    ruta: '/equipos',
+                    ruta: vencido ? '/equipos?filtro=sla_critico' : '/equipos?filtro=sla_critico',
                     urgencia: vencido ? 'alta' : 'media',
                     ts: new Date().toISOString()
                 });

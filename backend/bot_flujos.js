@@ -1084,6 +1084,25 @@ function numToWaJid(num) {
 }
 
 async function notificarNuevaCotizacion(d) {
+    const empresa = d.empresa || "N/E";
+    const tipo = d.tipoEquipo || (d.items && d.items[0] ? d.items[0].tipoEquipo : "N/E");
+    const marca = d.marcaModelo || (d.items && d.items[0] ? d.items[0].marcaModelo : "N/E");
+    const cantidad = d.items ? d.items.length : (d.cantidad || 1);
+    const entrega = d.tiempoEntrega || "N/E";
+
+    // Notificación in-app: independiente de que el bot WA esté conectado.
+    try {
+        const { emitirNotificacion } = require('./notificaciones');
+        await emitirNotificacion({
+            tipo: 'cotizacion_nueva',
+            titulo: `Nueva cotización: ${empresa}`,
+            detalle: `${cantidad} equipo(s) · ${tipo}${marca && marca !== 'N/E' ? ' · ' + marca : ''} · Entrega ${entrega}`,
+            audiencia: 'rol:recepcionista',
+            urgencia: 'media',
+            ruta: '/flujos-whatsapp'
+        });
+    } catch (_) {}
+
     try {
         const cfg = await getConfigHorario();
         const numeros = [
@@ -1092,14 +1111,9 @@ async function notificarNuevaCotizacion(d) {
         ].map(n => n.trim()).filter(n => n.replace(/\D/g, "").length >= 8);
 
         if (numeros.length === 0 || !global.botClient) {
-            console.log("Advertencia notificarCotizacion: sin numeros o bot no conectado");
+            console.log("Advertencia notificarCotizacion: sin numeros WA o bot no conectado (la notif in-app sí se emitió)");
             return;
         }
-        const empresa = d.empresa || "N/E";
-        const tipo = d.tipoEquipo || (d.items && d.items[0] ? d.items[0].tipoEquipo : "N/E");
-        const marca = d.marcaModelo || (d.items && d.items[0] ? d.items[0].marcaModelo : "N/E");
-        const cantidad = d.items ? d.items.length : (d.cantidad || 1);
-        const entrega = d.tiempoEntrega || "N/E";
         const msg = `Nueva cotizacion recibida\n\nEmpresa: *${empresa}*\nEquipo: *${tipo}*\nMarca: *${marca}*\nCantidad: *${cantidad} equipo(s)*\nEntrega: *${entrega}*\n\nRevisa el sistema CRM!`;
         for (const num of numeros) {
             const jid = numToWaJid(num);
@@ -1111,6 +1125,23 @@ async function notificarNuevaCotizacion(d) {
 
 async function notificarNuevoAsesor(wa, motivo, nrReal) {
     try {
+        let numCliente = nrReal || wa.split("@")[0].replace(/[^\d]/g, "");
+        if (numCliente.length > 15) numCliente = "Oculto por privacidad WA";
+
+        // Notificación in-app para que recepción la vea en su campana, sin depender
+        // de que el bot WhatsApp esté conectado.
+        try {
+            const { emitirNotificacion } = require('./notificaciones');
+            emitirNotificacion({
+                tipo: 'esperando_asesor',
+                titulo: `Cliente esperando asesor: ${numCliente}`,
+                detalle: `Motivo: ${(motivo || 'Sin especificar').substring(0, 200)}`,
+                audiencia: 'rol:recepcionista',
+                urgencia: 'alta',
+                ruta: '/conversaciones'
+            });
+        } catch (_) {}
+
         const cfg = await getConfigHorario();
         const numeros = [
             ...(cfg.notif_numeros || "").split(","),
@@ -1118,17 +1149,13 @@ async function notificarNuevoAsesor(wa, motivo, nrReal) {
         ].map(n => n.trim()).filter(n => n.replace(/\D/g, "").length >= 8);
 
         if (numeros.length === 0 || !global.botClient) {
-            console.log("Advertencia notificarAsesor: sin numeros o bot no conectado");
+            console.log("Advertencia notificarAsesor: sin numeros o bot no conectado (la notif in-app sí se emitió)");
             return;
         }
-        let numCliente = nrReal || wa.split("@")[0].replace(/[^\d]/g, "");
         try {
             const contact = await global.botClient.getContactById(wa);
             if (contact && contact.number) numCliente = contact.number;
         } catch(e) {}
-        
-        // Remove LID length if it failed to resolve
-        if (numCliente.length > 15) numCliente = "Oculto por Privacidad de WS";
 
         const msg = `ALERTA: Cliente solicita ASESOR\n\nNumero: *${numCliente}*\nMotivo: ${(motivo || "Sin especificar").substring(0, 200)}\n\nAtiende al cliente en el CRM!`;
         for (const num of numeros) {

@@ -148,17 +148,13 @@ const Validacion = ({ darkMode, usuario }) => {
         return () => window.removeEventListener('crm:refresh', fetchData);
     }, []);
 
-    // Calcular SLA de todos los equipos primero
+    // El SLA se calcula en el backend desde fecha_recepcion_parsed (no fecha_ingreso)
+    // y considera sla + sla_dias_extra. Aquí solo derivamos la prioridad visual.
     const equiposConSLA = equiposGlobales.map(e => {
-        const dIngreso = new Date(e.fecha_ingreso);
-        const hoy = new Date();
-        const diasPasados = Math.floor((hoy - dIngreso) / (1000 * 60 * 60 * 24));
-        const slaRestante = e.sla - diasPasados;
-        
+        const slaRestante = Number.isFinite(e.sla_restante) ? e.sla_restante : (e.sla || 10);
         let prioridad = 'Verde';
         if (slaRestante <= 1) prioridad = 'Rojo';
         else if (slaRestante <= 3) prioridad = 'Amarillo';
-
         return { ...e, slaRestante, prioridad };
     });
 

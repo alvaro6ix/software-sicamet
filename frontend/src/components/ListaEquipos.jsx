@@ -961,18 +961,35 @@ const ListaEquipos = ({ darkMode }) => {
                     <input type="text" value={equipoEditando.persona} onChange={(e) => setEquipoEditando({...equipoEditando, persona: e.target.value})} className={`w-full p-3 rounded-xl text-sm font-bold border outline-none ${darkMode ? 'bg-[#141f0b] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`} />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase opacity-40 ml-1">SLA (Días)</label>
-                    <Select 
-                        options={opcionesSLA} 
-                        value={opcionesSLA.find(o => o.value === equipoEditando.sla)} 
-                        onChange={(val) => setEquipoEditando({...equipoEditando, sla: val.value})} 
-                        styles={selectStyles} 
+                    <label className="text-[9px] font-black uppercase opacity-40 ml-1">SLA Base (Días)</label>
+                    <Select
+                        options={opcionesSLA}
+                        value={opcionesSLA.find(o => o.value === equipoEditando.sla)}
+                        onChange={(val) => setEquipoEditando({...equipoEditando, sla: val.value})}
+                        styles={selectStyles}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase opacity-40 ml-1">Días extra (versionado/extensión)</label>
+                    <input
+                      type="number" min="0" step="1"
+                      value={equipoEditando.sla_dias_extra || 0}
+                      onChange={(e) => setEquipoEditando({...equipoEditando, sla_dias_extra: Math.max(0, parseInt(e.target.value || '0', 10))})}
+                      className={`w-full p-3 rounded-xl text-sm font-bold border outline-none ${darkMode ? 'bg-[#141f0b] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}
                     />
                   </div>
                 </div>
-                <div className="mt-4 flex items-center gap-2 text-[8px] font-black opacity-40 uppercase tracking-widest">
+                <div className={`mt-4 p-3 rounded-xl text-[10px] font-bold flex items-center justify-between ${darkMode ? 'bg-[#1b2b10] text-[#C9EA63]/80' : 'bg-emerald-50 text-emerald-800'}`}>
+                  <span className="opacity-70">
+                    Fecha de OS: <b>{equipoEditando.sla_fecha_base || equipoEditando.fecha_recepcion_parsed || '—'}</b>
+                  </span>
+                  <span>
+                    Total: <b>{(Number(equipoEditando.sla) || 0) + (Number(equipoEditando.sla_dias_extra) || 0)} días</b> · Vence: <b>{equipoEditando.sla_fecha_vencimiento || '—'}</b>
+                  </span>
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-[8px] font-black opacity-40 uppercase tracking-widest">
                    <AlertTriangle size={10} className="text-[#C9EA63]" />
-                   <span>Cambiar Empresa/Contacto sincronizará toda la orden automáticamente.</span>
+                   <span>El SLA cuenta desde la fecha de la OS. Días extra se suman para versionados.</span>
                 </div>
               </div>
 
