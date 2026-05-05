@@ -1,0 +1,68 @@
+# SICAMET CRM — Caddy reverse proxy (Sprint 14-E)
+# Caddy obtiene SSL automáticamente con Let's Encrypt cuando DOMAIN es un FQDN.
+# Si DOMAIN está vacío o es localhost/IP, Caddy sirve por HTTP en :80.
+#
+# Variables que Caddy lee del entorno:
+#   DOMAIN          - dominio público (ej: crm.sicamet.mx). Vacío o "localhost" → HTTP.
+#   ADMIN_EMAIL     - email para Let's Encrypt notificaciones (cert renewal, etc.).
+
+{
+    # Email global para Let's Encrypt
+    email {$ADMIN_EMAIL:admin@sicamet.mx}
+
+    # En desarrollo / sin dominio: deshabilitar SSL automático para evitar
+    # intentos a Let's Encrypt que fallarían.
+    auto_https {$AUTO_HTTPS:on}
+}
+
+# Sitio principal — Caddy resuelve el certificado para DOMAIN automáticamente.
+{$DOMAIN::80} {
+    # Logs (rotación automática a 100MB cada uno, hasta 5 archivos)
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 100mib
+            roll_keep 5
+        }
+        format json
+    }
+
+    # Headers de seguridad globales (complementan helmet del backend)
+    header {
+        # HSTS — solo aplica si Caddy está sirviendo HTTPS
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+        # Quitar header que delata el server
+        -Server
+    }
+
+    # Compresión
+    encode zstd gzip
+
+    # Reverse proxy a backend para API REST y socket.io.
+    # El backend está en la red interna de docker-compose como `backend:3001`.
+    # Caddy pasa X-Forwarded-For/Proto automáticamente; solo añadimos X-Real-IP.
+    handle /api/* {
+        reverse_proxy backend:3001 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /socket.io/* {
+        reverse_proxy backend:3001 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    # Archivos subidos (PDFs de certificados, media de WhatsApp).
+    handle /uploads/* {
+        reverse_proxy backend:3001
+    }
+
+    # Todo lo demás → frontend (nginx sirviendo el build de Vite).
+    handle {
+        reverse_proxy frontend:80
+    }
+}

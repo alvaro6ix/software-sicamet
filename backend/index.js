@@ -402,6 +402,21 @@ async function ensureWhatsappChatsColumns() {
         // Sprint 13-E — origen del lead (creado por bot vs por admin) y última interacción.
         "ALTER TABLE chat_leads ADD COLUMN origen ENUM('bot','manual') NOT NULL DEFAULT 'manual'",
         "ALTER TABLE chat_leads ADD COLUMN ultima_interaccion TIMESTAMP NULL",
+        // Sprint 14-C — log de eventos de seguridad (logins, cambios permisos,
+        // borrados masivos, reset operativo, etc.) para auditoría/forense.
+        `CREATE TABLE IF NOT EXISTS auditoria_seguridad (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            evento VARCHAR(80) NOT NULL,
+            usuario_id INT NULL,
+            usuario_email VARCHAR(150) NULL,
+            ip VARCHAR(64) NULL,
+            user_agent VARCHAR(255) NULL,
+            detalles JSON NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_evento (evento),
+            KEY idx_usuario (usuario_id),
+            KEY idx_fecha (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
         // Sprint 13-E — clientes que pasaron el flujo "Soy Cliente" en el bot pero
         // aún no son clientes oficiales de cat_clientes. Recepción los promueve.
         `CREATE TABLE IF NOT EXISTS clientes_bot (
@@ -626,19 +641,42 @@ async function registrarMensajeEnCRM(numero, cuerpo, tipo, direccion, url_media 
     } catch (err) { console.error('Error registrarMensajeEnCRM:', err.message); }
 }
 
-// Multer en memoria (para PDFs/Excel) y en disco (para media del bot)
-const upload = multer({ storage: multer.memoryStorage() });
+// Sprint 14-C — multer en memoria (PDFs/Excel) con límite y MIME allowlist.
+const MIMES_DOCUMENTOS = new Set([
+    'application/pdf',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv'
+]);
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (req, file, cb) => {
+        if (MIMES_DOCUMENTOS.has(file.mimetype)) cb(null, true);
+        else cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`), false);
+    }
+});
 const uploadsDir = path.join(__dirname, 'uploads', 'bot');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const MIMES_MEDIA = new Set([
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic',
+    'application/pdf',
+    'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/webm',
+    'video/mp4', 'video/webm', 'video/quicktime'
+]);
 const uploadDisk = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => cb(null, uploadsDir),
         filename: (req, file, cb) => {
-            const ext = path.extname(file.originalname);
+            const ext = path.extname(file.originalname).slice(0, 10); // limitar extensión
             cb(null, `media_${Date.now()}${ext}`);
         }
     }),
-    limits: { fileSize: 20 * 1024 * 1024 } // 20MB max
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+    fileFilter: (req, file, cb) => {
+        if (MIMES_MEDIA.has(file.mimetype)) cb(null, true);
+        else cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`), false);
+    }
 });
 
 const uploadsDirComentarios = path.join(__dirname, 'uploads', 'comentarios');
@@ -647,11 +685,15 @@ const uploadComentarios = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => cb(null, uploadsDirComentarios),
         filename: (req, file, cb) => {
-            const ext = path.extname(file.originalname);
+            const ext = path.extname(file.originalname).slice(0, 10);
             cb(null, `comentario_${Date.now()}${ext}`);
         }
     }),
-    limits: { fileSize: 10 * 1024 * 1024 } // 10MB max
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+    fileFilter: (req, file, cb) => {
+        if (MIMES_MEDIA.has(file.mimetype) || MIMES_DOCUMENTOS.has(file.mimetype)) cb(null, true);
+        else cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`), false);
+    }
 });
 
 // Configuración para Certificados (Aseguramiento)
@@ -672,10 +714,81 @@ const uploadCert = multer({
     limits: { fileSize: 20 * 1024 * 1024 } // 20MB max
 });
 
-app.use(cors());
-app.use(express.json());
-// Servir archivos subidos públicamente
+// Sprint 14-C — Hardening de middleware: helmet + CORS estricto + rate limiting.
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+// CORS allowlist por env. En dev acepta el origen de Vite por default.
+const corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3001')
+    .split(',').map(o => o.trim()).filter(Boolean);
+app.use(cors({
+    origin: (origin, cb) => {
+        // Permitir requests sin Origin (curl, healthchecks, mobile apps).
+        if (!origin) return cb(null, true);
+        if (corsOrigins.includes(origin)) return cb(null, true);
+        return cb(new Error(`CORS bloqueado para origen: ${origin}`));
+    },
+    credentials: true,
+    methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+    exposedHeaders: ['X-Metrologia-Scope','X-Metrologia-Area']
+}));
+
+// Helmet: headers de seguridad (CSP, X-Frame-Options, X-Content-Type-Options, HSTS, etc.).
+// Cross-Origin-Resource-Policy 'cross-origin' para que el frontend en localhost:5173
+// pueda cargar imágenes/PDFs servidos desde /uploads.
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: false // CSP completo lo seteamos en nginx en producción
+}));
+
+app.use(express.json({ limit: '2mb' }));
+
+// Rate limit GLOBAL muy laxo para protección DDoS básica
+const limiterGlobal = rateLimit({
+    windowMs: 60 * 1000,        // 1 min
+    max: 300,                   // 300 requests/min/IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiadas solicitudes. Espera un momento.' }
+});
+app.use('/api/', limiterGlobal);
+
+// Rate limit ESTRICTO en /auth/login (anti brute force)
+const limiterLogin = rateLimit({
+    windowMs: 15 * 60 * 1000,   // 15 min
+    max: 5,                     // 5 intentos por IP en 15 min
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true, // solo cuenta intentos fallidos
+    message: { error: 'Demasiados intentos de login fallidos. Espera 15 minutos antes de reintentar.' }
+});
+app.use('/api/auth/login', limiterLogin);
+
+// Rate limit en endpoints públicos (consulta de certificado por terceros)
+const limiterPublico = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiadas consultas. Intenta más tarde.' }
+});
+app.use('/api/public/', limiterPublico);
+
+// Servir archivos subidos públicamente (PDFs de certificados, media de WhatsApp).
+// Estos URLs son sólo accesibles si conoces el path exacto generado al subir.
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Sprint 14-D — Healthcheck para Docker. Verifica que el proceso esté vivo
+// y que la conexión a MySQL responda. No requiere auth ni rate limiting (lo
+// llama el daemon de Docker desde dentro del contenedor).
+app.get('/api/health', async (req, res) => {
+    try {
+        await db.query('SELECT 1');
+        res.json({ status: 'ok', uptime: Math.round(process.uptime()), ts: Date.now() });
+    } catch (e) {
+        res.status(503).json({ status: 'db_error', error: e.message });
+    }
+});
 
 // ─── ENDPOINT PÚBLICO: Ver certificado desde QR (sin auth) ───
 app.get('/api/public/certificado/:numeroInforme', async (req, res) => {
@@ -720,7 +833,8 @@ app.get('/api/public/certificado/:numeroInforme', async (req, res) => {
 });
 
 // --- ESTADÍSTICAS ---
-app.get('/api/stats', async (req, res) => {
+// Sprint 14-B — protegido. Cualquier usuario autenticado puede ver dashboards generales.
+app.get('/api/stats', verificarToken(), async (req, res) => {
     try {
         const [enCalibracion] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual != 'Entregado'");
         const [proximosSLA] = await db.query("SELECT COUNT(*) as total FROM instrumentos_estatus WHERE sla <= 10 AND estatus_actual != 'Entregado'");
@@ -788,7 +902,7 @@ app.get('/api/stats', async (req, res) => {
 });
 
 
-app.get('/api/heatmap', async (req, res) => {
+app.get('/api/heatmap', verificarToken(), async (req, res) => {
     try {
         // Obtenemos distribución de mensajes entrantes de los últimos 30 días
         const [rows] = await db.query(`
@@ -801,7 +915,7 @@ app.get('/api/heatmap', async (req, res) => {
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
-app.get('/api/kpis_negocio', async (req, res) => {
+app.get('/api/kpis_negocio', verificarToken(), async (req, res) => {
     try {
         // Métricas Core del Laboratorio y CRM
         const [leads] = await db.query(`SELECT COUNT(*) as total FROM chat_leads WHERE estado='Pendiente'`);
@@ -857,7 +971,7 @@ app.get('/api/kpis_negocio', async (req, res) => {
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
-app.get('/api/kpis_aseguramiento', async (req, res) => {
+app.get('/api/kpis_aseguramiento', requirePermiso('dashboard.aseguramiento.ver'), async (req, res) => {
     try {
         const [[qAseg]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Aseguramiento'`);
         const [[qCert]] = await db.query(`SELECT COUNT(*) as total FROM instrumentos_estatus WHERE estatus_actual='Certificación'`);
@@ -1260,6 +1374,8 @@ app.post('/api/admin/reset-operativo', verificarToken(['admin']), async (req, re
                 [0, 'reset_operativo', req.usuario.id, JSON.stringify({ tablas: resultado.vaciadas.length })]
             );
         } catch (_) {}
+        // Sprint 14-C — audit log de seguridad (acción destructiva masiva)
+        await auditarSeguridad('reset_operativo', req, req.usuario.id, req.usuario.email, { tablas_vaciadas: resultado.vaciadas, errores: resultado.errores });
 
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'reset_operativo' });
         console.log(`🧨 Reset operativo ejecutado por ${req.usuario.email}. Tablas vaciadas: ${resultado.vaciadas.length}`);
@@ -1916,7 +2032,7 @@ app.get('/api/instrumentos/:id/auditoria', verificarToken(), async (req, res) =>
 });
 
 // --- FEEDBACK DEL BOT ---
-app.post('/api/bot/feedback', async (req, res) => {
+app.post('/api/bot/feedback', verificarToken(), async (req, res) => {
     try {
         const { cliente_wa, empresa, mensaje } = req.body;
         if (!cliente_wa || !mensaje) return res.status(400).json({ error: 'Faltan datos' });
@@ -3337,7 +3453,20 @@ const tablasCatalogos = {
     'modelos': 'cat_modelos'
 };
 
-app.get('/api/catalogo/:tipo', async (req, res) => {
+// Sprint 14-B — guard dinámico para catálogos: el permiso depende del tipo.
+// `clientes` → permiso clientes.editar; el resto (marcas/instrumentos/modelos) → catalogos.editar.
+async function guardCatalogoEdicion(req, res) {
+    if (req.usuario?.rol === 'admin') return true;
+    const { tienePermiso } = require('./middleware/permisos');
+    const tipo = req.params.tipo;
+    const clave = (tipo === 'clientes') ? 'clientes.editar' : 'catalogos.editar';
+    if (await tienePermiso(req.usuario, clave)) return true;
+    res.status(403).json({ error: `Permiso requerido: ${clave}` });
+    return false;
+}
+
+app.get('/api/catalogo/:tipo', verificarToken(), async (req, res) => {
+    // Lectura: cualquiera autenticado puede consultar catálogos para llenar formularios.
     const tabla = tablasCatalogos[req.params.tipo];
     if (!tabla) return res.status(400).json({ error: 'Catálogo inválido' });
     try {
@@ -3346,7 +3475,8 @@ app.get('/api/catalogo/:tipo', async (req, res) => {
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
-app.post('/api/catalogo/:tipo', async (req, res) => {
+app.post('/api/catalogo/:tipo', verificarToken(), async (req, res) => {
+    if (!(await guardCatalogoEdicion(req, res))) return;
     const tabla = tablasCatalogos[req.params.tipo];
     if (!tabla) return res.status(400).json({ error: 'Catálogo inválido' });
     try {
@@ -3359,14 +3489,14 @@ app.post('/api/catalogo/:tipo', async (req, res) => {
         } else if (req.params.tipo === 'modelos') {
             await db.query(`INSERT INTO ${tabla} (nombre, marca) VALUES (?, ?)`, [body.nombre, body.marca]);
         } else {
-            // para marcas o instrumentos
             await db.query(`INSERT INTO ${tabla} (nombre) VALUES (?)`, [body.nombre]);
         }
         res.json({ success: true, message: 'Guardado correctamente' });
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
-app.put('/api/catalogo/:tipo/:id', async (req, res) => {
+app.put('/api/catalogo/:tipo/:id', verificarToken(), async (req, res) => {
+    if (!(await guardCatalogoEdicion(req, res))) return;
     const tabla = tablasCatalogos[req.params.tipo];
     if (!tabla) return res.status(400).json({ error: 'Catálogo inválido' });
     try {
@@ -3379,7 +3509,6 @@ app.put('/api/catalogo/:tipo/:id', async (req, res) => {
         } else if (req.params.tipo === 'modelos') {
             await db.query(`UPDATE ${tabla} SET nombre=?, marca=? WHERE id=?`, [body.nombre, body.marca, req.params.id]);
         } else {
-            // para marcas o instrumentos
             await db.query(`UPDATE ${tabla} SET nombre=? WHERE id=?`, [body.nombre, req.params.id]);
         }
         res.json({ success: true, message: 'Actualizado correctamente' });
@@ -3466,7 +3595,7 @@ app.delete('/api/leads/:id', verificarToken(), async (req, res) => {
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
-app.put('/api/leads/:id', async (req, res) => {
+app.put('/api/leads/:id', verificarToken(), async (req, res) => {
     try {
         const { estado } = req.body;
         await db.query("UPDATE chat_leads SET estado = ? WHERE id = ?", [estado, req.params.id]);
@@ -3474,17 +3603,21 @@ app.put('/api/leads/:id', async (req, res) => {
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
-app.delete('/api/catalogo/:tipo/all', async (req, res) => {
+app.delete('/api/catalogo/:tipo/all', verificarToken(['admin']), async (req, res) => {
+    // Sprint 14-B — borrado masivo SOLO admin (acción destructiva grande)
     const tabla = tablasCatalogos[req.params.tipo];
     if (!tabla) return res.status(400).json({ error: 'Catálogo inválido' });
     try {
         await db.query(`DELETE FROM ${tabla}`);
         await db.query(`ALTER TABLE ${tabla} AUTO_INCREMENT = 1`);
+        // Sprint 14-C — audit log
+        await auditarSeguridad('catalogo_borrado_masivo', req, req.usuario.id, req.usuario.email, { tipo: req.params.tipo, tabla });
         res.json({ success: true, message: 'Todos los registros eliminados masivamente' });
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
-app.delete('/api/catalogo/:tipo/:id', async (req, res) => {
+app.delete('/api/catalogo/:tipo/:id', verificarToken(), async (req, res) => {
+    if (!(await guardCatalogoEdicion(req, res))) return;
     const tabla = tablasCatalogos[req.params.tipo];
     if (!tabla) return res.status(400).json({ error: 'Catálogo inválido' });
     try {
@@ -3493,7 +3626,12 @@ app.delete('/api/catalogo/:tipo/:id', async (req, res) => {
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
-app.post('/api/importar-catalogo', upload.single('archivoExcel'), async (req, res) => {
+app.post('/api/importar-catalogo', verificarToken(), upload.single('archivoExcel'), async (req, res) => {
+    // Sprint 14-B — solo quien puede editar catálogos puede importar masivo
+    if (req.usuario.rol !== 'admin') {
+        const { tienePermiso } = require('./middleware/permisos');
+        if (!(await tienePermiso(req.usuario, 'catalogos.editar'))) return res.status(403).json({ error: 'Permiso requerido: catalogos.editar' });
+    }
     const { tipo } = req.body; 
     try {
         if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo' });
@@ -3536,7 +3674,7 @@ app.post('/api/importar-catalogo', upload.single('archivoExcel'), async (req, re
 
 // --- INTELIGENCIA PDF v19 (PYTHON + PDFPLUMBER PARA TABLAS COMPLEJAS) ---
 
-app.post('/api/leer-pdf', upload.single('archivoPdf'), async (req, res) => {
+app.post('/api/leer-pdf', requirePermiso('registro.crear'), upload.single('archivoPdf'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'Sin archivo' });
 
@@ -3579,7 +3717,7 @@ app.post('/api/leer-pdf', upload.single('archivoPdf'), async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/leer-certificado', upload.single('archivoCert'), async (req, res) => {
+app.post('/api/leer-certificado', requirePermiso('certificacion.subir'), upload.single('archivoCert'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'Sin archivo' });
 
@@ -3924,11 +4062,11 @@ function iniciarBot(sesionLimpia = false) {
 
 // ─── API de control del bot ───────────────────────────────────────────────────
 
-app.get('/api/whatsapp/status', (req, res) => {
+app.get('/api/whatsapp/status', verificarToken(), (req, res) => {
     res.json({ connected: isClientConnected, qr: currentQR });
 });
 
-app.post('/api/whatsapp/reset', async (req, res) => {
+app.post('/api/whatsapp/reset', verificarToken(['admin']), async (req, res) => {
     try {
         console.log('♻️ Reset manual solicitado desde CRM...');
         isClientConnected = false;
@@ -3947,7 +4085,7 @@ app.post('/api/whatsapp/reset', async (req, res) => {
     }
 });
 
-app.post('/api/whatsapp/send-media', upload.single('archivo'), async (req, res) => {
+app.post('/api/whatsapp/send-media', requirePermiso('bot.conversaciones.ver'), upload.single('archivo'), async (req, res) => {
     try {
         if (!isClientConnected) return res.status(400).json({ error: 'Bot no conectado' });
         if (!req.file) return res.status(400).json({ error: 'No se incluyó archivo' });
@@ -3969,7 +4107,7 @@ app.post('/api/whatsapp/send-media', upload.single('archivo'), async (req, res) 
 
 // NUEVOS ENDPOINTS CRM WHATSAPP
 
-app.get('/api/whatsapp/chats', async (req, res) => {
+app.get('/api/whatsapp/chats', requirePermiso('bot.conversaciones.ver'), async (req, res) => {
     try {
         const [rows] = await db.query(`
             SELECT * FROM whatsapp_chats 
@@ -3992,7 +4130,7 @@ app.get('/api/whatsapp/chats', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/whatsapp/chats/:numero/mensajes', async (req, res) => {
+app.get('/api/whatsapp/chats/:numero/mensajes', requirePermiso('bot.conversaciones.ver'), async (req, res) => {
     try {
         const num = limpiarID(req.params.numero);
         const [rows] = await db.query(
@@ -4004,7 +4142,7 @@ app.get('/api/whatsapp/chats/:numero/mensajes', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/whatsapp/enviar', upload.single('archivo'), async (req, res) => {
+app.post('/api/whatsapp/enviar', requirePermiso('bot.conversaciones.ver'), upload.single('archivo'), async (req, res) => {
     try {
         const { numero, texto } = req.body; // El numero viene limpio (ej: 521...)
         if (!isClientConnected) return res.status(400).json({ error: 'Bot no conectado' });
@@ -4037,7 +4175,7 @@ app.post('/api/whatsapp/enviar', upload.single('archivo'), async (req, res) => {
     }
 });
 
-app.put('/api/whatsapp/chats/:numero/config', async (req, res) => {
+app.put('/api/whatsapp/chats/:numero/config', requirePermiso('bot.conversaciones.ver'), async (req, res) => {
     try {
         const { es_favorito, bot_desactivado } = req.body;
         const updates = [];
@@ -4196,14 +4334,14 @@ app.post('/api/instrumentos/orden/:folio/modificar', verificarToken(['admin', 'r
 // ─── ENDPOINTS BOT PRO ────────────────────────────────────────────────────────
 
 // Equipos del cliente
-app.get('/api/equipos-cliente', async (req, res) => {
+app.get('/api/equipos-cliente', requirePermiso('clientes.ver'), async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM equipos_cliente WHERE activo = 1 ORDER BY proxima_calibracion ASC');
         res.json(await adjuntarTelefonoVisible(rows, 'cliente_whatsapp'));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/equipos-cliente', async (req, res) => {
+app.post('/api/equipos-cliente', requirePermiso('clientes.editar'), async (req, res) => {
     try {
         const { cliente_whatsapp, nombre_empresa, nombre_equipo, marca, modelo, rango, ultima_calibracion, periodicidad_meses } = req.body;
         if (!cliente_whatsapp || !nombre_equipo) return res.status(400).json({ error: 'Faltan datos obligatorios' });
@@ -4223,7 +4361,7 @@ app.post('/api/equipos-cliente', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/equipos-cliente/:id', async (req, res) => {
+app.delete('/api/equipos-cliente/:id', requirePermiso('clientes.editar'), async (req, res) => {
     try {
         await db.query('UPDATE equipos_cliente SET activo = 0 WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -4231,14 +4369,14 @@ app.delete('/api/equipos-cliente/:id', async (req, res) => {
 });
 
 // Cotizaciones generadas por el bot
-app.get('/api/cotizaciones-bot', async (req, res) => {
+app.get('/api/cotizaciones-bot', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM cotizaciones_bot ORDER BY created_at DESC LIMIT 100');
         res.json(await adjuntarTelefonoVisible(rows, 'cliente_whatsapp'));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/cotizaciones-bot/:id/estatus', async (req, res) => {
+app.put('/api/cotizaciones-bot/:id/estatus', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         const { estatus } = req.body;
         await db.query('UPDATE cotizaciones_bot SET estatus = ? WHERE id = ?', [estatus, req.params.id]);
@@ -4247,7 +4385,7 @@ app.put('/api/cotizaciones-bot/:id/estatus', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/cotizaciones-bot/:id', async (req, res) => {
+app.delete('/api/cotizaciones-bot/:id', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         await db.query('DELETE FROM cotizaciones_bot WHERE id = ?', [req.params.id]);
         if (global.io) global.io.emit('actualizacion_cotizacion', { tipo: 'eliminacion_cotizacion', id: req.params.id });
@@ -4256,14 +4394,14 @@ app.delete('/api/cotizaciones-bot/:id', async (req, res) => {
 });
 
 // ─── CALIFICACIONES BOT ───────────────────────────────────────────────────────
-app.get('/api/calificaciones-bot', async (req, res) => {
+app.get('/api/calificaciones-bot', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM calificaciones_bot ORDER BY created_at DESC LIMIT 100');
         res.json(await adjuntarTelefonoVisible(rows, 'cliente_whatsapp'));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/calificaciones-bot/:id/estatus', async (req, res) => {
+app.put('/api/calificaciones-bot/:id/estatus', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         const { estatus } = req.body;
         await db.query('UPDATE calificaciones_bot SET estatus = ? WHERE id = ?', [estatus, req.params.id]);
@@ -4272,7 +4410,7 @@ app.put('/api/calificaciones-bot/:id/estatus', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/calificaciones-bot/:id', async (req, res) => {
+app.delete('/api/calificaciones-bot/:id', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         await db.query('DELETE FROM calificaciones_bot WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -4280,14 +4418,14 @@ app.delete('/api/calificaciones-bot/:id', async (req, res) => {
 });
 
 // ─── VERIFICENTROS BOT ────────────────────────────────────────────────────────
-app.get('/api/verificentros-bot', async (req, res) => {
+app.get('/api/verificentros-bot', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM verificentros_bot ORDER BY created_at DESC LIMIT 100');
         res.json(await adjuntarTelefonoVisible(rows, 'cliente_whatsapp'));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/verificentros-bot/:id/estatus', async (req, res) => {
+app.put('/api/verificentros-bot/:id/estatus', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         const { estatus } = req.body;
         await db.query('UPDATE verificentros_bot SET estatus = ? WHERE id = ?', [estatus, req.params.id]);
@@ -4296,7 +4434,7 @@ app.put('/api/verificentros-bot/:id/estatus', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/verificentros-bot/:id', async (req, res) => {
+app.delete('/api/verificentros-bot/:id', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         await db.query('DELETE FROM verificentros_bot WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -4304,14 +4442,14 @@ app.delete('/api/verificentros-bot/:id', async (req, res) => {
 });
 
 // ─── VENTAS BOT ───────────────────────────────────────────────────────────────
-app.get('/api/ventas-bot', async (req, res) => {
+app.get('/api/ventas-bot', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM ventas_bot ORDER BY created_at DESC LIMIT 100');
         res.json(await adjuntarTelefonoVisible(rows, 'cliente_whatsapp'));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/ventas-bot/:id/estatus', async (req, res) => {
+app.put('/api/ventas-bot/:id/estatus', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         const { estatus } = req.body;
         await db.query('UPDATE ventas_bot SET estatus = ? WHERE id = ?', [estatus, req.params.id]);
@@ -4320,7 +4458,7 @@ app.put('/api/ventas-bot/:id/estatus', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/ventas-bot/:id', async (req, res) => {
+app.delete('/api/ventas-bot/:id', requirePermiso('bot.flujos.ver'), async (req, res) => {
     try {
         await db.query('DELETE FROM ventas_bot WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -4330,7 +4468,7 @@ app.delete('/api/ventas-bot/:id', async (req, res) => {
 
 
 // Escalados a agente humano
-app.get('/api/escalados', async (req, res) => {
+app.get('/api/escalados', requirePermiso('bot.conversaciones.ver'), async (req, res) => {
     try {
         const [rows] = await db.query("SELECT * FROM escalados ORDER BY created_at DESC LIMIT 50");
         const conTel = await adjuntarTelefonoVisible(rows, 'cliente_whatsapp');
@@ -4342,7 +4480,7 @@ app.get('/api/escalados', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/escalados/:id/resolver', async (req, res) => {
+app.put('/api/escalados/:id/resolver', requirePermiso('bot.conversaciones.ver'), async (req, res) => {
     try {
         const { agente } = req.body;
         await db.query(
@@ -4353,7 +4491,7 @@ app.put('/api/escalados/:id/resolver', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/escalados/:id', async (req, res) => {
+app.delete('/api/escalados/:id', requirePermiso('bot.conversaciones.ver'), async (req, res) => {
     try {
         await db.query('DELETE FROM escalados WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -4361,7 +4499,7 @@ app.delete('/api/escalados/:id', async (req, res) => {
 });
 
 // Recordatorios manuales / cron
-app.post('/api/bot/ejecutar-recordatorios', async (req, res) => {
+app.post('/api/bot/ejecutar-recordatorios', verificarToken(['admin']), async (req, res) => {
     try {
         const resultado = await ejecutarRecordatorios(botClient, isClientConnected);
         res.json(resultado);
@@ -4369,7 +4507,7 @@ app.post('/api/bot/ejecutar-recordatorios', async (req, res) => {
 });
 
 // Estadísticas operativas y del bot para Dashboard/Badges
-app.get('/api/bot/stats', async (req, res) => {
+app.get('/api/bot/stats', verificarToken(), async (req, res) => {
     try {
         const [[cots]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE DATE(created_at) = CURDATE()");
         const [[pendientes]] = await db.query("SELECT COUNT(*) as total FROM cotizaciones_bot WHERE estatus = 'nueva'");
@@ -4407,14 +4545,14 @@ app.get('/api/bot/stats', async (req, res) => {
 });
 
 // Caché IA — administración
-app.get('/api/bot/cache', async (req, res) => {
+app.get('/api/bot/cache', verificarToken(['admin']), async (req, res) => {
     try {
         const [rows] = await db.query('SELECT id, pregunta_texto, hits, created_at, expires_at FROM cache_ia WHERE expires_at > NOW() ORDER BY hits DESC LIMIT 50');
         res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/bot/cache', async (req, res) => {
+app.delete('/api/bot/cache', verificarToken(['admin']), async (req, res) => {
     try {
         await db.query('DELETE FROM cache_ia WHERE expires_at <= NOW()');
         res.json({ success: true, message: 'Caché expirado eliminado' });
@@ -4793,18 +4931,41 @@ function programarRecordatoriosDiarios() {
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 
+// Sprint 14-C — helper para audit log de eventos de seguridad
+async function auditarSeguridad(evento, req, usuarioId, usuarioEmail, detalles = null) {
+    try {
+        const ip = (req?.ip || req?.headers?.['x-forwarded-for'] || req?.connection?.remoteAddress || '').toString().slice(0, 64);
+        const ua = (req?.headers?.['user-agent'] || '').toString().slice(0, 255);
+        await db.query(
+            'INSERT INTO auditoria_seguridad (evento, usuario_id, usuario_email, ip, user_agent, detalles) VALUES (?, ?, ?, ?, ?, ?)',
+            [evento, usuarioId || null, usuarioEmail || null, ip, ua, detalles ? JSON.stringify(detalles) : null]
+        );
+    } catch (e) { /* no bloquear flujo por error en audit */ }
+}
+
 app.post('/api/auth/login', async (req, res) => {
+    const emailNorm = (req.body?.email || '').trim().toLowerCase();
     try {
         const { email, password } = req.body;
-        if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+        if (!email || !password) {
+            await auditarSeguridad('login_fallido', req, null, emailNorm, { motivo: 'campos vacíos' });
+            return res.status(400).json({ error: 'Email y contraseña requeridos' });
+        }
 
-        const [rows] = await db.query('SELECT * FROM usuarios WHERE email = ? AND activo = 1', [email.trim().toLowerCase()]);
-        if (rows.length === 0) return res.status(401).json({ error: 'Credenciales incorrectas' });
+        const [rows] = await db.query('SELECT * FROM usuarios WHERE email = ? AND activo = 1', [emailNorm]);
+        if (rows.length === 0) {
+            await auditarSeguridad('login_fallido', req, null, emailNorm, { motivo: 'usuario no existe o inactivo' });
+            return res.status(401).json({ error: 'Credenciales incorrectas' });
+        }
 
         const usuario = rows[0];
         const ok = await verificarPassword(password, usuario.password_hash);
-        if (!ok) return res.status(401).json({ error: 'Credenciales incorrectas' });
+        if (!ok) {
+            await auditarSeguridad('login_fallido', req, usuario.id, usuario.email, { motivo: 'password incorrecto' });
+            return res.status(401).json({ error: 'Credenciales incorrectas' });
+        }
 
+        await auditarSeguridad('login_exitoso', req, usuario.id, usuario.email);
         const token = generarToken(usuario);
         res.json({
             token,
@@ -4837,21 +4998,30 @@ app.get('/api/usuarios', verificarToken(['admin']), async (req, res) => {
 app.post('/api/usuarios', verificarToken(['admin']), async (req, res) => {
     try {
         const { nombre, email, password, rol, area, permisos, es_lider_area } = req.body;
-        if (!nombre || !email || !password) return res.status(400).json({ error: 'Faltan datos' });
-        const bcrypt = require('bcryptjs');
-        const hash = await bcrypt.hash(password, 12);
+        if (!nombre || !email || !password) return res.status(400).json({ error: 'Faltan datos (nombre, email, password requeridos)' });
+        // Sprint 14-A — política de contraseñas robusta
+        const { evaluarPassword, hashPassword } = require('./auth');
+        const eval = evaluarPassword(password, { email });
+        if (!eval.valida) {
+            return res.status(400).json({ error: 'Contraseña no cumple política de seguridad', detalles: eval.errores });
+        }
+        const hash = await hashPassword(password);
         const [r] = await db.query(
             'INSERT INTO usuarios (nombre, email, password_hash, rol, area, es_lider_area, permisos) VALUES (?, ?, ?, ?, ?, ?, ?)',
             [nombre, email.toLowerCase(), hash, rol || 'recepcionista', area || null, es_lider_area ? 1 : 0, permisos ? JSON.stringify(permisos) : null]
         );
         res.json({ success: true, id: r.insertId });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ya existe un usuario con ese email' });
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.put('/api/usuarios/:id', verificarToken(['admin']), async (req, res) => {
     try {
         const { permisosValidos } = require('./permisos_catalogo');
         const { invalidarCachePermisos } = require('./middleware/permisos');
+        const { evaluarPassword, hashPassword } = require('./auth');
         const { nombre, email, password, rol, area, permisos, es_lider_area } = req.body;
         const id = req.params.id;
         const permisosFiltrados = Array.isArray(permisos) ? permisosValidos(permisos) : null;
@@ -4860,8 +5030,12 @@ app.put('/api/usuarios/:id', verificarToken(['admin']), async (req, res) => {
         let params = [nombre, email.toLowerCase(), rol, area || null, es_lider_area ? 1 : 0, permisosFiltrados ? JSON.stringify(permisosFiltrados) : null];
 
         if (password && password.trim() !== "") {
-            const bcrypt = require('bcryptjs');
-            const hash = await bcrypt.hash(password, 12);
+            // Sprint 14-A — solo validamos política si admin envía password nueva
+            const eval = evaluarPassword(password, { email });
+            if (!eval.valida) {
+                return res.status(400).json({ error: 'Contraseña no cumple política de seguridad', detalles: eval.errores });
+            }
+            const hash = await hashPassword(password);
             query += ', password_hash = ?';
             params.push(hash);
         }
@@ -4871,8 +5045,30 @@ app.put('/api/usuarios/:id', verificarToken(['admin']), async (req, res) => {
 
         await db.query(query, params);
         invalidarCachePermisos(Number(id));
+        // Sprint 14-C — audit log de cambios de seguridad sobre usuarios
+        await auditarSeguridad('usuario_actualizado', req, req.usuario.id, req.usuario.email, {
+            usuario_modificado_id: Number(id),
+            cambios: { rol, area, es_lider_area, password_cambiada: !!(password && password.trim()), permisos_personalizados: !!permisosFiltrados }
+        });
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ya existe un usuario con ese email' });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Sprint 14-A — endpoint para que admin genere una contraseña robusta
+app.get('/api/usuarios/generar-password', verificarToken(['admin']), (req, res) => {
+    const { generarPasswordRobusto } = require('./auth');
+    const len = Math.min(32, Math.max(12, parseInt(req.query.len) || 16));
+    res.json({ password: generarPasswordRobusto(len) });
+});
+
+// Sprint 14-A — evaluación de fortaleza (para feedback en vivo desde el form)
+app.post('/api/usuarios/evaluar-password', verificarToken(['admin']), (req, res) => {
+    const { evaluarPassword } = require('./auth');
+    const { password, email } = req.body;
+    res.json(evaluarPassword(password, { email }));
 });
 
 // Catálogo público de permisos (cualquier usuario autenticado puede leerlo

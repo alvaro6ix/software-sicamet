@@ -1,8 +1,48 @@
+# Sprint 14-E — exclusiones para que `docker build` no copie archivos innecesarios
+# o sensibles a la imagen.
+
 node_modules
 npm-debug.log
+.npm
 .git
+.gitignore
+
+# Variables de entorno (vienen por -e o env_file en runtime)
 .env
+.env.*
+
+# Sesión de WhatsApp (viene por volumen montado)
 .wwebjs_auth
 .wwebjs_cache
-*.sql
+
+# Logs locales
+logs
 *.log
+
+# Uploads (vienen por volumen montado en prod)
+uploads/bot
+uploads/comentarios
+uploads/certificados
+
+# Caches y temporales
+__pycache__
+*.pyc
+*.bak
+*.sql
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# Tests / scratch
+test_*.js
+inspect_*.js
+
+# Dockerfiles (no se necesitan dentro de la imagen)
+Dockerfile
+Dockerfile.prod
+.dockerignore
+
+# Ecosystem PM2 (no usado en docker)
+ecosystem.config.cjs

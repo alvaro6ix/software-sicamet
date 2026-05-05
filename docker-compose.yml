@@ -1,3 +1,6 @@
+# SICAMET CRM — Docker Compose para DESARROLLO LOCAL
+# (para producción ver docker-compose.prod.yml — Sprint 14-E)
+
 services:
   db:
     image: mysql:8.0
@@ -14,8 +17,24 @@ services:
     ports:
       - "3306:3306"
     volumes:
+      # En dev mantenemos bind mount para inspeccionar/respaldar manualmente.
+      # En prod (docker-compose.prod.yml) será un volumen nombrado.
       - ./mysql_data:/var/lib/mysql
       - ./database/init_fijo.sql:/docker-entrypoint-initdb.d/init.sql
+    # Sprint 14-D — healthcheck: el contenedor se considera saludable cuando
+    # mysqladmin ping responde. Backend espera a que esto pase antes de arrancar.
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
 
   backend:
     build: ./backend
@@ -24,7 +43,8 @@ services:
     ports:
       - "3001:3001"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       - TZ=America/Mexico_City
       - DB_HOST=db
@@ -34,6 +54,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - APP_URL=${APP_URL:-http://localhost:5173}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:3001}
       - NODE_ENV=development
     volumes:
       - ./backend:/app
@@ -43,20 +64,48 @@ services:
       # recrear el contenedor. Ahora es nombrado (`wweb_auth`) y persiste
       # indefinidamente excepto si se hace `docker compose down -v`.
       - wweb_auth:/app/.wwebjs_auth
+    # Sprint 14-D — healthcheck pega a /api/health que verifica MySQL accesible.
+    # Usamos node (siempre disponible en la imagen) en lugar de wget/curl.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+        reservations:
+          memory: 256M
 
   frontend:
     build: ./frontend
     container_name: sicamet_frontend
+    restart: always
     ports:
       - "5173:5173"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     environment:
       - VITE_BACKEND_URL=http://backend:3001
     volumes:
       - ./frontend:/app
       - /app/node_modules
+    # Sprint 14-D — healthcheck simple: el dev server de Vite responde HTML.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5173/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
 
 volumes:
   wweb_auth:
-

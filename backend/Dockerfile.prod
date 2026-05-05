@@ -1,0 +1,60 @@
+# SICAMET CRM Backend — Imagen de PRODUCCIÓN (Sprint 14-E)
+# Multi-stage para imagen final pequeña, sin devDeps, sin código de tests.
+
+# ─── Stage 1: install deps ────────────────────────────────────────────────────
+FROM node:20-slim AS deps
+
+WORKDIR /app
+
+# Solo manifests para cachear capa de instalación
+COPY package*.json ./
+
+# Instalación productiva (sin devDeps), determinística vía package-lock.
+RUN npm ci --omit=dev && npm cache clean --force
+
+
+# ─── Stage 2: runtime ─────────────────────────────────────────────────────────
+FROM node:20-slim AS runtime
+
+# Dependencias del sistema requeridas por wweb.js (Chromium) y pdfplumber.
+# Estas son las MISMAS que en dev, no se pueden omitir.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    python3 \
+    python3-pip \
+    fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf \
+    libxss1 \
+    tini \
+    && rm -rf /var/lib/apt/lists/*
+
+# pdfplumber para el parser de IA (Debian 12 requiere break-system-packages)
+RUN pip3 install --no-cache-dir pdfplumber --break-system-packages
+
+# Variables que evitan que Puppeteer descargue Chromium adicional
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    NODE_ENV=production
+
+WORKDIR /app
+
+# Copiamos node_modules ya construidos del stage anterior
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copiamos solo los archivos del backend que necesitamos en runtime.
+# Nota: .dockerignore excluye .env, .wwebjs_auth, logs, etc.
+COPY . ./
+
+# Crear usuario no-root y darle ownership de /app y los uploads.
+# Chromium necesita poder escribir en /tmp, lo dejamos como está (perms 1777).
+RUN useradd --system --create-home --shell /bin/false sicamet \
+    && mkdir -p /app/uploads /app/.wwebjs_auth /app/logs \
+    && chown -R sicamet:sicamet /app
+
+USER sicamet
+
+EXPOSE 3001
+
+# tini como init: maneja señales (SIGTERM) correctamente para que docker stop
+# no deje procesos zombi de Chromium.
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "index.js"]

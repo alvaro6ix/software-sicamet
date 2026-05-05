@@ -1,0 +1,165 @@
+# SICAMET CRM — Docker Compose para PRODUCCIÓN (Sprint 14-E)
+#
+# Diferencias clave vs dev (docker-compose.yml):
+#   • mysql_data y uploads → volúmenes nombrados (no bind mounts)
+#   • Backend y frontend usan Dockerfile.prod (multi-stage, sin devDeps)
+#   • Puertos internos NO expuestos al host (solo Caddy en :80/:443)
+#   • Caddy reverse proxy con SSL automático Let's Encrypt
+#   • Sin volúmenes de código fuente — la imagen se construye y se despliega
+#
+# Uso:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Variables requeridas en .env (ver .env.production.example):
+#   DB_PASSWORD, JWT_SECRET, GEMINI_API_KEY (opcional),
+#   APP_URL, CORS_ORIGINS, DOMAIN, ADMIN_EMAIL
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: sicamet_db
+    restart: always
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --skip-character-set-client-handshake
+    environment:
+      - TZ=America/Mexico_City
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
+      - MYSQL_DATABASE=sicamet_crm
+    # NO exponemos 3306 al host — db solo accesible desde la red interna.
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init_fijo.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    networks:
+      - sicamet_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    image: sicamet/backend:prod
+    container_name: sicamet_backend
+    restart: always
+    # NO exponemos 3001 al host — backend solo accesible vía Caddy.
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - TZ=America/Mexico_City
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASS=${DB_PASSWORD:?DB_PASSWORD is required}
+      - DB_NAME=sicamet_crm
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - APP_URL=${APP_URL:?APP_URL is required (https://tu-dominio.com)}
+      - CORS_ORIGINS=${CORS_ORIGINS:?CORS_ORIGINS is required}
+      - NODE_ENV=production
+    volumes:
+      # Sesión de WhatsApp persistente (no se pierde entre rebuilds)
+      - wweb_auth:/app/.wwebjs_auth
+      # Uploads (PDFs certificados, media bot, comentarios) en volumen nombrado
+      # para que sobrevivan rebuilds y se respalden con backup.sh.
+      - uploads:/app/uploads
+      - logs:/app/logs
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+        reservations:
+          memory: 256M
+    networks:
+      - sicamet_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    image: sicamet/frontend:prod
+    container_name: sicamet_frontend
+    restart: always
+    # NO exponemos 80 al host — frontend solo accesible vía Caddy.
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/", "--timeout=5"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+    networks:
+      - sicamet_net
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: sicamet_caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3 (QUIC)
+    environment:
+      - DOMAIN=${DOMAIN:-:80}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@sicamet.mx}
+      - AUTO_HTTPS=${AUTO_HTTPS:-on}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persiste certificados SSL — sin esto, Let's Encrypt los regenera cada
+      # restart y puedes hitar el rate limit (50 certs/semana por dominio).
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+    networks:
+      - sicamet_net
+
+# Volúmenes nombrados (sobreviven rebuilds y `docker compose down`).
+# Solo se borran con `docker compose down -v` (cuidado).
+volumes:
+  mysql_data:
+  uploads:
+  logs:
+  wweb_auth:
+  caddy_data:
+  caddy_config:
+  caddy_logs:
+
+networks:
+  sicamet_net:
+    driver: bridge

@@ -7,14 +7,14 @@
 // imprime en logs UNA SOLA VEZ. El admin debe entregarlo de inmediato y forzar a
 // que cada usuario lo cambie en su primer login.
 
-const crypto = require('crypto');
 const db = require('./bd');
-const { hashPassword } = require('./auth');
+const { hashPassword, generarPasswordRobusto } = require('./auth');
 const { permisosPorDefectoParaRol } = require('./permisos_catalogo');
 
+// Sprint 14-A — usamos el generador centralizado que cumple política
+// (12+ chars, may/min/núm/símbolo, sin caracteres confusos).
 function generarPasswordTemporal() {
-    // 16 chars URL-safe: suficientemente fuerte y fácil de comunicar verbalmente.
-    return crypto.randomBytes(12).toString('base64url') + '!';
+    return generarPasswordRobusto(16);
 }
 
 // Nombre canónico del área operativa, el rol que le corresponde,

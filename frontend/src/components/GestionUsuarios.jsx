@@ -4,7 +4,8 @@ import {
   Users, UserPlus, Shield, Trash2, Edit2, Lock, Unlock,
   Mail, User, X, Save, Search, Loader2, Package, Plus,
   FlaskConical, MapPin, ChevronRight, CheckCircle, AlertCircle,
-  Wrench, AlertTriangle, RotateCcw, ListOrdered, ChevronUp, ChevronDown, RotateCw
+  Wrench, AlertTriangle, RotateCcw, ListOrdered, ChevronUp, ChevronDown, RotateCw,
+  Eye, EyeOff, Sparkles, Copy
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirmar } from '../hooks/alertas';
@@ -30,6 +31,12 @@ const GestionUsuarios = ({ darkMode, usuario }) => {
   const [textoResetConfirmar, setTextoResetConfirmar] = useState('');
   const [reseteando, setReseteando] = useState(false);
   const [resultadoReset, setResultadoReset] = useState(null);
+
+  // Sprint 14-A — generador y evaluación de contraseñas (state aquí, lógica que
+  // depende de `form` se define más abajo, después de la declaración de `form`).
+  const [verPassword, setVerPassword] = useState(false);
+  const [evalPwd, setEvalPwd] = useState({ valida: true, errores: [], score: 0 });
+  const [generandoPwd, setGenerandoPwd] = useState(false);
 
   // Orden del menú (Sprint 10 / fix #3). Lista canónica de items que pueden
   // aparecer en el sidebar. Se persiste en localStorage; el sidebar lo aplica
@@ -125,6 +132,32 @@ const GestionUsuarios = ({ darkMode, usuario }) => {
       .then(res => setPermisosCatalogo(res.data?.permisos || []))
       .catch(() => setPermisosCatalogo([]));
   }, []);
+
+  // Sprint 14-A — generador y evaluación de contraseñas (necesita `form`/`setForm`/`modalAbierto`).
+  const generarPassword = async () => {
+    setGenerandoPwd(true);
+    try {
+      const res = await axios.get('/api/usuarios/generar-password?len=16');
+      setForm(f => ({ ...f, password: res.data.password }));
+      setVerPassword(true);
+      try { await navigator.clipboard.writeText(res.data.password); toast.success('Contraseña generada y copiada al portapapeles'); }
+      catch (_) { toast.success('Contraseña generada (copia manual)'); }
+    } catch (err) { toast.error('Error generando contraseña'); }
+    finally { setGenerandoPwd(false); }
+  };
+
+  // Evalúa la fortaleza con debounce mientras admin escribe.
+  useEffect(() => {
+    if (!modalAbierto) return;
+    if (!form.password) { setEvalPwd({ valida: true, errores: [], score: 0 }); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await axios.post('/api/usuarios/evaluar-password', { password: form.password, email: form.email });
+        setEvalPwd(res.data);
+      } catch (_) {}
+    }, 300);
+    return () => clearTimeout(t);
+  }, [form.password, form.email, modalAbierto]);
 
   // Agrupar permisos por sección para la UI.
   const permisosPorGrupo = permisosCatalogo.reduce((acc, p) => {
@@ -886,14 +919,65 @@ const GestionUsuarios = ({ darkMode, usuario }) => {
                 </div>
 
                 <div>
-                  <label className={`block text-[10px] font-black mb-1.5 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
-                    {editandoId ? 'Nueva Contraseña (Opcional)' : 'Contraseña Inicial'}
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className={`text-[10px] font-black uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
+                      {editandoId ? 'Nueva Contraseña (Opcional)' : 'Contraseña Inicial'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={generarPassword}
+                      disabled={generandoPwd}
+                      className={`text-[10px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-md ${darkMode ? 'bg-[#C9EA63]/20 text-[#C9EA63] hover:bg-[#C9EA63]/30' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}
+                      title="Genera 16 chars con may, min, núm y símbolos. Copia al portapapeles."
+                    >
+                      <Sparkles size={11}/> {generandoPwd ? 'Generando...' : 'Generar segura'}
+                    </button>
+                  </div>
                   <div className="relative">
                     <Lock size={16} className="absolute left-3 top-3 opacity-40" />
-                    <input required={!editandoId} type="password" placeholder="••••••••" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className={`w-full pl-10 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none transition-all ${inputBg}`} />
+                    <input
+                      required={!editandoId}
+                      type={verPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      value={form.password}
+                      onChange={e => setForm({ ...form, password: e.target.value })}
+                      className={`w-full pl-10 pr-20 p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-[#C9EA63] outline-none font-mono ${inputBg}`}
+                    />
+                    <div className="absolute right-2 top-2.5 flex gap-1">
+                      <button type="button" onClick={() => setVerPassword(v => !v)} className="p-1 opacity-50 hover:opacity-100" title={verPassword ? 'Ocultar' : 'Ver'}>
+                        {verPassword ? <EyeOff size={14}/> : <Eye size={14}/>}
+                      </button>
+                      {form.password && (
+                        <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(form.password); toast.success('Copiada'); } catch(_) {} }} className="p-1 opacity-50 hover:opacity-100" title="Copiar">
+                          <Copy size={14}/>
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  {editandoId && <p className="text-[10px] mt-1.5 opacity-40 italic">Mantenlo vacío para conservar la actual.</p>}
+                  {/* Indicador de fortaleza + errores */}
+                  {form.password && (
+                    <div className="mt-2 space-y-1">
+                      <div className="flex gap-1">
+                        {[0,1,2,3,4].map(i => (
+                          <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i < evalPwd.score ? (evalPwd.score >= 4 ? 'bg-emerald-500' : evalPwd.score >= 3 ? 'bg-amber-500' : 'bg-rose-500') : (darkMode ? 'bg-white/10' : 'bg-slate-200')}`} />
+                        ))}
+                      </div>
+                      <div className={`text-[10px] font-bold ${evalPwd.score >= 4 ? 'text-emerald-500' : evalPwd.score >= 3 ? 'text-amber-500' : 'text-rose-500'}`}>
+                        {evalPwd.score >= 4 ? '✓ Fortaleza alta' : evalPwd.score >= 3 ? '⚠ Aceptable, podría ser más fuerte' : '✗ Débil'}
+                      </div>
+                      {evalPwd.errores && evalPwd.errores.length > 0 && (
+                        <ul className="text-[10px] text-rose-500 space-y-0.5 mt-1">
+                          {evalPwd.errores.map((e, i) => <li key={i}>• {e}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {editandoId && !form.password && <p className="text-[10px] mt-1.5 opacity-40 italic">Mantenlo vacío para conservar la actual.</p>}
+                  {!editandoId && (
+                    <p className={`text-[10px] mt-1.5 ${darkMode ? 'text-[#F2F6F0]/40' : 'text-slate-400'}`}>
+                      Mín 12 chars · 1 mayús · 1 minús · 1 núm · 1 símbolo
+                    </p>
+                  )}
                 </div>
 
                 {/* Rol */}

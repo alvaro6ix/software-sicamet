@@ -1,6 +1,21 @@
+# Sprint 14-E — exclusiones para build limpio del frontend
 node_modules
 dist
+.vite
 npm-debug.log
+.npm
 .git
+.gitignore
 .env
+.env.*
 *.log
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# Dockerfiles (no se necesitan dentro de la imagen)
+Dockerfile
+Dockerfile.prod
+.dockerignore
