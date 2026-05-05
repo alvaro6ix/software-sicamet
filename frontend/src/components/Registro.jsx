@@ -18,12 +18,8 @@ const opcionesSLA_calificacion = [
   { value: 35, label: '🔴 Calificación Crítica (35 días)' }
 ];
 
-const opcionesServicio = [
-  "Calibración inLab", "Calibración in Plant", "Calibración In-Situ",
-  "Venta", "Vaisala Boston", "Servicio Terceros", "Patrones SICAMET",
-  "Medición", "Ensayos de Aptitud", "Consultoría", "Capacitación",
-  "Calificación"
-];
+// Sprint 10-B — Los tipos de servicio se consumen del API (catálogo editable
+// por admin en Gestión de Usuarios → Tipos Servicio).
 
 
 const Registro = ({ darkMode }) => {
@@ -51,17 +47,20 @@ const Registro = ({ darkMode }) => {
   const [areasSeleccionadas, setAreasSeleccionadas] = useState([]);
   const [metrologosSeleccionados, setMetrologosSeleccionados] = useState([]);
   const [cargandoMetrologos, setCargandoMetrologos] = useState(false);
+  const [tiposServicioActivos, setTiposServicioActivos] = useState([]);
 
-  // Cargar áreas y metrólogos al montar
+  // Cargar áreas, metrólogos y tipos de servicio al montar.
   useEffect(() => {
     const cargarCatalogos = async () => {
       try {
-        const [resAreas, resMetrologos] = await Promise.all([
+        const [resAreas, resMetrologos, resTipos] = await Promise.all([
           axios.get('/api/areas'),
-          axios.get('/api/usuarios/metrologos')
+          axios.get('/api/usuarios/metrologos'),
+          axios.get('/api/tipos-servicio')
         ]);
         setAreas(resAreas.data.filter(a => a.activa).map(a => ({ value: a.nombre, label: a.nombre })));
         setMetrologos(resMetrologos.data.map(m => ({ value: m.id, label: m.nombre })));
+        setTiposServicioActivos((resTipos.data || []).filter(t => t.activo).map(t => ({ value: t.nombre, label: t.nombre })));
       } catch (err) {
         console.error('Error al cargar catálogos:', err);
       }
@@ -130,6 +129,11 @@ const Registro = ({ darkMode }) => {
   };
 
   const agregarPartidaManual = () => {
+    // Default al servicio de cabecera si ya está seleccionado, así una OS de "Venta"
+    // arranca con todos sus equipos en Venta y solo cambias los que necesiten otro tipo.
+    const defaultTipo = (typeof cabecera.servicio_solicitado === 'string'
+      ? cabecera.servicio_solicitado
+      : cabecera.servicio_solicitado?.value || cabecera.servicio_solicitado?.label || '');
     setPartidas([...partidas, {
       clave: '',
       nombre_instrumento: '',
@@ -142,7 +146,7 @@ const Registro = ({ darkMode }) => {
       requerimientos_especiales: 'No requeridos',
       puntos_calibrar: 'No especificados',
       intervalo_calibracion: 'No especificado',
-      tipo_servicio: 'Calibración inLab'
+      tipo_servicio: defaultTipo
     }]);
   };
 
@@ -341,9 +345,10 @@ const Registro = ({ darkMode }) => {
                 <FileText size={14}/> Tipo de Servicio Solicitado <span className="text-rose-500">*</span>
               </label>
               <Select
-                options={opcionesServicio.map(s => ({ value: s, label: s }))}
+                options={tiposServicioActivos}
                 value={cabecera.servicio_solicitado}
                 onChange={(s) => setCabecera({...cabecera, servicio_solicitado: s})}
+                noOptionsMessage={() => 'No hay tipos activos. Pídele a admin que los agregue en Gestión de Usuarios.'}
                 placeholder="Selecciona tipo de servicio..."
                 isClearable
                 styles={selectStyles}
@@ -431,7 +436,18 @@ const Registro = ({ darkMode }) => {
                         </div>
                       </td>
                       <td className="px-3 py-2">
-                        <textarea rows="2" value={partida.tipo_servicio} onChange={(e) => actualizarPartida(index, 'tipo_servicio', e.target.value)} className={`w-full p-2 rounded text-[10px] leading-tight cursor-pointer outline-none border ${inputBg}`} />
+                        {/* Sprint 11-A: select per equipo. Default al servicio_solicitado de
+                            cabecera, pero cada equipo puede tener un tipo distinto. */}
+                        <Select
+                          options={tiposServicioActivos}
+                          value={partida.tipo_servicio ? { value: partida.tipo_servicio, label: partida.tipo_servicio } : null}
+                          onChange={(s) => actualizarPartida(index, 'tipo_servicio', s?.value || '')}
+                          isClearable
+                          placeholder="—"
+                          menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+                          styles={{ menuPortal: base => ({ ...base, zIndex: 9999 }), control: base => ({ ...base, minHeight: 36, fontSize: 12 }) }}
+                          noOptionsMessage={() => 'Sin tipos activos'}
+                        />
                       </td>
                       <td className="px-3 py-2 text-center">
                         <button type="button" onClick={() => eliminarPartida(index)} className="text-red-500 hover:text-red-400 p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20" title="Eliminar fila"><Trash2 size={18} /></button>

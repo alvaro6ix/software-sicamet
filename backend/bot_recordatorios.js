@@ -85,4 +85,53 @@ async function ejecutarRecordatorios(botClient, isClientConnected) {
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-module.exports = { ejecutarRecordatorios };
+/**
+ * Sprint 13-B2 — Verifica sesiones con cotización a medio capturar que llevan
+ * más de 30 min sin actividad y le manda recordatorio al cliente.
+ * Marca recordatorio_cotiz_at para no spamear. Pensado para correr cada 5 min.
+ */
+async function verificarSesionesAbandonadas(botClient, isClientConnected) {
+    if (!isClientConnected || !botClient) return { enviados: 0 };
+    let enviados = 0;
+    try {
+        // Sesiones inactivas > 30 min con items capturados y sin recordatorio enviado
+        const [sesiones] = await db.query(
+            `SELECT cliente_whatsapp, datos_temporales, ultima_interaccion
+             FROM sesiones
+             WHERE bot_activo = 1
+               AND ultima_interaccion < DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+               AND ultima_interaccion > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+               AND recordatorio_cotiz_at IS NULL
+               AND datos_temporales IS NOT NULL`
+        );
+        for (const s of sesiones) {
+            try {
+                const datos = JSON.parse(s.datos_temporales || '{}');
+                const items = datos.items || datos.items_calif || datos.items_verif || datos.items_ventas || [];
+                const cantidad = datos.cantidad_equipos || datos.cantidad_items;
+                // Solo si está capturando equipos en algún flujo de cotización
+                if (!cantidad || items.length === 0) continue;
+                const tipoFlujo = datos.subcotizacion === 'calibracion' ? 'cotización de calibración'
+                    : datos.rama === 'mapeo' ? 'mapeo térmico'
+                    : datos.rama === 'equipos' ? 'calificación de equipos'
+                    : datos.subcotizacion === 'verificentro' ? 'verificentro'
+                    : datos.subcotizacion === 'ventas' ? 'venta'
+                    : 'cotización';
+                const msg = `⏰ *Cotización pendiente*\n\nVeo que dejaste tu *${tipoFlujo}* a medio capturar (${items.length}/${cantidad} equipo(s) registrados).\n\n¿Quieres continuar o cancelar?\n\n• *continuar* — sigue desde donde te quedaste\n• *cancelar* — descarta lo capturado\n\n_Responde con la palabra._`;
+                await botClient.sendMessage(s.cliente_whatsapp, msg);
+                await db.query('UPDATE sesiones SET recordatorio_cotiz_at = NOW() WHERE cliente_whatsapp = ?', [s.cliente_whatsapp]);
+                enviados++;
+                await sleep(2000);
+            } catch (e) {
+                console.error(`Error recordatorio cotiz a ${s.cliente_whatsapp}:`, e.message);
+            }
+        }
+        if (enviados > 0) console.log(`⏰ Recordatorios cotización abandonada: ${enviados}`);
+        return { enviados };
+    } catch (err) {
+        console.error('Error verificarSesionesAbandonadas:', err.message);
+        return { enviados, error: err.message };
+    }
+}
+
+module.exports = { ejecutarRecordatorios, verificarSesionesAbandonadas };

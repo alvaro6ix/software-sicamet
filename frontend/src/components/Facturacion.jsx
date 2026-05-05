@@ -41,15 +41,19 @@ export default function Facturacion({ darkMode, usuario }) {
     const [busqueda, setBusqueda] = useState('');
     const [confirmando, setConfirmando] = useState(null);
 
+    const [seguimiento, setSeguimiento] = useState([]); // Sprint 12-E
+
     const cargar = async () => {
         setCargando(true);
         try {
-            const [r1, r2] = await Promise.all([
+            const [r1, r2, r3] = await Promise.all([
                 axios.get('/api/facturacion/pendientes'),
-                axios.get('/api/facturacion/historial')
+                axios.get('/api/facturacion/historial'),
+                axios.get('/api/certificacion/seguimiento').catch(() => ({ data: [] }))
             ]);
             setPendientes(r1.data || []);
             setHistorial(r2.data || []);
+            setSeguimiento(r3.data || []);
         } catch (err) {
             toast.error('Error cargando facturación: ' + (err.response?.data?.error || err.message));
         } finally { setCargando(false); }
@@ -57,9 +61,15 @@ export default function Facturacion({ darkMode, usuario }) {
     useEffect(() => { cargar(); }, []);
 
     const confirmarPago = async (eq) => {
+        // Sprint 12-C — warning visible cuando el equipo está en pendiente o sin cert.
+        // Ivón puede confirmar igual; el flag se conserva para que Flor vea el estado.
+        let nota = '';
+        if (eq.certificado_pendiente === 1) nota = '\n\n⚠️ ATENCIÓN: este equipo se envió como CERTIFICADO PENDIENTE. Julieta debe subir el PDF más tarde.';
+        else if (!eq.certificado_url && !eq.no_requiere_certificado) nota = '\n\n⚠️ ATENCIÓN: este equipo NO tiene certificado y no está marcado como "no requiere". Verifica con Julieta antes de cobrar.';
+
         const ok = await confirmar(
             'Confirmar pago de factura',
-            `¿El cliente ${eq.empresa || ''} ya pagó la factura de "${eq.nombre_instrumento}"? Se enviará a Entrega.`,
+            `¿El cliente ${eq.empresa || ''} ya pagó la factura de "${eq.nombre_instrumento}"? Se enviará a Entrega.${nota}`,
             { confirmText: 'Sí, marcar pagada' }
         );
         if (!ok) return;
@@ -83,9 +93,14 @@ export default function Facturacion({ darkMode, usuario }) {
         );
     };
 
+    // Sprint 12-C — separamos pendientes (flag explícito) de sin definir (sin nada).
     const totalCert = pendientes.filter(e => e.certificado_url).length;
-    const totalSinCert = pendientes.filter(e => !e.certificado_url && e.no_requiere_certificado).length;
-    const totalNoCert = pendientes.filter(e => !e.certificado_url && !e.no_requiere_certificado).length;
+    const totalNoRequiere = pendientes.filter(e => !e.certificado_url && e.no_requiere_certificado === 1).length;
+    const totalPendienteCert = pendientes.filter(e => !e.certificado_url && e.certificado_pendiente === 1).length;
+    const totalSinDefinir = pendientes.filter(e => !e.certificado_url && e.no_requiere_certificado !== 1 && e.certificado_pendiente !== 1).length;
+    // Sprint 12-E — equipos que YA facturé (factura_pagada=1) o entregados sin cert.
+    // Sigue siendo mi responsabilidad recordarle a Julieta que les suba el PDF.
+    const seguimientoMios = seguimiento.filter(s => s.factura_pagada === 1 || s.estatus_actual === 'Entregado');
 
     const boxBg     = darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200';
     const cardBg    = darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/15' : 'bg-slate-50 border-slate-200';
@@ -110,8 +125,8 @@ export default function Facturacion({ darkMode, usuario }) {
                 </button>
             </div>
 
-            {/* KPIs principales */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {/* KPIs principales (Sprint 12-C) */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 <div className={`p-4 rounded-2xl border-l-4 border-amber-500 ${boxBg}`}>
                     <div className="text-[10px] font-black uppercase tracking-widest text-amber-500 flex items-center gap-1"><Receipt size={12}/> Por facturar</div>
                     <div className={`text-3xl font-black mt-1 ${textTitle}`}>{pendientes.length}</div>
@@ -122,13 +137,57 @@ export default function Facturacion({ darkMode, usuario }) {
                 </div>
                 <div className={`p-4 rounded-2xl border-l-4 border-sky-500 ${boxBg}`}>
                     <div className="text-[10px] font-black uppercase tracking-widest text-sky-500 flex items-center gap-1"><Ban size={12}/> No requieren cert.</div>
-                    <div className={`text-3xl font-black mt-1 ${textTitle}`}>{totalSinCert}</div>
+                    <div className={`text-3xl font-black mt-1 ${textTitle}`}>{totalNoRequiere}</div>
+                </div>
+                <div className={`p-4 rounded-2xl border-l-4 border-amber-600 ${boxBg}`}>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-amber-600 flex items-center gap-1"><Clock size={12}/> Pendientes (vienen)</div>
+                    <div className={`text-3xl font-black mt-1 ${textTitle}`}>{totalPendienteCert}</div>
                 </div>
                 <div className={`p-4 rounded-2xl border-l-4 border-rose-500 ${boxBg}`}>
-                    <div className="text-[10px] font-black uppercase tracking-widest text-rose-500 flex items-center gap-1"><AlertTriangle size={12}/> Pendientes de PDF</div>
-                    <div className={`text-3xl font-black mt-1 ${textTitle}`}>{totalNoCert}</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-rose-500 flex items-center gap-1"><AlertTriangle size={12}/> Sin definir</div>
+                    <div className={`text-3xl font-black mt-1 ${textTitle}`}>{totalSinDefinir}</div>
                 </div>
             </div>
+
+            {/* Sprint 12-E — Seguimiento global de PDFs faltantes (incluye los que YA facturé).
+                Si una se olvida del cert, las otras lo ven y se lo recuerdan. */}
+            {seguimientoMios.length > 0 && (
+                <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-amber-950/15 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
+                    <div className="flex items-center gap-2 mb-3 flex-wrap">
+                        <Clock className={darkMode ? 'text-amber-400' : 'text-amber-700'} size={18}/>
+                        <h3 className={`text-sm font-black ${darkMode ? 'text-amber-300' : 'text-amber-800'}`}>
+                            {seguimientoMios.length} equipo(s) facturados o entregados SIN certificado
+                        </h3>
+                        <span className={`ml-auto text-[11px] ${darkMode ? 'text-amber-300/70' : 'text-amber-700/80'}`}>
+                            Coordina con Julieta para que suba el PDF
+                        </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {seguimientoMios.slice(0, 10).map(s => (
+                            <button
+                                key={s.id}
+                                onClick={() => navigate(`/orden/${encodeURIComponent(s.orden_cotizacion)}`)}
+                                className={`text-left px-3 py-2 rounded-xl border text-[11px] hover:shadow-md transition-all ${darkMode ? 'bg-[#1b2b10] border-amber-500/30 hover:border-amber-400' : 'bg-white border-amber-300 hover:border-amber-500'}`}
+                            >
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <span className={`text-[9px] font-mono opacity-50`}>{s.orden_cotizacion}</span>
+                                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-black ${s.certificado_pendiente ? 'bg-amber-500 text-white' : 'bg-rose-500 text-white'}`}>
+                                        {s.certificado_pendiente ? 'PENDIENTE' : 'SIN DEFINIR'}
+                                    </span>
+                                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-black ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-emerald-700'}`}>{s.estatus_actual}</span>
+                                </div>
+                                <div className={`font-bold truncate max-w-[200px] ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>{s.nombre_instrumento}</div>
+                                <div className={`text-[10px] opacity-60 truncate max-w-[200px]`}>{s.empresa}</div>
+                            </button>
+                        ))}
+                        {seguimientoMios.length > 10 && (
+                            <span className={`px-3 py-2 text-[11px] italic ${darkMode ? 'text-amber-300/60' : 'text-amber-700/60'}`}>
+                                + {seguimientoMios.length - 10} más...
+                            </span>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* PanelSLA específico para Facturación */}
             <PanelSLA
@@ -177,7 +236,8 @@ export default function Facturacion({ darkMode, usuario }) {
                     return lista.map(e => {
                         const esHist = tab === 'historial';
                         const tieneCert = !!e.certificado_url;
-                        const noReq = !!e.no_requiere_certificado;
+                        const noReq = e.no_requiere_certificado === 1;
+                        const pendiente = e.certificado_pendiente === 1;
                         return (
                             <div key={e.id} className={`p-4 flex items-start gap-3 ${darkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
                                 <div className={`p-2 rounded-lg flex-shrink-0 ${esHist ? (darkMode ? 'bg-emerald-900/30 text-emerald-400' : 'bg-emerald-100 text-emerald-600') : (darkMode ? 'bg-amber-900/30 text-amber-400' : 'bg-amber-100 text-amber-600')}`}>
@@ -186,9 +246,15 @@ export default function Facturacion({ darkMode, usuario }) {
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <p className={`text-sm font-bold ${textTitle}`}>{e.nombre_instrumento}</p>
-                                        {tieneCert && <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${darkMode ? 'bg-emerald-900/40 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>Con PDF</span>}
-                                        {!tieneCert && noReq && <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${darkMode ? 'bg-sky-900/40 text-sky-300' : 'bg-sky-100 text-sky-700'}`}>Sin cert (no requiere)</span>}
-                                        {!tieneCert && !noReq && <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${darkMode ? 'bg-rose-900/40 text-rose-300' : 'bg-rose-100 text-rose-700'}`}>Sin PDF</span>}
+                                        {/* Sprint 12-C — badges del estado del certificado */}
+                                        {tieneCert && (
+                                            <a href={e.certificado_url} target="_blank" rel="noreferrer" className={`px-2 py-0.5 rounded-full text-[9px] font-bold inline-flex items-center gap-1 hover:underline ${darkMode ? 'bg-emerald-900/40 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                <FileCheck size={10}/> Con PDF
+                                            </a>
+                                        )}
+                                        {!tieneCert && noReq && <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold inline-flex items-center gap-1 ${darkMode ? 'bg-sky-900/40 text-sky-300' : 'bg-sky-100 text-sky-700'}`}><Ban size={10}/> No requiere</span>}
+                                        {!tieneCert && pendiente && <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold inline-flex items-center gap-1 ${darkMode ? 'bg-amber-900/40 text-amber-300' : 'bg-amber-100 text-amber-700'}`}><Clock size={10}/> Cert pendiente</span>}
+                                        {!tieneCert && !noReq && !pendiente && <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold inline-flex items-center gap-1 ${darkMode ? 'bg-rose-900/40 text-rose-300' : 'bg-rose-100 text-rose-700'}`}><AlertTriangle size={10}/> Sin definir</span>}
                                         {!esHist && badgeSLA(e.slaRestante, darkMode)}
                                     </div>
                                     <div className={`text-[11px] flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-0.5 ${textMuted}`}>

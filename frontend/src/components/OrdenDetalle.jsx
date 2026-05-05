@@ -176,6 +176,29 @@ const OrdenDetalle = ({ darkMode }) => {
                 </button>
             </div>
 
+            {/* Sprint 11-B: tipos de servicio agregados (con conteo). Una OS puede
+                tener equipos de distintos tipos; aquí se ven de un vistazo. */}
+            {(() => {
+                const conteo = equipos.reduce((acc, e) => {
+                    const t = e.tipo_servicio || cabecera.servicio_solicitado || '—';
+                    acc[t] = (acc[t] || 0) + 1;
+                    return acc;
+                }, {});
+                const entradas = Object.entries(conteo).filter(([k]) => k && k !== '—');
+                if (entradas.length === 0) return null;
+                return (
+                    <div className={`p-4 rounded-2xl border flex items-center gap-3 flex-wrap ${boxBg}`}>
+                        <span className={`text-[11px] font-black uppercase tracking-widest ${textMuted}`}>Tipos de servicio</span>
+                        {entradas.map(([tipo, count]) => (
+                            <span key={tipo} className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-black ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {tipo}
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white'}`}>×{count}</span>
+                            </span>
+                        ))}
+                    </div>
+                );
+            })()}
+
             {/* Resumen cabecera */}
             <div className={`p-6 rounded-2xl border grid grid-cols-1 lg:grid-cols-3 gap-6 ${boxBg}`}>
                 <div className="space-y-3">
@@ -265,6 +288,7 @@ const OrdenDetalle = ({ darkMode }) => {
                             <tr className={`text-[10px] font-black uppercase tracking-wider ${textMuted}`}>
                                 <th className="text-left p-3">Instrumento</th>
                                 <th className="text-left p-3">Marca / Modelo</th>
+                                <th className="text-left p-3">Tipo Servicio</th>
                                 <th className="text-left p-3">Fase</th>
                                 <th className="text-left p-3">Asignados</th>
                                 <th className="text-left p-3">SLA</th>
@@ -284,6 +308,11 @@ const OrdenDetalle = ({ darkMode }) => {
                                         </td>
                                         <td className={`p-3 text-xs ${textBody}`}>
                                             {e.marca || '—'}{e.modelo ? ` / ${e.modelo}` : ''}
+                                        </td>
+                                        <td className="p-3">
+                                            {e.tipo_servicio ? (
+                                                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-emerald-700'}`}>{e.tipo_servicio}</span>
+                                            ) : <span className={textMuted}>—</span>}
                                         </td>
                                         <td className="p-3">
                                             <div className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg bg-${fase?.color || 'gray'}-500/10 text-${fase?.color || 'gray'}-500`}>

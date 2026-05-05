@@ -22,6 +22,9 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
     const [cargando, setCargando] = useState(true);
     const [busqueda, setBusqueda] = useState('');
     const [prioridadFiltro, setPrioridadFiltro] = useState(null);
+    // Sprint 11-J — scope ampliado del backend + toggle Mías/Todas
+    const [scopeMetro, setScopeMetro] = useState({ tipo: 'propio', area: null });
+    const [vistaMet, setVistaMet] = useState('mias'); // 'mias' | 'amplia'
     
     // Selección de equipos (IDs)
     const [seleccionados, setSeleccionados] = useState([]);
@@ -55,6 +58,10 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
             setCargando(true);
             const res = await axios.get('/api/instrumentos');
             setEquiposGlobales(res.data);
+            setScopeMetro({
+                tipo: res.headers['x-metrologia-scope'] || 'propio',
+                area: res.headers['x-metrologia-area'] || null
+            });
         } catch (error) {
             console.error(error);
         } finally {
@@ -81,23 +88,49 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
 
     const idUsuarioActual = usuario?.id || 1;
 
-    // Derived State - Filtrar por asignación
+    // Sprint 11-J — helper: ¿estoy yo asignado a este equipo?
+    const esMio = (e) => {
+        if (Number(e.metrologo_asignado_id) === Number(idUsuarioActual)) return true;
+        return (e.metrologos_asignados || []).some(m => Number(m.id) === Number(idUsuarioActual));
+    };
+
+    // Si el backend ya devolvió equipos con scope ampliado (jefe global / encargado área),
+    // los respetamos directamente. La vista local "mias" filtra a lo del usuario.
+    // Para usuarios sin scope ampliado, conserva el comportamiento anterior (solo lo suyo).
     let equiposFiltroTab = [];
     if (tabActual === 'Laboratorio') {
         equiposFiltroTab = equiposConSLA.filter(e => {
-            const enLab = e.estatus_actual === 'Laboratorio';
-            if (usuario?.rol === 'admin') return enLab; // Admins ven todo en Lab
-            
-            const soyAsignadoLegacy = Number(e.metrologo_asignado_id) === Number(idUsuarioActual);
-            const soyAsignadoMultiple = e.metrologos_asignados?.some(m => Number(m.id) === Number(idUsuarioActual) && (m.estatus === 'asignado' || m.estatus === 'correccion'));
-            return enLab && (soyAsignadoLegacy || soyAsignadoMultiple);
+            if (e.estatus_actual !== 'Laboratorio') return false;
+            if (usuario?.rol === 'admin' || scopeMetro.tipo !== 'propio') {
+                // Admin / jefe / encargado: respetan toggle Mías/Todas
+                return vistaMet === 'mias' ? esMio(e) : true;
+            }
+            return esMio(e); // Metrólogo regular: solo lo suyo
         });
     } else if (tabActual === 'Historial') {
-        equiposFiltroTab = equiposConSLA.filter(e => ['Validación', 'Aseguramiento', 'Certificación', 'Facturación'].includes(e.estatus_actual));
+        equiposFiltroTab = equiposConSLA.filter(e => {
+            if (!['Validación', 'Aseguramiento', 'Certificación', 'Facturación'].includes(e.estatus_actual)) return false;
+            if (usuario?.rol === 'admin' || scopeMetro.tipo !== 'propio') {
+                return vistaMet === 'mias' ? esMio(e) : true;
+            }
+            return esMio(e);
+        });
     } else if (tabActual === 'Entregados') {
-        equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Entregado');
+        equiposFiltroTab = equiposConSLA.filter(e => {
+            if (e.estatus_actual !== 'Entregado') return false;
+            if (usuario?.rol === 'admin' || scopeMetro.tipo !== 'propio') {
+                return vistaMet === 'mias' ? esMio(e) : true;
+            }
+            return esMio(e);
+        });
     } else if (tabActual === 'Vencidos') {
-        equiposFiltroTab = equiposConSLA.filter(e => e.estatus_actual === 'Laboratorio' && e.slaRestante <= 0);
+        equiposFiltroTab = equiposConSLA.filter(e => {
+            if (!(e.estatus_actual === 'Laboratorio' && e.slaRestante <= 0)) return false;
+            if (usuario?.rol === 'admin' || scopeMetro.tipo !== 'propio') {
+                return vistaMet === 'mias' ? esMio(e) : true;
+            }
+            return esMio(e);
+        });
     }
 
     if (tabActual === 'Laboratorio' && prioridadFiltro) {
@@ -150,8 +183,14 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
         return 'ORDEN';
     };
 
-    // KPIs (Siempre calculados sobre los de Laboratorio independientemente de la pestaña)
-    const enLaboratorioKPIs = equiposConSLA.filter(e => e.estatus_actual === 'Laboratorio');
+    // KPIs (Siempre sobre los de Laboratorio, respetando el toggle Mías/Todas).
+    const enLaboratorioKPIs = equiposConSLA.filter(e => {
+        if (e.estatus_actual !== 'Laboratorio') return false;
+        if (usuario?.rol === 'admin' || scopeMetro.tipo !== 'propio') {
+            return vistaMet === 'mias' ? esMio(e) : true;
+        }
+        return esMio(e);
+    });
     const countTotal = enLaboratorioKPIs.length;
     const countRojo = enLaboratorioKPIs.filter(e => e.prioridad === 'Rojo').length;
     const countAmarillo = enLaboratorioKPIs.filter(e => e.prioridad === 'Amarillo').length;
@@ -373,6 +412,30 @@ const MetrologiaDashboard = ({ darkMode, usuario }) => {
                     Entregados
                 </button>
             </div>
+
+            {/* Sprint 11-J — toggle Mías/Todas para jefe global / encargado de área */}
+            {scopeMetro.tipo !== 'propio' && (
+                <div className="flex items-center gap-3 flex-wrap">
+                    <span className={`text-[10px] font-black uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Vista:</span>
+                    <div className={`inline-flex p-1 rounded-xl ${darkMode ? 'bg-[#141f0b]' : 'bg-slate-100'}`}>
+                        <button
+                            onClick={() => setVistaMet('mias')}
+                            className={`px-4 py-1.5 rounded-lg text-[11px] font-black transition-all ${vistaMet === 'mias' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white text-emerald-700 shadow-sm') : (darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500')}`}
+                        >
+                            Solo míos
+                        </button>
+                        <button
+                            onClick={() => setVistaMet('amplia')}
+                            className={`px-4 py-1.5 rounded-lg text-[11px] font-black transition-all ${vistaMet === 'amplia' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white text-emerald-700 shadow-sm') : (darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500')}`}
+                        >
+                            {scopeMetro.tipo === 'global' ? 'TODOS los metrólogos' : `Mi área · ${scopeMetro.area}`}
+                        </button>
+                    </div>
+                    <span className={`text-[10px] font-bold ${darkMode ? 'text-[#F2F6F0]/50' : 'text-slate-400'}`}>
+                        {vistaMet === 'mias' ? 'KPIs y lista filtrados a tus equipos' : 'KPIs y lista del scope completo'}
+                    </span>
+                </div>
+            )}
 
             {/* Listado Agrupado */}
             <div className={`border rounded-2xl overflow-hidden ${darkMode ? 'border-[#C9EA63]/20 bg-[#1b2b10]' : 'border-slate-200 bg-white'}`}>

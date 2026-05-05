@@ -26,11 +26,11 @@ const { exec, execFile } = require('child_process');
 // Módulos del Bot PRO
 const botIA = require('./bot_ia');
 const botFlujos = require('./bot_flujos');
-const { ejecutarRecordatorios } = require('./bot_recordatorios');
+const { ejecutarRecordatorios, verificarSesionesAbandonadas } = require('./bot_recordatorios');
 
 // Autenticación
 const { generarToken, verificarToken, verificarPassword } = require('./auth');
-const { requirePermiso } = require('./middleware/permisos');
+const { requirePermiso, obtenerScopeMetrologia } = require('./middleware/permisos');
 
 const app = express();
 const httpServer = require('http').createServer(app);
@@ -393,6 +393,29 @@ async function ensureWhatsappChatsColumns() {
         // Sprint 8 — Bandera para equipos que NO requieren certificado físico.
         // Permite a Julieta marcarlos y pasarlos a Facturación sin exigir PDF.
         "ALTER TABLE instrumentos_estatus ADD COLUMN no_requiere_certificado TINYINT(1) NOT NULL DEFAULT 0 AFTER certificado_url",
+        // Sprint 12-A — equipo enviado a Facturación con certificado pendiente.
+        // Mutuamente excluyente con no_requiere_certificado y con tener cert subido.
+        "ALTER TABLE instrumentos_estatus ADD COLUMN certificado_pendiente TINYINT(1) NOT NULL DEFAULT 0 AFTER no_requiere_certificado",
+        // Sprint 13-B2 — para no enviar el recordatorio de cotización abandonada
+        // múltiples veces al mismo cliente. Se setea cuando enviamos el aviso.
+        "ALTER TABLE sesiones ADD COLUMN recordatorio_cotiz_at TIMESTAMP NULL",
+        // Sprint 13-E — origen del lead (creado por bot vs por admin) y última interacción.
+        "ALTER TABLE chat_leads ADD COLUMN origen ENUM('bot','manual') NOT NULL DEFAULT 'manual'",
+        "ALTER TABLE chat_leads ADD COLUMN ultima_interaccion TIMESTAMP NULL",
+        // Sprint 13-E — clientes que pasaron el flujo "Soy Cliente" en el bot pero
+        // aún no son clientes oficiales de cat_clientes. Recepción los promueve.
+        `CREATE TABLE IF NOT EXISTS clientes_bot (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            telefono VARCHAR(50) NOT NULL UNIQUE,
+            empresa VARCHAR(255) NULL,
+            rfc VARCHAR(20) NULL,
+            contacto_nombre VARCHAR(255) NULL,
+            contacto_email VARCHAR(255) NULL,
+            estado ENUM('Validado','Cotizado','Aprobado') NOT NULL DEFAULT 'Validado',
+            catalogo_cliente_id INT NULL,
+            ultima_interaccion TIMESTAMP NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
         // Sprint 9 — Sub-estado dentro de Facturación: Ivón confirma cobro al cliente.
         // Flor solo ve los equipos con factura_pagada=1 para entregar.
         "ALTER TABLE instrumentos_estatus ADD COLUMN factura_pagada TINYINT(1) NOT NULL DEFAULT 0 AFTER no_requiere_certificado",
@@ -452,12 +475,20 @@ async function ensureWhatsappChatsColumns() {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE TABLE IF NOT EXISTS notificaciones_leidas (
-            id INT AUTO_INCREMENT PRIMARY KEY, 
-            notificacion_id INT NOT NULL, 
-            usuario_id INT NOT NULL, 
-            leido_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            notificacion_id INT NOT NULL,
+            usuario_id INT NOT NULL,
+            leido_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY user_notif (notificacion_id, usuario_id)
-        )`
+        )`,
+        // Sprint 10-B — Catálogo editable de tipos de servicio. Antes era un array
+        // hardcodeado en Registro.jsx. Admin lo gestiona desde Gestión de Usuarios.
+        `CREATE TABLE IF NOT EXISTS tipos_servicio (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            nombre VARCHAR(120) NOT NULL UNIQUE,
+            activo TINYINT(1) NOT NULL DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
     ];
     for (const sql of nuevasMigraciones) {
         try { await db.query(sql); } catch (e) { /* columna ya existe o tabla ya existe */ }
@@ -496,6 +527,40 @@ async function ensureWhatsappChatsColumns() {
         await migrarAreasLideres();
     } catch (e) {
         console.warn('⚠️ migracion_areas_lideres no se pudo cargar:', e.message);
+    }
+
+    // Sweep idempotente: equipos en Certificación que ya tienen cert (o no lo requieren)
+    // deben estar en Facturación. Repara casos huérfanos por bugs previos donde la
+    // subida individual de PDF no bumpaba el estatus.
+    try {
+        const [r] = await db.query(
+            `UPDATE instrumentos_estatus SET estatus_actual = 'Facturación'
+             WHERE estatus_actual = 'Certificación'
+               AND (certificado_url IS NOT NULL OR no_requiere_certificado = 1)`
+        );
+        if (r.affectedRows > 0) console.log(`🩹 Equipos huérfanos movidos a Facturación: ${r.affectedRows}`);
+    } catch (e) {
+        console.warn('⚠️ sweep certificación→facturación falló:', e.message);
+    }
+
+    // Sprint 10-B — Seed idempotente de tipos de servicio. Solo inserta los que
+    // no existan, así admin puede borrar/agregar sin que regresen al arranque.
+    try {
+        const [existentes] = await db.query('SELECT COUNT(*) AS c FROM tipos_servicio');
+        if (existentes[0].c === 0) {
+            const seed = [
+                'Calibración inLab', 'Calibración in Plant', 'Calibración In-Situ',
+                'Venta', 'Vaisala Boston', 'Servicio Terceros', 'Patrones SICAMET',
+                'Medición', 'Ensayos de Aptitud', 'Consultoría', 'Capacitación',
+                'Calificación'
+            ];
+            for (const nombre of seed) {
+                try { await db.query('INSERT IGNORE INTO tipos_servicio (nombre, activo) VALUES (?, 1)', [nombre]); } catch (_) {}
+            }
+            console.log(`🏷️  Tipos de servicio iniciales sembrados: ${seed.length}`);
+        }
+    } catch (e) {
+        console.warn('⚠️ seed tipos_servicio falló:', e.message);
     }
 }
 
@@ -990,29 +1055,33 @@ app.get('/api/instrumentos', verificarToken(), async (req, res) => {
         } else if (rol === 'aseguramiento' || rol === 'validacion') {
             query += " AND ie.estatus_actual IN ('Aseguramiento','Certificación','Facturación','Entregado') ORDER BY ie.fecha_ingreso DESC";
         } else if (rol === 'metrologo' || rol === 'operador') {
-            const [userRow] = await db.query('SELECT permisos, es_lider_area FROM usuarios WHERE id = ?', [userId]);
-            let permisos = [];
-            try { permisos = JSON.parse(userRow[0]?.permisos || '[]'); } catch(_) {}
-            const esLider = !!(userRow[0]?.es_lider_area);
-            
-            if (area && (permisos.includes('supervisor_area') || esLider)) {
-                // Líder de área o supervisor: ve TODO su área O lo que tenga asignado específicamente
-                query += ` 
+            // Sprint 11-I — usar mismo scope jerárquico que metrología.
+            // jefe global → todo; encargado de área → todo del área; metrólogo → solo lo suyo.
+            const scope = await obtenerScopeMetrologia(req.usuario);
+            res.set('X-Metrologia-Scope', scope.tipo);
+            if (scope.area) res.set('X-Metrologia-Area', scope.area);
+
+            if (scope.tipo === 'global') {
+                query += ' ORDER BY ie.fecha_ingreso DESC';
+            } else if (scope.tipo === 'area') {
+                // Ve todo lo del área OR cualquier equipo asignado a alguien del área
+                const placeholders = scope.userIdsVisibles.map(() => '?').join(',');
+                query += `
                     AND (
-                        ie.area_laboratorio = ? 
-                        OR ie.metrologo_asignado_id = ? 
-                        OR EXISTS (SELECT 1 FROM instrumento_metrologos im WHERE im.instrumento_id = ie.id AND im.usuario_id = ?)
-                    ) 
+                        ie.area_laboratorio = ?
+                        OR ie.metrologo_asignado_id IN (${placeholders})
+                        OR EXISTS (SELECT 1 FROM instrumento_metrologos im WHERE im.instrumento_id = ie.id AND im.usuario_id IN (${placeholders}))
+                    )
                     ORDER BY ie.fecha_ingreso DESC
                 `;
-                params.push(area, userId, userId);
+                params.push(scope.area, ...scope.userIdsVisibles, ...scope.userIdsVisibles);
             } else {
-                // Metrología normal: ve únicamente lo que tiene asignado (de cualquier área)
-                query += ` 
+                // propio
+                query += `
                     AND (
-                        ie.metrologo_asignado_id = ? 
+                        ie.metrologo_asignado_id = ?
                         OR EXISTS (SELECT 1 FROM instrumento_metrologos im WHERE im.instrumento_id = ie.id AND im.usuario_id = ?)
-                    ) 
+                    )
                     ORDER BY ie.fecha_ingreso DESC
                 `;
                 params.push(userId, userId);
@@ -1079,6 +1148,126 @@ app.delete('/api/areas/:id', verificarToken(['admin']), async (req, res) => {
         await db.query('DELETE FROM laboratorio_areas WHERE id = ?', [req.params.id]);
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── TIPOS DE SERVICIO (Sprint 10-B) ─────────────────────────────────────────
+// Catálogo editable que reemplaza el array hardcodeado en Registro.jsx.
+app.get('/api/tipos-servicio', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM tipos_servicio ORDER BY activo DESC, nombre ASC');
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/tipos-servicio', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { nombre } = req.body;
+        if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Nombre requerido' });
+        const [r] = await db.query('INSERT INTO tipos_servicio (nombre, activo) VALUES (?, 1)', [nombre.trim()]);
+        res.json({ success: true, id: r.insertId });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ya existe un tipo con ese nombre' });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/tipos-servicio/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        const { nombre, activo } = req.body;
+        if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Nombre requerido' });
+        await db.query(
+            'UPDATE tipos_servicio SET nombre = ?, activo = ? WHERE id = ?',
+            [nombre.trim(), activo !== undefined ? (activo ? 1 : 0) : 1, req.params.id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ya existe un tipo con ese nombre' });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/tipos-servicio/:id', verificarToken(['admin']), async (req, res) => {
+    try {
+        await db.query('DELETE FROM tipos_servicio WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── RESET OPERATIVO (Sprint 10-C) ───────────────────────────────────────────
+// Borra todos los datos operativos (OS, conversaciones, cotizaciones, calificaciones,
+// verificentros, compras, notificaciones, sesiones, mensajes del bot, etc.) y
+// conserva: usuarios, áreas, tipos de servicio, catálogos (clientes, instrumentos,
+// marcas, modelos) y flujos del bot (nodos/opciones/faq/config). Pensado para
+// dejar el sistema en estado limpio para pruebas reales del usuario.
+//
+// Doble confirmación: el body debe traer { confirmacion: 'BORRAR TODO' } literal.
+app.post('/api/admin/reset-operativo', verificarToken(['admin']), async (req, res) => {
+    if ((req.body?.confirmacion || '').trim() !== 'BORRAR TODO') {
+        return res.status(400).json({ error: 'Confirmación inválida. Debe escribir literalmente "BORRAR TODO".' });
+    }
+
+    // Tablas operativas que se vacían. El orden no importa porque desactivamos
+    // chequeos de FK. Solo incluyen datos generados por el uso del sistema.
+    const tablasOperativas = [
+        'instrumento_metrologos',
+        'instrumentos_comentarios',
+        'instrumentos_historial',
+        'auditoria_instrumentos',
+        'os_versiones',
+        'rechazos_aseguramiento',
+        'instrumentos_estatus',
+        'chat_assignments',
+        'bot_aprendizaje_pendiente',
+        'feedback_bot',
+        'notificaciones_leidas',
+        'notificaciones_globales',
+        'recordatorios_enviados',
+        'escalados',
+        'ventas_bot',
+        'cotizaciones_bot',
+        'calificaciones_bot',
+        'verificentros_bot',
+        'equipos_cliente',
+        'bot_conversaciones',
+        'bot_mensajes',
+        'chat_mensajes',
+        'chat_leads',
+        'whatsapp_mensajes',
+        'whatsapp_chats',
+        'sesiones',
+        'cache_ia'
+    ];
+
+    const resultado = { vaciadas: [], errores: [] };
+    try {
+        await db.query('SET FOREIGN_KEY_CHECKS = 0');
+        for (const t of tablasOperativas) {
+            try {
+                await db.query(`TRUNCATE TABLE ${t}`);
+                resultado.vaciadas.push(t);
+            } catch (e) {
+                // Si la tabla no existe simplemente la saltamos.
+                if (e.code !== 'ER_NO_SUCH_TABLE') {
+                    resultado.errores.push({ tabla: t, error: e.message });
+                }
+            }
+        }
+        await db.query('SET FOREIGN_KEY_CHECKS = 1');
+
+        try {
+            await db.query(
+                'INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) VALUES (?, ?, ?, ?)',
+                [0, 'reset_operativo', req.usuario.id, JSON.stringify({ tablas: resultado.vaciadas.length })]
+            );
+        } catch (_) {}
+
+        if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'reset_operativo' });
+        console.log(`🧨 Reset operativo ejecutado por ${req.usuario.email}. Tablas vaciadas: ${resultado.vaciadas.length}`);
+        res.json({ success: true, ...resultado });
+    } catch (err) {
+        try { await db.query('SET FOREIGN_KEY_CHECKS = 1'); } catch (_) {}
+        res.status(500).json({ error: err.message, ...resultado });
+    }
 });
 
 // Metrólogos de un área específica o todos los metrólogos si no hay área
@@ -1585,24 +1774,34 @@ app.get('/api/instrumentos/sin-certificado', verificarToken(), async (req, res) 
 // --- MI BANDEJA (solo instrumentos asignados a este metrólogo) ---
 app.get('/api/metrologia/mi-bandeja', verificarToken(), async (req, res) => {
     try {
-        const userId = req.usuario.id;
+        // Sprint 11-E: scope jerárquico (jefe global / encargado de área / propio).
+        const scope = await obtenerScopeMetrologia(req.usuario);
+        if (scope.userIdsVisibles.length === 0) return res.json([]);
+        const placeholders = scope.userIdsVisibles.map(() => '?').join(',');
+
         const [equipos] = await db.query(
-            `SELECT ie.*, im.estatus as mi_estatus, im.fecha_asignacion, im.fecha_fin,
+            `SELECT DISTINCT ie.*, im.estatus as mi_estatus, im.fecha_asignacion, im.fecha_fin,
+                    im.usuario_id AS asignado_a_id,
+                    u_asig.nombre AS asignado_a_nombre,
                     ie.rechazos_aseguramiento,
                     (SELECT COUNT(*) FROM rechazos_aseguramiento WHERE instrumento_id = ie.id) as total_rechazos
              FROM instrumentos_estatus ie
              JOIN instrumento_metrologos im ON im.instrumento_id = ie.id
-             WHERE im.usuario_id = ? AND ie.estatus_actual = 'Laboratorio'
+             LEFT JOIN usuarios u_asig ON u_asig.id = im.usuario_id
+             WHERE im.usuario_id IN (${placeholders}) AND ie.estatus_actual = 'Laboratorio'
              ORDER BY ie.fecha_recepcion_parsed ASC, ie.fecha_ingreso ASC`,
-            [userId]
+            scope.userIdsVisibles
         );
 
-        // Calcular SLA real para cada equipo
         const conSLA = equipos.map(e => ({
             ...e,
             ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
         }));
 
+        // Mantenemos retro-compatibilidad devolviendo array y exponiendo el scope
+        // por headers para que el frontend pueda mostrar "Viendo como jefe global" etc.
+        res.set('X-Metrologia-Scope', scope.tipo);
+        if (scope.area) res.set('X-Metrologia-Area', scope.area);
         res.json(conSLA);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1644,23 +1843,31 @@ app.get('/api/metrologia/laboratorio-general', verificarToken(), async (req, res
 // --- CORRECCIONES PENDIENTES ---
 app.get('/api/metrologia/correcciones', verificarToken(), async (req, res) => {
     try {
-        const userId = req.usuario.id;
+        // Sprint 11-E: jefe global ve todas las correcciones; jefe de área ve las
+        // del área; metrólogo regular solo las suyas.
+        const scope = await obtenerScopeMetrologia(req.usuario);
+        if (scope.userIdsVisibles.length === 0) return res.json([]);
+        const placeholders = scope.userIdsVisibles.map(() => '?').join(',');
+
         const [equipos] = await db.query(
-            `SELECT ie.*, im.estatus as mi_estatus, 
-                    COALESCE(r.motivo, 'Revisar chat de corrección') as ultimo_motivo, 
+            `SELECT DISTINCT ie.*, im.estatus as mi_estatus,
+                    im.usuario_id AS asignado_a_id,
+                    u_asig.nombre AS asignado_a_nombre,
+                    COALESCE(r.motivo, 'Revisar chat de corrección') as ultimo_motivo,
                     r.fecha_rechazo,
                     ie.rechazos_aseguramiento,
                     (SELECT COUNT(*) FROM instrumentos_comentarios ic WHERE ic.instrumento_id = ie.id) as comentarios_count
              FROM instrumentos_estatus ie
              JOIN instrumento_metrologos im ON im.instrumento_id = ie.id
+             LEFT JOIN usuarios u_asig ON u_asig.id = im.usuario_id
              LEFT JOIN (
                  SELECT instrumento_id, motivo, fecha_rechazo
                  FROM rechazos_aseguramiento
                  WHERE id IN (SELECT MAX(id) FROM rechazos_aseguramiento GROUP BY instrumento_id)
              ) r ON r.instrumento_id = ie.id
-             WHERE im.usuario_id = ? AND im.estatus = 'correccion' AND ie.estatus_actual = 'Laboratorio'
+             WHERE im.usuario_id IN (${placeholders}) AND im.estatus = 'correccion' AND ie.estatus_actual = 'Laboratorio'
              ORDER BY ie.fecha_ingreso DESC`,
-            [userId]
+            scope.userIdsVisibles
         );
 
         const conSLA = equipos.map(e => ({
@@ -1668,6 +1875,8 @@ app.get('/api/metrologia/correcciones', verificarToken(), async (req, res) => {
             ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
         }));
 
+        res.set('X-Metrologia-Scope', scope.tipo);
+        if (scope.area) res.set('X-Metrologia-Area', scope.area);
         res.json(conSLA);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1911,18 +2120,44 @@ app.post('/api/instrumentos/:id/certificado', requirePermiso('certificacion.subi
             // Guardamos el certificado de todas formas, según solicitud del usuario
             const dbPath = `/uploads/certificados/${req.file.filename}`;
             try {
-                await db.query('UPDATE instrumentos_estatus SET certificado_url = ?, numero_informe = ? WHERE id = ?', 
+                await db.query('UPDATE instrumentos_estatus SET certificado_url = ?, numero_informe = ? WHERE id = ?',
                     [dbPath, nInforme, req.params.id]);
-                
-                if (global.io) {
-                    global.io.emit('actualizacion_equipo', { id: req.params.id, certificado_url: dbPath, numero_informe: nInforme });
+
+                // Si el equipo estaba en Certificación esperando PDF, al subirlo pasa
+                // automáticamente a Facturación para que Ivón lo vea sin un paso extra
+                // de "finalizar". Mismo comportamiento que multiple-finalizar.
+                let movidoAFacturacion = false;
+                if (rows[0].estatus_actual === 'Certificación') {
+                    await db.query(
+                        `UPDATE instrumentos_estatus SET estatus_actual = 'Facturación' WHERE id = ?`,
+                        [req.params.id]
+                    );
+                    movidoAFacturacion = true;
+                    try {
+                        const { emitirNotificacion } = require('./notificaciones');
+                        emitirNotificacion({
+                            tipo: 'sistema',
+                            titulo: `Equipo listo para facturar · OC ${rows[0].orden_cotizacion || '—'}`,
+                            detalle: `Se subió el certificado. Listo para confirmar pago.`,
+                            audiencia: 'permiso:facturacion.ver',
+                            urgencia: 'media',
+                            ruta: '/facturacion',
+                            creadorId: req.usuario?.id || null
+                        });
+                    } catch (_) {}
                 }
 
-                res.json({ 
-                    success: true, 
-                    url: dbPath, 
+                if (global.io) {
+                    global.io.emit('actualizacion_equipo', { id: req.params.id, certificado_url: dbPath, numero_informe: nInforme });
+                    if (movidoAFacturacion) global.io.emit('actualizacion_operativa', { tipo: 'cert_subido_finaliza', id: Number(req.params.id) });
+                }
+
+                res.json({
+                    success: true,
+                    url: dbPath,
                     numero_informe: nInforme,
                     ai_data: dataExtraida,
+                    movido_a_facturacion: movidoAFacturacion,
                     message: "Certificado cargado correctamente." + (Object.keys(dataExtraida).length === 0 ? " (Procesamiento automático omitido)" : "")
                 });
             } catch (dbErr) {
@@ -2322,28 +2557,36 @@ app.get('/api/aseguramiento/mis-decisiones', requirePermiso('aseguramiento.ver')
 });
 
 // Sprint 7 / S7-C — Mis envíos de metrólogo (equipos que envié a aseguramiento).
+// Sprint 11-E — scope jerárquico (jefe global / encargado área / propio).
 app.get('/api/metrologia/mis-envios', verificarToken(), async (req, res) => {
     try {
-        const userId = req.usuario.id;
-        // Equipos donde tengo o tuve relación y que ya están post-laboratorio
+        const scope = await obtenerScopeMetrologia(req.usuario);
+        if (scope.userIdsVisibles.length === 0) return res.json([]);
+        const placeholders = scope.userIdsVisibles.map(() => '?').join(',');
+
         const [rows] = await db.query(
             `SELECT DISTINCT ie.id, ie.nombre_instrumento, ie.orden_cotizacion, ie.empresa,
                     ie.estatus_actual, ie.fecha_recepcion_parsed, ie.fecha_recepcion, ie.fecha_ingreso,
-                    ie.sla, ie.sla_dias_extra,
+                    ie.sla, ie.sla_dias_extra, ie.area_laboratorio,
+                    ie.metrologo_asignado_id,
+                    u_asig.nombre AS asignado_a_nombre,
                     (SELECT COUNT(*) FROM instrumentos_comentarios c WHERE c.instrumento_id = ie.id) AS comentarios_count,
                     (SELECT MAX(c.fecha) FROM instrumentos_comentarios c WHERE c.instrumento_id = ie.id) AS ultimo_comentario,
                     ie.rechazos_aseguramiento
              FROM instrumentos_estatus ie
              LEFT JOIN instrumento_metrologos im ON im.instrumento_id = ie.id
-             WHERE (im.usuario_id = ? OR ie.metrologo_asignado_id = ?)
+             LEFT JOIN usuarios u_asig ON u_asig.id = COALESCE(im.usuario_id, ie.metrologo_asignado_id)
+             WHERE (im.usuario_id IN (${placeholders}) OR ie.metrologo_asignado_id IN (${placeholders}))
                AND ie.estatus_actual IN ('Aseguramiento','Certificación','Facturación','Entregado')
-             ORDER BY ie.fecha_ingreso DESC LIMIT 100`,
-            [userId, userId]
+             ORDER BY ie.fecha_ingreso DESC LIMIT 200`,
+            [...scope.userIdsVisibles, ...scope.userIdsVisibles]
         );
         const conSLA = rows.map(e => ({
             ...e,
             ...calcularSLAReal(e.fecha_recepcion_parsed, e.fecha_recepcion, e.fecha_ingreso, e.sla, e.sla_dias_extra)
         }));
+        res.set('X-Metrologia-Scope', scope.tipo);
+        if (scope.area) res.set('X-Metrologia-Area', scope.area);
         res.json(conSLA);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2643,20 +2886,99 @@ app.put('/api/instrumentos/:id/config', requirePermiso('certificacion.subir'), a
 
 // Sprint 8 / B9 — Finalizar equipos en lote: mover a Facturación los que ya tienen
 // certificado_url o están marcados como no_requiere_certificado.
+// Sprint 12-A — soporta 3 modos de finalización:
+//   - 'con_cert': solo mueve los que ya tienen certificado_url
+//   - 'no_requiere': marca no_requiere_certificado=1 y mueve a Facturación
+//   - 'pendiente':   marca certificado_pendiente=1 y mueve a Facturación (cert se subirá luego)
+//   - (sin modo / 'auto'): comportamiento previo (los que ya tienen cert o no_requiere)
 app.post('/api/instrumentos-multiple-finalizar', requirePermiso('certificacion.subir'), async (req, res) => {
     try {
         const { ids } = req.body;
+        const modo = req.body?.modo || 'auto';
         if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids vacío' });
         const placeholders = ids.map(() => '?').join(',');
-        await db.query(
-            `UPDATE instrumentos_estatus SET estatus_actual = 'Facturación'
-             WHERE id IN (${placeholders})
-               AND estatus_actual = 'Certificación'
-               AND (certificado_url IS NOT NULL OR no_requiere_certificado = 1)`,
+
+        // Filtro de elegibilidad por modo
+        let whereExtra = '';
+        if (modo === 'con_cert') whereExtra = 'AND certificado_url IS NOT NULL';
+        else if (modo === 'auto') whereExtra = 'AND (certificado_url IS NOT NULL OR no_requiere_certificado = 1)';
+        // Para 'no_requiere' y 'pendiente' no requerimos pre-condiciones; aplicamos el flag.
+
+        const [aMover] = await db.query(
+            `SELECT id, orden_cotizacion FROM instrumentos_estatus
+             WHERE id IN (${placeholders}) AND estatus_actual = 'Certificación' ${whereExtra}`,
             ids
         );
+
+        if (aMover.length > 0) {
+            const movidosIds = aMover.map(r => r.id);
+            const phMov = movidosIds.map(() => '?').join(',');
+            // Aplicar el flag correspondiente y mover a Facturación en una sola operación.
+            // Mantenemos los flags mutuamente excluyentes: si el modo es uno, los otros bajan.
+            let setFlags = '';
+            if (modo === 'no_requiere') setFlags = ', no_requiere_certificado = 1, certificado_pendiente = 0';
+            else if (modo === 'pendiente') setFlags = ', certificado_pendiente = 1, no_requiere_certificado = 0';
+            await db.query(
+                `UPDATE instrumentos_estatus SET estatus_actual = 'Facturación' ${setFlags} WHERE id IN (${phMov})`,
+                movidosIds
+            );
+            try {
+                const { emitirNotificacion } = require('./notificaciones');
+                const ordenes = [...new Set(aMover.map(r => r.orden_cotizacion).filter(Boolean))];
+                const tagModo = modo === 'pendiente' ? ' (cert pendiente)' : modo === 'no_requiere' ? ' (sin certificado)' : '';
+                emitirNotificacion({
+                    tipo: 'sistema',
+                    titulo: `${aMover.length} equipo(s) listos para facturar${tagModo}`,
+                    detalle: ordenes.length > 0 ? `Órdenes: ${ordenes.join(', ')}` : 'Equipos listos para confirmar pago.',
+                    audiencia: 'permiso:facturacion.ver',
+                    urgencia: 'media',
+                    ruta: '/facturacion',
+                    creadorId: req.usuario?.id || null
+                });
+            } catch (_) {}
+        }
         if (global.io) global.io.emit('actualizacion_operativa', { tipo: 'multiple_finalizar' });
-        res.json({ success: true, count: ids.length });
+        res.json({ success: true, count: aMover.length, total: ids.length, modo });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sprint 12-A — marca/desmarca un equipo individual como "certificado pendiente".
+// Útil cuando Julieta quiere flagear sin moverlo aún de fase.
+app.put('/api/instrumentos/:id/marcar-pendiente', requirePermiso('certificacion.subir'), async (req, res) => {
+    try {
+        const valor = req.body?.pendiente ? 1 : 0;
+        // Si marcamos pendiente, bajamos no_requiere_certificado para mantener exclusividad.
+        const setExtra = valor ? ', no_requiere_certificado = 0' : '';
+        await db.query(
+            `UPDATE instrumentos_estatus SET certificado_pendiente = ? ${setExtra} WHERE id = ?`,
+            [valor, req.params.id]
+        );
+        try {
+            await db.query(
+                'INSERT INTO auditoria_instrumentos (instrumento_id, accion, usuario_id, detalles) VALUES (?, ?, ?, ?)',
+                [req.params.id, valor ? 'marcar_cert_pendiente' : 'desmarcar_cert_pendiente', req.usuario.id, null]
+            );
+        } catch (_) {}
+        res.json({ success: true, certificado_pendiente: valor });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sprint 12-A/E — Seguimiento de equipos sin certificado más allá de la fase de
+// Certificación. Visible para Julieta (cert), Ivón (facturación) y Flor (entrega):
+// si una se olvida del PDF, las demás lo ven y pueden recordárselo.
+app.get('/api/certificacion/seguimiento', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT ie.id, ie.orden_cotizacion, ie.empresa, ie.nombre_instrumento,
+                    ie.estatus_actual, ie.certificado_pendiente, ie.no_requiere_certificado,
+                    ie.factura_pagada, ie.fecha_entrega, ie.fecha_ingreso
+             FROM instrumentos_estatus ie
+             WHERE ie.estatus_actual IN ('Facturación','Entregado')
+               AND (ie.certificado_url IS NULL OR ie.certificado_url = '')
+               AND ie.no_requiere_certificado = 0
+             ORDER BY ie.fecha_ingreso DESC LIMIT 200`
+        );
+        res.json(rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -3064,19 +3386,83 @@ app.put('/api/catalogo/:tipo/:id', async (req, res) => {
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
-// --- LEADS ---
-app.get('/api/leads', async (req, res) => {
+// --- LEADS (Sprint 13-E) ---
+app.get('/api/leads', verificarToken(), async (req, res) => {
     try {
-        const [rows] = await db.query("SELECT * FROM chat_leads ORDER BY id DESC");
+        const [rows] = await db.query("SELECT * FROM chat_leads ORDER BY COALESCE(ultima_interaccion, fecha) DESC");
         res.json(rows);
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
-app.post('/api/leads', async (req, res) => {
+app.post('/api/leads', verificarToken(), async (req, res) => {
     try {
-        const { telefono, nombre, interes } = req.body;
-        await db.query("INSERT INTO chat_leads (telefono, nombre, interes, estado) VALUES (?, ?, ?, 'Pendiente')", [telefono, nombre, interes]);
+        const { telefono, nombre, interes, origen } = req.body;
+        await db.query(
+            "INSERT INTO chat_leads (telefono, nombre, interes, estado, origen, ultima_interaccion) VALUES (?, ?, ?, 'Pendiente', ?, NOW())",
+            [telefono, nombre, interes, origen || 'manual']
+        );
         res.json({success: true});
+    } catch(err) { res.status(500).json({error: err.message}); }
+});
+
+// --- CLIENTES DEL BOT (Sprint 13-E) ---
+app.get('/api/clientes-bot', verificarToken(), async (req, res) => {
+    try {
+        const [rows] = await db.query(`
+            SELECT cb.*, cc.nombre AS catalogo_cliente_nombre
+            FROM clientes_bot cb
+            LEFT JOIN cat_clientes cc ON cc.id = cb.catalogo_cliente_id
+            ORDER BY COALESCE(cb.ultima_interaccion, cb.created_at) DESC
+        `);
+        res.json(rows);
+    } catch(err) { res.status(500).json({error: err.message}); }
+});
+
+app.put('/api/clientes-bot/:id/estado', verificarToken(), async (req, res) => {
+    try {
+        const { estado } = req.body;
+        if (!['Validado','Cotizado','Aprobado'].includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+        await db.query('UPDATE clientes_bot SET estado = ? WHERE id = ?', [estado, req.params.id]);
+        res.json({ success: true });
+    } catch(err) { res.status(500).json({error: err.message}); }
+});
+
+// Promueve un cliente del bot a cat_clientes (catálogo oficial usado por Recepción).
+// Solo accesible para quien tenga `clientes.editar` (admin y recepcionista por default).
+app.post('/api/clientes-bot/:id/promover', requirePermiso('clientes.editar'), async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM clientes_bot WHERE id = ? LIMIT 1', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Cliente del bot no encontrado' });
+        const cb = rows[0];
+        if (cb.catalogo_cliente_id) return res.status(400).json({ error: 'Ya está promovido al catálogo' });
+        const [r] = await db.query(
+            'INSERT INTO cat_clientes (nombre, contacto, email, telefono, rfc) VALUES (?, ?, ?, ?, ?)',
+            [cb.empresa || cb.contacto_nombre || `Cliente ${cb.telefono}`, cb.contacto_nombre || '', cb.contacto_email || '', cb.telefono, cb.rfc || '']
+        );
+        await db.query('UPDATE clientes_bot SET catalogo_cliente_id = ?, estado = ? WHERE id = ?', [r.insertId, 'Aprobado', req.params.id]);
+        res.json({ success: true, catalogo_cliente_id: r.insertId });
+    } catch(err) { res.status(500).json({error: err.message}); }
+});
+
+app.delete('/api/clientes-bot/:id', requirePermiso('clientes.editar'), async (req, res) => {
+    try {
+        await db.query('DELETE FROM clientes_bot WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch(err) { res.status(500).json({error: err.message}); }
+});
+
+app.put('/api/leads/:id/estado', verificarToken(), async (req, res) => {
+    try {
+        const { estado } = req.body;
+        await db.query('UPDATE chat_leads SET estado = ? WHERE id = ?', [estado, req.params.id]);
+        res.json({ success: true });
+    } catch(err) { res.status(500).json({error: err.message}); }
+});
+
+app.delete('/api/leads/:id', verificarToken(), async (req, res) => {
+    try {
+        await db.query('DELETE FROM chat_leads WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
     } catch(err) { res.status(500).json({error: err.message}); }
 });
 
@@ -3390,6 +3776,33 @@ function iniciarBot(sesionLimpia = false) {
                 [numeroParaRegistro, push || numeroParaRegistro]
             ).catch(() => {});
         });
+
+        // Sprint 13-E — captura automática de leads en el primer mensaje de un
+        // número desconocido. Si ya está en cat_clientes (oficial) o en clientes_bot
+        // (validado por bot), no creamos lead. Si está en chat_leads, refrescamos
+        // ultima_interaccion. Si no, creamos un lead nuevo con origen=bot.
+        if (!esPropio && numeroParaRegistro) {
+            try {
+                const telDigits = (numeroParaRegistro || '').replace(/\D/g, '');
+                if (telDigits.length >= 8) {
+                    const [enCat] = await db.query("SELECT id FROM cat_clientes WHERE REPLACE(REPLACE(REPLACE(telefono, ' ', ''), '-', ''), '+', '') LIKE ? LIMIT 1", [`%${telDigits.slice(-10)}`]).catch(() => [[]]);
+                    const [enClientesBot] = await db.query('SELECT id FROM clientes_bot WHERE telefono = ? LIMIT 1', [telDigits]).catch(() => [[]]);
+                    if ((enCat || []).length === 0 && (enClientesBot || []).length === 0) {
+                        const [existente] = await db.query('SELECT id FROM chat_leads WHERE telefono = ? LIMIT 1', [telDigits]);
+                        if (existente.length === 0) {
+                            await db.query(
+                                "INSERT INTO chat_leads (telefono, nombre, interes, estado, origen, ultima_interaccion) VALUES (?, ?, ?, 'Pendiente', 'bot', NOW())",
+                                [telDigits, push || `Sin nombre (${telDigits})`, (textoRecibido || '').slice(0, 250)]
+                            ).catch(() => {});
+                        } else {
+                            await db.query("UPDATE chat_leads SET ultima_interaccion = NOW(), estado = CASE WHEN estado = 'Pendiente' THEN 'Contactado' ELSE estado END WHERE id = ?", [existente[0].id]).catch(() => {});
+                        }
+                    } else if ((enClientesBot || []).length > 0) {
+                        await db.query('UPDATE clientes_bot SET ultima_interaccion = NOW() WHERE id = ?', [enClientesBot[0].id]).catch(() => {});
+                    }
+                }
+            } catch (_) { /* no bloquear el flujo del bot por esto */ }
+        }
 
         if (esPropio) return;
 
@@ -4179,7 +4592,7 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
                     id: 'cots_pendientes',
                     titulo: `${cots.total} cotización${cots.total > 1 ? 'es' : ''} de calibración sin atender`,
                     detalle: 'Solicitudes de calibración por WhatsApp esperando respuesta',
-                    ruta: '/flujos-whatsapp',
+                    ruta: '/flujos-whatsapp?tab=cotizaciones',
                     urgencia: 'media',
                     ts: new Date().toISOString()
                 });
@@ -4192,7 +4605,7 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
                     id: 'calif_pendientes',
                     titulo: `${calif.total} cotización${calif.total > 1 ? 'es' : ''} de calificación sin atender`,
                     detalle: 'Solicitudes de calificación por WhatsApp esperando respuesta',
-                    ruta: '/flujos-whatsapp',
+                    ruta: '/flujos-whatsapp?tab=calificaciones',
                     urgencia: 'media',
                     ts: new Date().toISOString()
                 });
@@ -4205,7 +4618,7 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
                     id: 'verif_pendientes',
                     titulo: `${verif.total} cotización${verif.total > 1 ? 'es' : ''} de verificentros sin atender`,
                     detalle: 'Solicitudes de verificentros por WhatsApp esperando respuesta',
-                    ruta: '/flujos-whatsapp',
+                    ruta: '/flujos-whatsapp?tab=verificentros',
                     urgencia: 'media',
                     ts: new Date().toISOString()
                 });
@@ -4218,7 +4631,7 @@ app.get('/api/notificaciones', verificarToken(), async (req, res) => {
                     id: 'ventas_pendientes',
                     titulo: `${ventas.total} solicitud${ventas.total > 1 ? 'es' : ''} de ventas sin atender`,
                     detalle: 'Solicitudes de venta de instrumentos esperando respuesta',
-                    ruta: '/flujos-whatsapp',
+                    ruta: '/flujos-whatsapp?tab=ventas',
                     urgencia: 'media',
                     ts: new Date().toISOString()
                 });
@@ -4370,6 +4783,12 @@ function programarRecordatoriosDiarios() {
     }, msHasta9AM);
 
     console.log(`🔔 Recordatorios automáticos programados para las 9:00 AM (en ${Math.round(msHasta9AM / 3600000)}h)`);
+
+    // Sprint 13-B2 — verificación de cotizaciones abandonadas cada 5 min.
+    setInterval(() => {
+        verificarSesionesAbandonadas(botClient, isClientConnected);
+    }, 5 * 60 * 1000);
+    console.log(`⏰ Verificación de cotizaciones abandonadas cada 5 min`);
 }
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────

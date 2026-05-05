@@ -22,12 +22,21 @@ const MiBandeja = ({ darkMode, usuario }) => {
     const [modalDetalle, setModalDetalle] = useState(false);
     const [equipoDetalle, setEquipoDetalle] = useState(null);
     const [modalConf, setModalConf] = useState(false);
+    // Sprint 11-E — el backend reporta el scope en headers para mostrar al usuario
+    // si está viendo solo lo suyo, todo de su área, o todo (jefe global).
+    const [scope, setScope] = useState({ tipo: 'propio', area: null });
+    // Sprint 11-G — toggle "Mías" / "Todas" (solo cuando hay scope ampliado)
+    const [vista, setVista] = useState('mias'); // 'mias' | 'amplia'
 
     const fetchData = async () => {
         try {
             setCargando(true);
             const res = await axios.get('/api/metrologia/mi-bandeja');
             setEquipos(res.data);
+            setScope({
+                tipo: res.headers['x-metrologia-scope'] || 'propio',
+                area: res.headers['x-metrologia-area'] || null
+            });
         } catch (error) {
             console.error(error);
             toast.error('Error al cargar mi bandeja');
@@ -83,7 +92,13 @@ const MiBandeja = ({ darkMode, usuario }) => {
         setModalDetalle(true);
     };
 
-    const filtrados = equipos.filter(e => {
+    // Aplicamos primero el filtro de vista (mías vs amplia) cuando hay scope mayor
+    // que `propio`. Eso garantiza que los KPIs y la lista respeten la pestaña activa.
+    const equiposVista = (scope.tipo !== 'propio' && vista === 'mias')
+        ? equipos.filter(e => Number(e.asignado_a_id) === Number(usuario?.id))
+        : equipos;
+
+    const filtrados = equiposVista.filter(e => {
         const matchBusqueda = (e.orden_cotizacion || '').toLowerCase().includes(busqueda.toLowerCase()) ||
             (e.empresa || '').toLowerCase().includes(busqueda.toLowerCase()) ||
             (e.nombre_instrumento || '').toLowerCase().includes(busqueda.toLowerCase());
@@ -98,13 +113,15 @@ const MiBandeja = ({ darkMode, usuario }) => {
         return true;
     });
 
-    // KPIs personales
-    const countTotal = equipos.length;
-    const countRojo = equipos.filter(e => e.slaRestante <= 1).length;
-    const countAmarillo = equipos.filter(e => e.slaRestante > 1 && e.slaRestante <= 3).length;
-    const countVerde = equipos.filter(e => e.slaRestante > 3).length;
-    const countCorreccion = equipos.filter(e => e.mi_estatus === 'correccion').length;
-    const countTerminado = equipos.filter(e => e.mi_estatus === 'terminado').length;
+    // KPIs según la vista activa
+    const countTotal = equiposVista.length;
+    const countRojo = equiposVista.filter(e => e.slaRestante <= 1).length;
+    const countAmarillo = equiposVista.filter(e => e.slaRestante > 1 && e.slaRestante <= 3).length;
+    const countVerde = equiposVista.filter(e => e.slaRestante > 3).length;
+    const countCorreccion = equiposVista.filter(e => e.mi_estatus === 'correccion').length;
+    const countTerminado = equiposVista.filter(e => e.mi_estatus === 'terminado').length;
+    const countMias = equipos.filter(e => Number(e.asignado_a_id) === Number(usuario?.id)).length;
+    const countAmplia = equipos.length;
 
     return (
         <div className="w-full relative pb-24 animate-in fade-in">
@@ -119,10 +136,41 @@ const MiBandeja = ({ darkMode, usuario }) => {
                         Instrumentos asignados a ti. Gestiona tu trabajo y envía a Aseguramiento cuando termines.
                     </p>
                 </div>
-                <div className={`text-xs font-bold px-3 py-1.5 rounded-lg ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-50 text-[#008a5e]'}`}>
-                    Metrologo: {usuario?.nombre}
+                <div className="flex flex-col items-end gap-1">
+                    <div className={`text-xs font-bold px-3 py-1.5 rounded-lg ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-50 text-[#008a5e]'}`}>
+                        Metrologo: {usuario?.nombre}
+                    </div>
+                    {/* Sprint 11-E — indicador del scope cuando es jefe global o de área */}
+                    {scope.tipo === 'global' && (
+                        <div className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${darkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
+                            👑 Jefe global · ves TODOS los metrólogos
+                        </div>
+                    )}
+                    {scope.tipo === 'area' && (
+                        <div className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${darkMode ? 'bg-sky-500/20 text-sky-300' : 'bg-sky-100 text-sky-700'}`}>
+                            🛡️ Encargado de área · {scope.area}
+                        </div>
+                    )}
                 </div>
             </div>
+
+            {/* Sprint 11-G — toggle Mías / Todas (o Mi Área) cuando hay scope ampliado */}
+            {scope.tipo !== 'propio' && (
+                <div className={`inline-flex p-1 rounded-xl mb-4 ${darkMode ? 'bg-[#141f0b]' : 'bg-slate-100'}`}>
+                    <button
+                        onClick={() => setVista('mias')}
+                        className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${vista === 'mias' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white text-emerald-700 shadow-md') : (darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500')}`}
+                    >
+                        Mías ({countMias})
+                    </button>
+                    <button
+                        onClick={() => setVista('amplia')}
+                        className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${vista === 'amplia' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white text-emerald-700 shadow-md') : (darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500')}`}
+                    >
+                        {scope.tipo === 'global' ? `Todas (${countAmplia})` : `Mi Área · ${scope.area} (${countAmplia})`}
+                    </button>
+                </div>
+            )}
 
             {/* KPIs Personales — clickables: filtran la lista */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
@@ -216,6 +264,12 @@ const MiBandeja = ({ darkMode, usuario }) => {
                                         <span>{eq.empresa}</span>
                                         <span className="font-mono">{eq.identificacion || eq.no_serie || 'S/N'}</span>
                                         {eq.area_laboratorio && <span className={`px-1.5 py-0.5 rounded text-[10px] ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-[#008a5e]'}`}>{eq.area_laboratorio}</span>}
+                                        {/* Sprint 11-G — quién es el dueño del equipo (visible cuando ves los de otros) */}
+                                        {scope.tipo !== 'propio' && eq.asignado_a_nombre && Number(eq.asignado_a_id) !== Number(usuario?.id) && (
+                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${darkMode ? 'bg-sky-500/20 text-sky-300' : 'bg-sky-100 text-sky-700'}`}>
+                                                👤 {eq.asignado_a_nombre}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
 
@@ -268,11 +322,11 @@ const MiBandeja = ({ darkMode, usuario }) => {
                 </div>
             )}
 
-            {/* Modal Detalle */}
+            {/* Modal Detalle (Sprint 11-H — expediente enriquecido del equipo) */}
             {modalDetalle && equipoDetalle && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in">
-                    <div className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
-                        <div className={`p-5 flex justify-between items-center border-b sticky top-0 ${darkMode ? 'bg-[#253916] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
+                    <div className={`w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl border ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/20' : 'bg-white border-slate-200'}`}>
+                        <div className={`p-5 flex justify-between items-center border-b sticky top-0 z-10 ${darkMode ? 'bg-[#253916] border-[#C9EA63]/10' : 'bg-slate-50 border-slate-100'}`}>
                             <div className="flex items-center gap-3">
                                 <div className={`p-2 rounded-xl ${darkMode ? 'bg-[#141f0b] text-[#C9EA63]' : 'bg-white text-emerald-600'}`}><Package size={20}/></div>
                                 <div>
@@ -280,37 +334,115 @@ const MiBandeja = ({ darkMode, usuario }) => {
                                     <p className={`text-[10px] font-bold uppercase ${darkMode ? 'text-[#C9EA63]/70' : 'text-emerald-600'}`}>{equipoDetalle.orden_cotizacion}</p>
                                 </div>
                             </div>
-                            <button onClick={() => setModalDetalle(false)} className={`p-2 rounded-xl ${darkMode ? 'hover:bg-[#141f0b] text-white/60' : 'hover:bg-slate-200 text-slate-400'}`}><X size={24}/></button>
-                        </div>
-                        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-3">
-                                <h4 className={`text-[10px] font-black uppercase tracking-widest opacity-50`}>Datos del Equipo</h4>
-                                <InfoRow label="Empresa" value={equipoDetalle.empresa} darkMode={darkMode} />
-                                <InfoRow label="Marca" value={equipoDetalle.marca} darkMode={darkMode} />
-                                <InfoRow label="Modelo" value={equipoDetalle.modelo} darkMode={darkMode} />
-                                <InfoRow label="Serie" value={equipoDetalle.no_serie} darkMode={darkMode} />
-                                <InfoRow label="Identificación" value={equipoDetalle.identificacion} darkMode={darkMode} />
-                                <InfoRow label="Área" value={equipoDetalle.area_laboratorio} darkMode={darkMode} />
-                                <InfoRow label="Fecha Recepción" value={equipoDetalle.fecha_recepcion} darkMode={darkMode} />
-                                <InfoRow label="Fecha Ingreso Sistema" value={new Date(equipoDetalle.fecha_ingreso).toLocaleDateString('es-MX')} darkMode={darkMode} />
-                                <InfoRow label="SLA Base" value={`Desde: ${equipoDetalle.sla_fecha_base || equipoDetalle.fecha_recepcion_parsed || 'fecha_ingreso'}`} darkMode={darkMode} />
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => navigate(`/orden/${encodeURIComponent(equipoDetalle.orden_cotizacion)}`)}
+                                    className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-[#008a5e] text-white hover:bg-[#007b55]'}`}
+                                    title="Ver expediente completo (historial, versiones, responsables, rechazos)"
+                                >
+                                    <FileText size={14}/> Expediente completo
+                                </button>
+                                <button onClick={() => setModalDetalle(false)} className={`p-2 rounded-xl ${darkMode ? 'hover:bg-[#141f0b] text-white/60' : 'hover:bg-slate-200 text-slate-400'}`}><X size={24}/></button>
                             </div>
-                            <div className="space-y-3">
-                                <h4 className={`text-[10px] font-black uppercase tracking-widest opacity-50`}>Estado Actual</h4>
-                                <InfoRow label="Mi Estatus" value={equipoDetalle.mi_estatus?.toUpperCase()} darkMode={darkMode} />
-                                <InfoRow label="SLA Restante" value={`${equipoDetalle.slaRestante} días (Pasados: ${equipoDetalle.diasPasados})`} darkMode={darkMode} />
-                                <InfoRow label="Rechazos" value={equipoDetalle.total_rechazos || 0} darkMode={darkMode} highlight={equipoDetalle.total_rechazos > 0} />
-                                <div className={`mt-4 p-4 rounded-xl ${darkMode ? 'bg-[#253916]/50' : 'bg-slate-50'}`}>
-                                    <h5 className={`text-xs font-bold mb-2`}>SLA Detal</h5>
-                                    <div className={`text-xs ${darkMode ? 'text-white/60' : 'text-slate-500'}`}>
-                                        <p>Fecha recepción PDF: <strong>{equipoDetalle.fecha_recepcion || 'N/A'}</strong></p>
-                                        <p>Fecha parseada: <strong>{equipoDetalle.fecha_recepcion_parsed || 'No disponible'}</strong></p>
-                                        <p>Días transcurridos: <strong>{equipoDetalle.diasPasados}</strong></p>
-                                        <p>SLA total: <strong>{equipoDetalle.sla} días</strong></p>
-                                        <p>Restante: <strong className={equipoDetalle.slaRestante <= 1 ? 'text-rose-500' : 'text-emerald-500'}>{equipoDetalle.slaRestante} días</strong></p>
+                        </div>
+
+                        <div className="p-6 space-y-5">
+                            {/* Encabezado con ribbons de estado */}
+                            <div className="flex flex-wrap gap-2">
+                                <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-black ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    <span className="opacity-60">Estatus:</span> {equipoDetalle.estatus_actual}
+                                </span>
+                                <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-black ${equipoDetalle.slaRestante <= 0 ? 'bg-rose-500 text-white' : equipoDetalle.slaRestante <= 3 ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white'}`}>
+                                    <span className="opacity-90">SLA:</span> {equipoDetalle.slaRestante <= 0 ? `Vencido ${Math.abs(equipoDetalle.slaRestante)}d` : `${equipoDetalle.slaRestante}d restantes`}
+                                </span>
+                                {equipoDetalle.total_rechazos > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-black bg-rose-600 text-white">
+                                        <AlertTriangle size={11}/> {equipoDetalle.total_rechazos} rechazo(s)
+                                    </span>
+                                )}
+                                {equipoDetalle.asignado_a_nombre && Number(equipoDetalle.asignado_a_id) !== Number(usuario?.id) && (
+                                    <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-black ${darkMode ? 'bg-sky-500/20 text-sky-300' : 'bg-sky-100 text-sky-700'}`}>
+                                        👤 Asignado a: {equipoDetalle.asignado_a_nombre}
+                                    </span>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                {/* Identificación / Datos del Instrumento */}
+                                <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/15' : 'bg-slate-50 border-slate-200'}`}>
+                                    <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50`}>Datos del Instrumento</h4>
+                                    <div className="space-y-2">
+                                        <InfoRow label="Clave" value={equipoDetalle.clave} darkMode={darkMode} />
+                                        <InfoRow label="No. Certificado" value={equipoDetalle.no_certificado} darkMode={darkMode} />
+                                        <InfoRow label="Marca / Modelo" value={`${equipoDetalle.marca || '—'} / ${equipoDetalle.modelo || '—'}`} darkMode={darkMode} />
+                                        <InfoRow label="No. Serie" value={equipoDetalle.no_serie} darkMode={darkMode} />
+                                        <InfoRow label="Identificación" value={equipoDetalle.identificacion} darkMode={darkMode} />
+                                        <InfoRow label="Ubicación" value={equipoDetalle.ubicacion} darkMode={darkMode} />
+                                    </div>
+                                </div>
+
+                                {/* Cliente */}
+                                <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/15' : 'bg-slate-50 border-slate-200'}`}>
+                                    <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50`}>Información del Cliente</h4>
+                                    <div className="space-y-2">
+                                        <InfoRow label="Empresa" value={equipoDetalle.empresa} darkMode={darkMode} />
+                                        <InfoRow label="Certificados a nombre" value={equipoDetalle.nombre_certificados} darkMode={darkMode} />
+                                        <InfoRow label="Contacto" value={equipoDetalle.persona} darkMode={darkMode} />
+                                        <InfoRow label="Email" value={equipoDetalle.contacto_email} darkMode={darkMode} />
+                                        <InfoRow label="Dirección" value={equipoDetalle.direccion} darkMode={darkMode} />
+                                    </div>
+                                </div>
+
+                                {/* Asignación y Metrología */}
+                                <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/15' : 'bg-slate-50 border-slate-200'}`}>
+                                    <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50`}>Asignación y Metrología</h4>
+                                    <div className="space-y-2">
+                                        <InfoRow label="Área" value={equipoDetalle.area_laboratorio} darkMode={darkMode} />
+                                        <InfoRow label="Mi Estatus" value={equipoDetalle.mi_estatus?.toUpperCase()} darkMode={darkMode} />
+                                        <InfoRow label="Asignado a" value={equipoDetalle.asignado_a_nombre} darkMode={darkMode} />
+                                    </div>
+                                </div>
+
+                                {/* Datos de la Orden */}
+                                <div className={`p-5 rounded-2xl border ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/15' : 'bg-slate-50 border-slate-200'}`}>
+                                    <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50`}>Datos de la Orden</h4>
+                                    <div className="space-y-2">
+                                        <InfoRow label="Cotización Ref." value={equipoDetalle.cotizacion_referencia} darkMode={darkMode} />
+                                        <InfoRow label="Fecha Recepción" value={equipoDetalle.fecha_recepcion} darkMode={darkMode} />
+                                        <InfoRow label="Subido al sistema" value={new Date(equipoDetalle.fecha_ingreso).toLocaleDateString('es-MX')} darkMode={darkMode} />
+                                        <InfoRow label="Servicio (OS)" value={equipoDetalle.servicio_solicitado} darkMode={darkMode} />
+                                        <InfoRow label="Tipo (este equipo)" value={equipoDetalle.tipo_servicio} darkMode={darkMode} />
+                                        <InfoRow label="SLA Acordado" value={`${equipoDetalle.sla} días`} darkMode={darkMode} />
+                                    </div>
+                                </div>
+
+                                {/* Técnico */}
+                                <div className={`p-5 rounded-2xl border md:col-span-2 ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/15' : 'bg-slate-50 border-slate-200'}`}>
+                                    <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50`}>Técnico & Requisitos</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <p className={`text-[10px] font-bold uppercase opacity-40 mb-1`}>Puntos a Calibrar</p>
+                                            <p className={`text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>{equipoDetalle.puntos_calibrar || 'Operación estándar según manual de metrología.'}</p>
+                                        </div>
+                                        <div>
+                                            <p className={`text-[10px] font-bold uppercase opacity-40 mb-1`}>Requerimientos Especiales</p>
+                                            <p className={`text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>{equipoDetalle.requerimientos_especiales || 'No requeridos'}</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Detalle SLA al final, plegable */}
+                            <details className={`p-3 rounded-xl border ${darkMode ? 'bg-[#1b2b10]/40 border-[#C9EA63]/10' : 'bg-slate-50 border-slate-200'}`}>
+                                <summary className={`text-xs font-bold cursor-pointer ${darkMode ? 'text-white/60' : 'text-slate-600'}`}>Detalle SLA</summary>
+                                <div className={`mt-2 text-[11px] space-y-1 ${darkMode ? 'text-white/60' : 'text-slate-500'}`}>
+                                    <p>Fecha recepción PDF: <strong>{equipoDetalle.fecha_recepcion || 'N/A'}</strong></p>
+                                    <p>Fecha parseada: <strong>{equipoDetalle.fecha_recepcion_parsed || 'No disponible'}</strong></p>
+                                    <p>Días transcurridos: <strong>{equipoDetalle.diasPasados}</strong></p>
+                                    <p>SLA total: <strong>{equipoDetalle.sla} días{equipoDetalle.sla_dias_extra > 0 ? ` (+${equipoDetalle.sla_dias_extra} extra)` : ''}</strong></p>
+                                    <p>Restante: <strong className={equipoDetalle.slaRestante <= 1 ? 'text-rose-500' : 'text-emerald-500'}>{equipoDetalle.slaRestante} días</strong></p>
+                                </div>
+                            </details>
                         </div>
                     </div>
                 </div>

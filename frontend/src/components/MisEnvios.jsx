@@ -27,12 +27,17 @@ export default function MisEnvios({ darkMode, usuario }) {
     const [filtroFase, setFiltroFase] = useState(null);
     const [busqueda, setBusqueda] = useState('');
     const [chatEquipo, setChatEquipo] = useState(null);  // {id, nombre} para abrir modal de chat
+    const [scope, setScope] = useState({ tipo: 'propio', area: null }); // Sprint 11-E
 
     const cargar = async () => {
         setCargando(true);
         try {
             const res = await axios.get('/api/metrologia/mis-envios');
             setEquipos(res.data || []);
+            setScope({
+                tipo: res.headers['x-metrologia-scope'] || 'propio',
+                area: res.headers['x-metrologia-area'] || null
+            });
         } catch (err) {
             toast.error('Error al cargar envíos: ' + (err.response?.data?.error || err.message));
         } finally {
@@ -75,9 +80,22 @@ export default function MisEnvios({ darkMode, usuario }) {
                         Equipos que enviaste a Aseguramiento. Click en el ícono de chat para ver mensajes.
                     </p>
                 </div>
-                <button onClick={cargar} className={`p-2 rounded-lg border ${darkMode ? 'border-[#C9EA63]/20 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>
-                    <RefreshCw size={18} className={cargando ? 'animate-spin' : ''} />
-                </button>
+                <div className="flex items-center gap-3">
+                    {/* Sprint 11-E — scope visual */}
+                    {scope.tipo === 'global' && (
+                        <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${darkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
+                            👑 Jefe global · TODOS los envíos
+                        </span>
+                    )}
+                    {scope.tipo === 'area' && (
+                        <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${darkMode ? 'bg-sky-500/20 text-sky-300' : 'bg-sky-100 text-sky-700'}`}>
+                            🛡️ Área {scope.area}
+                        </span>
+                    )}
+                    <button onClick={cargar} className={`p-2 rounded-lg border ${darkMode ? 'border-[#C9EA63]/20 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>
+                        <RefreshCw size={18} className={cargando ? 'animate-spin' : ''} />
+                    </button>
+                </div>
             </div>
 
             {/* KPIs por fase — clickables */}

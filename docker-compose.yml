@@ -38,7 +38,11 @@ services:
     volumes:
       - ./backend:/app
       - /app/node_modules
-      - /app/.wwebjs_auth
+      # Sprint 13-G5 — sesión de WhatsApp persistente entre reinicios.
+      # Antes era un volumen anónimo (- /app/.wwebjs_auth) que se perdía al
+      # recrear el contenedor. Ahora es nombrado (`wweb_auth`) y persiste
+      # indefinidamente excepto si se hace `docker compose down -v`.
+      - wweb_auth:/app/.wwebjs_auth
 
   frontend:
     build: ./frontend
@@ -52,4 +56,7 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+
+volumes:
+  wweb_auth:
 

@@ -137,18 +137,18 @@ const NotificacionesBell = ({ darkMode }) => {
               <div className="text-[10px] mt-1 opacity-35">{tiempoRelativo(n.ts)}</div>
             </div>
             <div className="flex flex-col items-end gap-1.5 flex-shrink-0 self-center">
-              {n.tipo === 'global' && !leida ? (
+              {/* Sprint 13-G2 — toda la tarjeta es clickable y navega a la ruta.
+                  El botón "marcar leído sin navegar" está disponible al hover. */}
+              {!leida && <span className={`w-2 h-2 rounded-full ${meta.badge}`} />}
+              <ChevronRight size={14} className={`opacity-30 group-hover:opacity-100 transition-opacity ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'}`} />
+              {n.tipo === 'global' && !leida && (
                 <button
                   onClick={(e) => { e.stopPropagation(); marcarLeida(n.id); }}
-                  className={`px-3 py-1 rounded-full text-[10px] font-black transition-all ${darkMode ? 'bg-[#C9EA63] text-black hover:bg-white' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                  className={`text-[9px] font-bold opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'}`}
+                  title="Marcar como leído sin abrir"
                 >
-                  ENTERADO
+                  ✓
                 </button>
-              ) : (
-                <>
-                  {!leida && <span className={`w-2 h-2 rounded-full ${meta.badge}`} />}
-                  <ChevronRight size={12} className="opacity-0 group-hover:opacity-40 transition-opacity" />
-                </>
               )}
             </div>
           </div>

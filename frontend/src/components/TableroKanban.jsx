@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Package, Clock, FileCheck, CheckCircle, Truck, AlertTriangle, X, Calendar, Hash, User, Info, Tag, BookOpen, ChevronRight, Check, Circle, ChevronDown, FileText, Layers, Square, CheckSquare } from 'lucide-react';
+import { Package, Clock, FileCheck, CheckCircle, Truck, AlertTriangle, X, Calendar, Hash, User, Info, Tag, BookOpen, ChevronRight, Check, Circle, ChevronDown, FileText, Layers, Square, CheckSquare, Factory, MapPin } from 'lucide-react';
+
+// Sprint 11 — los tipos que implican trabajo fuera del laboratorio. Los detectamos
+// por substring para que sobreviva renombramientos del catálogo (ej. "Calibración
+// in Plant", "Calibración In-Situ", "Servicio In-Situ", etc.).
+const tipoEsEnSitio = (t) => {
+  if (!t) return false;
+  const s = t.toString().toLowerCase();
+  return s.includes('plant') || s.includes('situ') || s.includes('sitio');
+};
 
 const columnasEstatus = [
     { id: 'Recepción',     areaLider: 'Recepción',     icono: Package,        color: 'text-sky-500',    bg: 'bg-sky-500/10',     border: 'border-sky-500' },
@@ -52,15 +61,28 @@ const TableroKanban = ({ darkMode }) => {
     // Detectar rol para modo lectura
     const userRaw = localStorage.getItem('crm_usuario');
     let userRol = 'recepcionista';
-    try { userRol = JSON.parse(userRaw)?.rol || 'recepcionista'; } catch(_) {}
+    let userId = null;
+    try {
+        const u = JSON.parse(userRaw);
+        userRol = u?.rol || 'recepcionista';
+        userId = u?.id || null;
+    } catch(_) {}
     // Metrólogos y aseguramiento: SOLO lectura. No pueden arrastrar ni cambiar estatus.
     const esSoloLectura = ['metrologo', 'operador', 'aseguramiento', 'validacion'].includes(userRol);
     const puedeModificarEstatus = !esSoloLectura;
+
+    // Sprint 11-I — scope ampliado para metrólogos jefes (global o de área)
+    const [scopeMetro, setScopeMetro] = useState({ tipo: 'propio', area: null });
+    const [vistaKanban, setVistaKanban] = useState('todas'); // 'todas' | 'mias'
 
     const fetchEquipos = async () => {
         try {
             const res = await axios.get('/api/instrumentos');
             setEquipos(res.data);
+            setScopeMetro({
+                tipo: res.headers['x-metrologia-scope'] || 'propio',
+                area: res.headers['x-metrologia-area'] || null
+            });
             setCargando(false);
         } catch (error) {
             console.error("Error al obtener equipos", error);
@@ -265,10 +287,38 @@ const TableroKanban = ({ darkMode }) => {
                 )}
             </header>
 
+            {/* Sprint 11-I — toggle Mías/Todas para metrólogos con scope ampliado */}
+            {scopeMetro.tipo !== 'propio' && ['metrologo','operador'].includes(userRol) && (
+                <div className="px-4 pt-2 pb-3 flex items-center gap-2 flex-wrap">
+                    <span className={`text-[10px] font-black uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Vista:</span>
+                    <div className={`inline-flex p-1 rounded-xl ${darkMode ? 'bg-[#141f0b]' : 'bg-slate-100'}`}>
+                        <button
+                            onClick={() => setVistaKanban('mias')}
+                            className={`px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${vistaKanban === 'mias' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white text-emerald-700 shadow-sm') : (darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500')}`}
+                        >
+                            Solo míos
+                        </button>
+                        <button
+                            onClick={() => setVistaKanban('todas')}
+                            className={`px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${vistaKanban === 'todas' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white text-emerald-700 shadow-sm') : (darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500')}`}
+                        >
+                            {scopeMetro.tipo === 'global' ? 'Todos los metrólogos' : `Mi área · ${scopeMetro.area}`}
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <div className={`flex-1 min-h-0 flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory gap-3 lg:gap-4 pb-2 h-full custom-scrollbar`}>
                 {columnasEstatus.map(columna => {
-                    const equiposColumna = equipos.filter(e => e.estatus_actual === columna.id || 
-                        (columna.id === 'Certificación' && e.estatus_actual === 'Certificación o Papelería')); // Fallback si el nombre estatus es ligeramente diferente
+                    // Filtrado por columna + por vista mías/todas
+                    let equiposColumna = equipos.filter(e => e.estatus_actual === columna.id ||
+                        (columna.id === 'Certificación' && e.estatus_actual === 'Certificación o Papelería'));
+                    if (scopeMetro.tipo !== 'propio' && vistaKanban === 'mias' && userId) {
+                        equiposColumna = equiposColumna.filter(e =>
+                            (e.metrologos_asignados || []).some(m => Number(m.id) === Number(userId)) ||
+                            Number(e.metrologo_asignado_id) === Number(userId)
+                        );
+                    }
                     
                     return (
                         <div 
@@ -379,8 +429,8 @@ const TableroKanban = ({ darkMode }) => {
                                                         style={{ backgroundColor: getOsaColor(equipo.orden_cotizacion, darkMode) }}
                                                         className={`p-4 rounded-xl shadow-sm border transition-all relative overflow-hidden group ${esSoloLectura ? 'cursor-pointer' : 'cursor-grab hover:cursor-grab'} hover:shadow-md ${darkMode ? 'border-[#C9EA63]/20 hover:brightness-125' : 'border-slate-200 hover:brightness-95'}`}
                                                     >
-                                                        {/* Numeración de Partida */}
-                                                        <div className={`absolute top-2 right-2 text-[10px] font-black opacity-20 group-hover:opacity-60 transition-opacity ${darkMode ? 'text-white' : 'text-black'}`}>
+                                                        {/* Numeración de Partida (decorativa, no debe absorber clicks) */}
+                                                        <div className={`absolute top-2 right-2 text-[10px] font-black opacity-20 group-hover:opacity-60 transition-opacity pointer-events-none ${darkMode ? 'text-white' : 'text-black'}`}>
                                                             #{idx + 1}
                                                         </div>
 
@@ -400,7 +450,12 @@ const TableroKanban = ({ darkMode }) => {
                                                                 <AlertTriangle size={14} className="text-rose-500 animate-pulse" title="Urgente - SLA Crítico" />
                                                             )}
                                                         </div>
-                                                        <h4 className={`text-sm font-bold mb-1 truncate ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{equipo.nombre_instrumento}</h4>
+                                                        <h4 className={`text-sm font-bold mb-1 truncate flex items-center gap-1.5 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                                                            {tipoEsEnSitio(equipo.tipo_servicio) && (
+                                                                <Factory size={14} className={darkMode ? 'text-amber-400 flex-shrink-0' : 'text-amber-600 flex-shrink-0'} title={`En sitio: ${equipo.tipo_servicio}`} />
+                                                            )}
+                                                            <span className="truncate">{equipo.nombre_instrumento}</span>
+                                                        </h4>
                                                         <p className={`text-[10px] truncate mb-1 ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>{equipo.empresa || equipo.persona}</p>
                                                         <div className={`text-[9px] font-bold uppercase tracking-tight mb-2 opacity-50 px-2 py-0.5 rounded border-l-2 ${darkMode ? 'text-[#C9EA63] border-[#C9EA63]/40 bg-[#C9EA63]/5' : 'text-[#008a5e] border-[#008a5e] bg-emerald-50'}`}>
                                                             Área: {equipo.area_laboratorio || 'N/A'}
@@ -596,10 +651,10 @@ const TableroKanban = ({ darkMode }) => {
                                     </section>
 
                                     {/* Datos de la Orden */}
-                                    {(equipoDetalle.cotizacion_referencia || equipoDetalle.fecha_recepcion || equipoDetalle.servicio_solicitado) && (
+                                    {(equipoDetalle.cotizacion_referencia || equipoDetalle.fecha_recepcion || equipoDetalle.servicio_solicitado || equipoDetalle.tipo_servicio) && (
                                         <section>
                                             <h4 className={`text-[10px] font-black uppercase tracking-widest mb-4 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos de la Orden</h4>
-                                            <div className={`p-5 rounded-3xl border grid grid-cols-3 gap-3 ${darkMode ? 'bg-[#1b2b10]/60 border-[#C9EA63]/15' : 'bg-sky-50 border-sky-200'}`}>
+                                            <div className={`p-5 rounded-3xl border grid grid-cols-2 lg:grid-cols-4 gap-3 ${darkMode ? 'bg-[#1b2b10]/60 border-[#C9EA63]/15' : 'bg-sky-50 border-sky-200'}`}>
                                                 {equipoDetalle.cotizacion_referencia && (
                                                     <div className="space-y-1">
                                                         <p className="text-[9px] font-black uppercase opacity-40">Cotización Ref.</p>
@@ -614,8 +669,14 @@ const TableroKanban = ({ darkMode }) => {
                                                 )}
                                                 {equipoDetalle.servicio_solicitado && (
                                                     <div className="space-y-1">
-                                                        <p className="text-[9px] font-black uppercase opacity-40">Servicio</p>
+                                                        <p className="text-[9px] font-black uppercase opacity-40">Servicio (OS)</p>
                                                         <p className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-slate-800'}`}>{equipoDetalle.servicio_solicitado}</p>
+                                                    </div>
+                                                )}
+                                                {equipoDetalle.tipo_servicio && (
+                                                    <div className="space-y-1">
+                                                        <p className="text-[9px] font-black uppercase opacity-40">Tipo (este equipo)</p>
+                                                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-black ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white'}`}>{equipoDetalle.tipo_servicio}</span>
                                                     </div>
                                                 )}
                                             </div>

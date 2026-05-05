@@ -1029,7 +1029,7 @@ const ListaEquipos = ({ darkMode }) => {
                   <h4 className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2">Requerimientos de Servicio</h4>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase opacity-40 ml-1">Tipo de Servicio</label>
-                    <Select 
+                    <Select
                         options={opcionesServicio.map(opt => ({ value: opt, label: opt }))}
                         value={{ value: equipoEditando.tipo_servicio, label: equipoEditando.tipo_servicio }}
                         onChange={(val) => setEquipoEditando({...equipoEditando, tipo_servicio: val.value})}
@@ -1241,7 +1241,7 @@ const ListaEquipos = ({ darkMode }) => {
                                             <div className="grid grid-cols-2 gap-2">
                                                 <div className="space-y-1">
                                                     <span className="text-[9px] font-black opacity-40 uppercase ml-1 tracking-tighter">Servicio</span>
-                                                    <Select 
+                                                    <Select
                                                         options={opcionesServicio.map(opt => ({ value: opt, label: opt }))}
                                                         value={{ value: ins.tipo_servicio, label: ins.tipo_servicio }}
                                                         onChange={(val) => actualizarItemOrden(idx, 'tipo_servicio', val.value)}

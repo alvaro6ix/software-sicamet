@@ -36,3 +36,6 @@ frontend/.vite/
 *.swo
 
 mysql_data/
+
+# Claude Code workspace (memoria local del agente)
+.claude/

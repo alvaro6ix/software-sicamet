@@ -3,12 +3,103 @@ import axios from 'axios';
 import {
   Users, UserPlus, Shield, Trash2, Edit2, Lock, Unlock,
   Mail, User, X, Save, Search, Loader2, Package, Plus,
-  FlaskConical, MapPin, ChevronRight, CheckCircle, AlertCircle
+  FlaskConical, MapPin, ChevronRight, CheckCircle, AlertCircle,
+  Wrench, AlertTriangle, RotateCcw, ListOrdered, ChevronUp, ChevronDown, RotateCw
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { confirmar } from '../hooks/alertas';
 
-const GestionUsuarios = ({ darkMode }) => {
-  const [tab, setTab] = useState('usuarios'); // 'usuarios' | 'areas'
+const GestionUsuarios = ({ darkMode, usuario }) => {
+  // Solo el admin ve los tabs sensibles (tipos servicio y reset). El backend
+  // refuerza con verificarToken(['admin']) — esto es solo gating de UI.
+  // Preferimos la prop `usuario` (fuente de verdad de App.jsx); fallback a
+  // localStorage por si la prop no llegó.
+  const usuarioLocal = (() => { try { return JSON.parse(localStorage.getItem('crm_usuario') || '{}'); } catch (_) { return {}; } })();
+  const esAdmin = (usuario?.rol || usuarioLocal?.rol) === 'admin';
+
+  const [tab, setTab] = useState('usuarios'); // 'usuarios' | 'areas' | 'tipos' | 'reset'
+
+  // Tipos de servicio (Sprint 10-B)
+  const [tiposServicio, setTiposServicio] = useState([]);
+  const [cargandoTipos, setCargandoTipos] = useState(false);
+  const [modalTipo, setModalTipo] = useState(false);
+  const [editandoTipo, setEditandoTipo] = useState(null);
+  const [formTipo, setFormTipo] = useState({ nombre: '', activo: true });
+
+  // Reset operativo (Sprint 10-C)
+  const [textoResetConfirmar, setTextoResetConfirmar] = useState('');
+  const [reseteando, setReseteando] = useState(false);
+  const [resultadoReset, setResultadoReset] = useState(null);
+
+  // Orden del menú (Sprint 10 / fix #3). Lista canónica de items que pueden
+  // aparecer en el sidebar. Se persiste en localStorage; el sidebar lo aplica
+  // al renderizar y respeta el orden, dejando los items nuevos al final.
+  const MENU_CANONICO = [
+    { path: '/',                          name: 'Dashboard' },
+    { path: '/registro',                  name: 'Registro Ágil' },
+    { path: '/entregas',                  name: 'Entregas' },
+    { path: '/facturacion',               name: 'Facturación' },
+    { path: '/aseguramiento-dashboard',   name: 'Dashboard Aseguramiento' },
+    { path: '/validacion',                name: 'Gestión Operativa' },
+    { path: '/mis-decisiones',            name: 'Mis Decisiones' },
+    { path: '/certificacion-agil',        name: 'Certificación Ágil' },
+    { path: '/equipos',                   name: 'Lista Gral. Equipos' },
+    { path: '/kanban',                    name: 'Pipelines Kanban' },
+    { path: '/asignacion',                name: 'Bandeja Jefe Metrología' },
+    { path: '/mi-bandeja',                name: 'Mi Bandeja' },
+    { path: '/mis-envios',                name: 'Mis Envíos' },
+    { path: '/metrologia',                name: 'Centro Metrología' },
+    { path: '/correcciones-metrologia',   name: 'Correcciones' },
+    { path: '/sin-certificado',           name: 'Sin Certificado' },
+    { path: '/clientes',                  name: 'Clientes' },
+    { path: '/catalogo-instrumentos',     name: 'Catálogo Inst.' },
+    { path: '/marcas',                    name: 'Catálogo Marcas' },
+    { path: '/modelos',                   name: 'Catálogo Modelos' },
+    { path: '/flujos-whatsapp',           name: 'Flujos WhatsApp' },
+    { path: '/conversaciones',            name: 'Conversaciones WA' },
+    { path: '/leads',                     name: 'Posibles Clientes' },
+    { path: '/whatsapp-qr',               name: 'Vincular WhatsApp' },
+    { path: '/feedback-bot',              name: 'Feedback Bot' },
+    { path: '/usuarios',                  name: 'Gestión Usuarios' }
+  ];
+  const [ordenMenu, setOrdenMenu] = useState(() => {
+    try {
+      const guardado = JSON.parse(localStorage.getItem('crm_menu_orden') || '[]');
+      // Mezclamos guardados + canónicos para que items nuevos del catálogo no se pierdan.
+      const conocidos = new Set(MENU_CANONICO.map(m => m.path));
+      const guardadosValidos = guardado.filter(p => conocidos.has(p));
+      const faltantes = MENU_CANONICO.map(m => m.path).filter(p => !guardadosValidos.includes(p));
+      return [...guardadosValidos, ...faltantes];
+    } catch (_) {
+      return MENU_CANONICO.map(m => m.path);
+    }
+  });
+
+  const guardarOrdenMenu = (nuevo) => {
+    setOrdenMenu(nuevo);
+    localStorage.setItem('crm_menu_orden', JSON.stringify(nuevo));
+    window.dispatchEvent(new CustomEvent('crm:menu-orden', { detail: nuevo }));
+    toast.success('Orden del menú actualizado');
+  };
+
+  const moverItem = (idx, dir) => {
+    const nuevo = [...ordenMenu];
+    const destino = idx + dir;
+    if (destino < 0 || destino >= nuevo.length) return;
+    [nuevo[idx], nuevo[destino]] = [nuevo[destino], nuevo[idx]];
+    guardarOrdenMenu(nuevo);
+  };
+
+  const restaurarOrdenMenu = async () => {
+    if (!(await confirmar('Restaurar orden por defecto', 'Se descartará tu orden personalizado y volverá al original.'))) return;
+    const por_defecto = MENU_CANONICO.map(m => m.path);
+    setOrdenMenu(por_defecto);
+    localStorage.removeItem('crm_menu_orden');
+    window.dispatchEvent(new CustomEvent('crm:menu-orden', { detail: [] }));
+    toast.success('Orden restaurado');
+  };
+
+
   const [usuarios, setUsuarios] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [cargando, setCargando] = useState(true);
@@ -70,10 +161,80 @@ const GestionUsuarios = ({ darkMode }) => {
     }
   };
 
+  const fetchTiposServicio = async () => {
+    try {
+      setCargandoTipos(true);
+      const res = await axios.get('/api/tipos-servicio');
+      setTiposServicio(res.data || []);
+    } catch (err) {
+      console.error("Error al obtener tipos de servicio", err);
+    } finally {
+      setCargandoTipos(false);
+    }
+  };
+
   useEffect(() => {
     fetchUsuarios();
     fetchAreas();
+    fetchTiposServicio();
   }, []);
+
+  // ─── TIPOS SERVICIO CRUD (Sprint 10-B) ──────────────────────────────────────
+  const guardarTipo = async (e) => {
+    e.preventDefault();
+    try {
+      if (editandoTipo) {
+        await axios.put(`/api/tipos-servicio/${editandoTipo.id}`, formTipo);
+        toast.success('Tipo de servicio actualizado');
+      } else {
+        await axios.post('/api/tipos-servicio', formTipo);
+        toast.success('Tipo de servicio creado');
+      }
+      setModalTipo(false);
+      setEditandoTipo(null);
+      setFormTipo({ nombre: '', activo: true });
+      fetchTiposServicio();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Error al guardar tipo');
+    }
+  };
+
+  const eliminarTipo = async (id) => {
+    if (!(await confirmar('Eliminar tipo de servicio', 'Las OS ya registradas con este tipo conservan su valor; solo dejará de aparecer en el formulario de Registro.', { danger: true, confirmText: 'Sí, eliminar' }))) return;
+    try {
+      await axios.delete(`/api/tipos-servicio/${id}`);
+      fetchTiposServicio();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Error al eliminar');
+    }
+  };
+
+  const abrirEditarTipo = (t) => {
+    setEditandoTipo(t);
+    setFormTipo({ nombre: t.nombre, activo: !!t.activo });
+    setModalTipo(true);
+  };
+
+  // ─── RESET OPERATIVO (Sprint 10-C) ──────────────────────────────────────────
+  const ejecutarReset = async () => {
+    if (textoResetConfirmar.trim() !== 'BORRAR TODO') {
+      toast.error('Debes escribir literalmente "BORRAR TODO"');
+      return;
+    }
+    setReseteando(true);
+    setResultadoReset(null);
+    try {
+      const res = await axios.post('/api/admin/reset-operativo', { confirmacion: 'BORRAR TODO' });
+      setResultadoReset(res.data);
+      toast.success(`Reset completado: ${res.data.vaciadas?.length || 0} tablas vaciadas`);
+      setTextoResetConfirmar('');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Error al ejecutar reset');
+    } finally {
+      setReseteando(false);
+    }
+  };
+
 
   const handleGuardar = async (e) => {
     e.preventDefault();
@@ -206,6 +367,25 @@ const GestionUsuarios = ({ darkMode }) => {
           >
             <MapPin size={16}/> Áreas Lab.
             {areas.length > 0 && <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-emerald-700'}`}>{areas.length}</span>}
+          </button>
+          <button
+            onClick={() => setTab('tipos')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all ${tab === 'tipos' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white text-emerald-700 shadow-md') : (darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500')}`}
+          >
+            <Wrench size={16}/> Tipos Servicio
+            {tiposServicio.length > 0 && <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black ${darkMode ? 'bg-[#253916] text-[#C9EA63]' : 'bg-emerald-100 text-emerald-700'}`}>{tiposServicio.length}</span>}
+          </button>
+          <button
+            onClick={() => setTab('orden')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all ${tab === 'orden' ? (darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-white text-emerald-700 shadow-md') : (darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500')}`}
+          >
+            <ListOrdered size={16}/> Orden Menú
+          </button>
+          <button
+            onClick={() => setTab('reset')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all ${tab === 'reset' ? (darkMode ? 'bg-rose-500 text-white' : 'bg-rose-600 text-white shadow-md') : (darkMode ? 'text-rose-300/70' : 'text-rose-500')}`}
+          >
+            <RotateCcw size={16}/> Reset
           </button>
         </div>
       </div>
@@ -435,6 +615,242 @@ const GestionUsuarios = ({ darkMode }) => {
             </div>
           )}
         </>
+      )}
+
+      {/* ══════ TAB TIPOS DE SERVICIO ══════ */}
+      {tab === 'tipos' && (
+        <>
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className={`text-lg font-bold ${textTitle}`}>Tipos de Servicio</h3>
+              <p className={`text-xs mt-0.5 ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
+                Catálogo que aparece como dropdown al registrar una OS. Solo los activos se muestran en el formulario.
+              </p>
+            </div>
+            <button
+              onClick={() => { setEditandoTipo(null); setFormTipo({ nombre: '', activo: true }); setModalTipo(true); }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm shadow-md transition-all ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] hover:bg-[#b0d14b]' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+            >
+              <Plus size={16}/> Nuevo Tipo
+            </button>
+          </div>
+
+          {cargandoTipos ? (
+            <div className="py-12 text-center"><Loader2 className="animate-spin mx-auto text-[#C9EA63]" size={32}/></div>
+          ) : tiposServicio.length === 0 ? (
+            <div className={`rounded-2xl border p-12 text-center ${boxBg}`}>
+              <Wrench size={48} className="mx-auto mb-4 opacity-20"/>
+              <p className={`font-bold mb-1 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>Sin tipos de servicio</p>
+              <p className={`text-sm ${darkMode ? 'text-[#F2F6F0]/50' : 'text-slate-400'}`}>Agrega los servicios que ofrece SICAMET para que aparezcan en el formulario de Registro.</p>
+            </div>
+          ) : (
+            <div className={`rounded-2xl border overflow-hidden ${boxBg}`}>
+              <table className="w-full text-sm">
+                <thead className={`text-xs uppercase ${darkMode ? 'bg-[#141f0b] text-[#C9EA63]' : 'bg-slate-100 text-slate-600'}`}>
+                  <tr>
+                    <th className="px-6 py-3 text-left">Nombre</th>
+                    <th className="px-6 py-3 text-center">Estatus</th>
+                    <th className="px-6 py-3 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className={darkMode ? 'divide-y divide-[#C9EA63]/10' : 'divide-y divide-slate-100'}>
+                  {tiposServicio.map(t => (
+                    <tr key={t.id} className={darkMode ? 'hover:bg-[#314a1c]/40' : 'hover:bg-emerald-50/50'}>
+                      <td className={`px-6 py-3 font-bold ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>{t.nombre}</td>
+                      <td className="px-6 py-3 text-center">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.activo ? 'text-emerald-500' : 'text-rose-500'}`}>
+                          {t.activo ? '● ACTIVO' : '○ INACTIVO'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        <button onClick={() => abrirEditarTipo(t)} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-[#141f0b] text-[#C9EA63]' : 'hover:bg-emerald-50 text-emerald-600'}`}><Edit2 size={14}/></button>
+                        <button onClick={() => eliminarTipo(t.id)} className={`p-2 rounded-lg ml-1 ${darkMode ? 'hover:bg-red-900/30 text-red-400' : 'hover:bg-red-50 text-red-500'}`}><Trash2 size={14}/></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ══════ TAB ORDEN MENÚ ══════ */}
+      {tab === 'orden' && (
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h3 className={`text-lg font-bold ${textTitle}`}>Orden del Menú Lateral</h3>
+              <p className={`text-xs mt-0.5 max-w-2xl ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>
+                Reordena los items del sidebar usando los botones ↑↓. El orden se guarda en este navegador
+                y solo afecta tu sesión. Los items que tu usuario no ve por permisos se ocultan automáticamente.
+              </p>
+            </div>
+            <button
+              onClick={restaurarOrdenMenu}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold ${darkMode ? 'bg-[#253916] text-[#C9EA63] hover:bg-[#314a1c]' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+              title="Restaurar orden por defecto"
+            >
+              <RotateCw size={14}/> Restaurar
+            </button>
+          </div>
+
+          <div className={`rounded-2xl border overflow-hidden ${boxBg}`}>
+            <ul className={darkMode ? 'divide-y divide-[#C9EA63]/10' : 'divide-y divide-slate-100'}>
+              {ordenMenu.map((path, idx) => {
+                const item = MENU_CANONICO.find(m => m.path === path);
+                if (!item) return null;
+                return (
+                  <li key={path} className={`flex items-center gap-3 px-4 py-3 ${darkMode ? 'hover:bg-[#314a1c]/30' : 'hover:bg-emerald-50/40'}`}>
+                    <span className={`w-7 text-center text-xs font-black ${darkMode ? 'text-[#C9EA63]/50' : 'text-slate-400'}`}>{idx + 1}</span>
+                    <span className={`flex-1 text-sm font-bold ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>{item.name}</span>
+                    <code className={`text-[10px] font-mono ${darkMode ? 'text-[#F2F6F0]/30' : 'text-slate-400'}`}>{item.path}</code>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => moverItem(idx, -1)}
+                        disabled={idx === 0}
+                        className={`p-1.5 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed ${darkMode ? 'bg-[#253916] text-[#C9EA63] hover:bg-[#314a1c]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        title="Subir"
+                      >
+                        <ChevronUp size={14}/>
+                      </button>
+                      <button
+                        onClick={() => moverItem(idx, 1)}
+                        disabled={idx === ordenMenu.length - 1}
+                        className={`p-1.5 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed ${darkMode ? 'bg-[#253916] text-[#C9EA63] hover:bg-[#314a1c]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        title="Bajar"
+                      >
+                        <ChevronDown size={14}/>
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* ══════ TAB RESET ══════ */}
+      {tab === 'reset' && (
+        <div className={`rounded-2xl border p-6 md:p-8 ${darkMode ? 'bg-rose-950/20 border-rose-500/40' : 'bg-rose-50 border-rose-200'}`}>
+          <div className="flex items-start gap-4 mb-6">
+            <div className={`p-3 rounded-xl ${darkMode ? 'bg-rose-500/20' : 'bg-rose-100'}`}>
+              <AlertTriangle className={darkMode ? 'text-rose-300' : 'text-rose-600'} size={32}/>
+            </div>
+            <div>
+              <h3 className={`text-xl font-bold ${darkMode ? 'text-rose-200' : 'text-rose-700'}`}>Reset de Datos Operativos</h3>
+              <p className={`text-sm mt-1 ${darkMode ? 'text-rose-200/70' : 'text-rose-700/80'}`}>
+                Borra TODA la información generada por uso del sistema (OS, conversaciones del bot, cotizaciones,
+                calificaciones, verificentros, ventas, mensajes de WhatsApp, notificaciones, sesiones, auditoría, etc.)
+                para dejar el sistema vacío y poder hacer pruebas reales desde cero.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div className={`p-4 rounded-xl border ${darkMode ? 'bg-emerald-950/30 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200'}`}>
+              <h4 className={`text-xs font-black uppercase mb-2 ${darkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>✓ Se conserva</h4>
+              <ul className={`text-xs space-y-1 ${darkMode ? 'text-emerald-200/80' : 'text-emerald-800'}`}>
+                <li>• Usuarios y permisos</li>
+                <li>• Áreas de laboratorio</li>
+                <li>• Tipos de servicio</li>
+                <li>• Catálogos: clientes, instrumentos, marcas, modelos</li>
+                <li>• Flujos del bot (nodos, opciones, FAQ, configuración)</li>
+              </ul>
+            </div>
+            <div className={`p-4 rounded-xl border ${darkMode ? 'bg-rose-900/30 border-rose-500/30' : 'bg-white border-rose-200'}`}>
+              <h4 className={`text-xs font-black uppercase mb-2 ${darkMode ? 'text-rose-300' : 'text-rose-700'}`}>✗ Se borra</h4>
+              <ul className={`text-xs space-y-1 ${darkMode ? 'text-rose-200/80' : 'text-rose-800'}`}>
+                <li>• Órdenes de servicio y todo su historial</li>
+                <li>• Cotizaciones, calificaciones, verificentros, ventas</li>
+                <li>• Conversaciones del bot y de WhatsApp</li>
+                <li>• Notificaciones, sesiones, auditoría</li>
+                <li>• Aprendizaje pendiente del bot, feedback</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <label className={`block text-xs font-black uppercase tracking-wider ${darkMode ? 'text-rose-200' : 'text-rose-700'}`}>
+              Para confirmar, escribe literalmente <code className={`px-1.5 py-0.5 rounded ${darkMode ? 'bg-rose-500/20' : 'bg-rose-200'}`}>BORRAR TODO</code>
+            </label>
+            <input
+              type="text"
+              value={textoResetConfirmar}
+              onChange={e => setTextoResetConfirmar(e.target.value)}
+              placeholder="BORRAR TODO"
+              className={`w-full p-3 border-2 rounded-xl text-sm font-mono outline-none ${darkMode ? 'bg-[#141f0b] border-rose-500/40 text-rose-200 placeholder:text-rose-500/30 focus:border-rose-400' : 'bg-white border-rose-300 text-rose-800 placeholder:text-rose-300 focus:border-rose-500'}`}
+            />
+            <button
+              onClick={ejecutarReset}
+              disabled={reseteando || textoResetConfirmar.trim() !== 'BORRAR TODO'}
+              className={`w-full py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed ${darkMode ? 'bg-rose-500 text-white hover:bg-rose-600' : 'bg-rose-600 text-white hover:bg-rose-700'}`}
+            >
+              {reseteando ? <Loader2 className="animate-spin" size={18}/> : <RotateCcw size={18}/>}
+              {reseteando ? 'Borrando datos...' : 'Ejecutar Reset Operativo'}
+            </button>
+          </div>
+
+          {resultadoReset && (
+            <div className={`mt-6 p-4 rounded-xl border ${darkMode ? 'bg-emerald-950/30 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200'}`}>
+              <p className={`text-sm font-bold ${darkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                ✅ Reset completado · {resultadoReset.vaciadas?.length || 0} tablas vaciadas
+              </p>
+              {resultadoReset.errores?.length > 0 && (
+                <details className="mt-2">
+                  <summary className={`text-xs cursor-pointer ${darkMode ? 'text-amber-300' : 'text-amber-700'}`}>
+                    {resultadoReset.errores.length} advertencia(s)
+                  </summary>
+                  <pre className={`text-[10px] mt-1 ${darkMode ? 'text-amber-200/60' : 'text-amber-700/70'}`}>{JSON.stringify(resultadoReset.errores, null, 2)}</pre>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════ MODAL TIPO SERVICIO ══════ */}
+      {modalTipo && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex justify-center items-center z-[100] p-4">
+          <div className={`rounded-3xl shadow-2xl w-full max-w-md relative border-t-4 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]' : 'bg-white border-emerald-600'}`}>
+            <div className="p-6 md:p-8">
+              <button onClick={() => setModalTipo(false)} className={`absolute top-4 right-4 ${darkMode ? 'text-gray-400 hover:text-[#C9EA63]' : 'text-gray-400 hover:text-gray-800'}`}>
+                <X size={24}/>
+              </button>
+              <h2 className={`text-xl font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
+                <Wrench className="text-[#C9EA63]" size={20}/>
+                {editandoTipo ? 'Editar Tipo de Servicio' : 'Nuevo Tipo de Servicio'}
+              </h2>
+              <form onSubmit={guardarTipo} className="space-y-4">
+                <div>
+                  <label className={`block text-[10px] font-black mb-1.5 uppercase tracking-wider ${darkMode ? 'text-[#F2F6F0]/60' : 'text-slate-500'}`}>Nombre</label>
+                  <input
+                    required type="text"
+                    placeholder="Ej. Calibración In-Situ"
+                    value={formTipo.nombre}
+                    onChange={e => setFormTipo({ ...formTipo, nombre: e.target.value })}
+                    className={`w-full p-2.5 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#C9EA63] ${inputBg}`}
+                  />
+                </div>
+                {editandoTipo && (
+                  <label className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer ${darkMode ? 'bg-[#1b2b10] border-[#C9EA63]/20' : 'bg-slate-50 border-slate-200'}`}>
+                    <input
+                      type="checkbox"
+                      checked={formTipo.activo}
+                      onChange={e => setFormTipo({ ...formTipo, activo: e.target.checked })}
+                      className="w-4 h-4"
+                    />
+                    <span className={`text-sm ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-700'}`}>Activo (aparece en el formulario de Registro)</span>
+                  </label>
+                )}
+                <button type="submit" className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white'}`}>
+                  <Save size={16}/> Guardar
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ══════ MODAL USUARIO ══════ */}

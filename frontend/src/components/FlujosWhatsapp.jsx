@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Bot, MessageSquare, BookOpen, HelpCircle, Settings, RefreshCw, Send, CheckCircle, Bell, 
@@ -23,7 +24,20 @@ const OPCIONES_MENU = [
 const MENSAJES_INICIALES = []; // Se cargarán del simulador real
 
 const FlujosWhatsapp = ({ darkMode, usuario }) => {
-  const [pestana, setPestana] = useState('simulador');
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Sprint 13-G2 — leer ?tab= del query string para arrancar en la pestaña correcta.
+  const tabInicial = (() => {
+    const t = searchParams.get('tab');
+    return ['simulador','cotizaciones','calificaciones','verificentros','ventas'].includes(t) ? t : 'simulador';
+  })();
+  const [pestana, setPestana] = useState(tabInicial);
+  // Si cambia el query string mientras estamos en la página, reaccionar
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t && ['simulador','cotizaciones','calificaciones','verificentros','ventas'].includes(t) && t !== pestana) {
+      setPestana(t);
+    }
+  }, [searchParams]);
   const [loadingAccion, setLoadingAccion] = useState(false);
   const [mensajes, setMensajes] = useState(MENSAJES_INICIALES);
   const [inputMsg, setInputMsg] = useState('');
@@ -435,7 +449,7 @@ const FlujosWhatsapp = ({ darkMode, usuario }) => {
           }`}
         >
           {stats.pendientesCotizacion > 0 && (
-            <div className="absolute top-0 right-0 p-3">
+            <div className="absolute top-0 right-0 p-3 pointer-events-none">
               <span className="flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>

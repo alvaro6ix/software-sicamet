@@ -119,7 +119,29 @@ const Sidebar = ({ darkMode, toggleDarkMode, mobileOpen, setMobileOpen, usuario,
     { name: 'Gestión Usuarios',         path: '/usuarios',                  icon: Users,           permiso: 'usuarios.ver' },
   ].filter(item => permisosListos && tiene(item.permiso));
 
-  const NavContent = () => (
+  // Sprint 10 / fix #3: aplicar orden personalizado guardado en localStorage.
+  // Se rellena con un evento 'crm:menu-orden' cuando el usuario lo cambia.
+  const [menuOrden, setMenuOrden] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('crm_menu_orden') || '[]'); } catch (_) { return []; }
+  });
+  useEffect(() => {
+    const handler = (e) => setMenuOrden(e.detail || []);
+    window.addEventListener('crm:menu-orden', handler);
+    return () => window.removeEventListener('crm:menu-orden', handler);
+  }, []);
+  const navItemsOrdenados = (() => {
+    if (!menuOrden.length) return navItems;
+    const byPath = Object.fromEntries(navItems.map(it => [it.path, it]));
+    const enOrden = menuOrden.map(p => byPath[p]).filter(Boolean);
+    const restantes = navItems.filter(it => !menuOrden.includes(it.path));
+    return [...enOrden, ...restantes];
+  })();
+
+  // Sprint 10 / fix #1: inlined directamente en el JSX para que React no
+  // recree la identidad del componente en cada cambio de ruta. Antes era
+  // `const NavContent = () => (...)` y `<NavContent />`, lo que causaba
+  // unmount/remount del <nav> y reset del scrollTop al navegar.
+  const navContent = (
     <div className="flex flex-col h-full overflow-y-auto custom-scrollbar relative">
       <div className={`p-6 sticky top-0 z-10 flex justify-between items-start ${darkMode ? 'bg-[#141f0b]' : 'bg-[#F2F6F0]'}`}>
         <div>
@@ -148,7 +170,7 @@ const Sidebar = ({ darkMode, toggleDarkMode, mobileOpen, setMobileOpen, usuario,
       </div>
 
       <nav className="flex-1 px-4 space-y-1 mt-2">
-        {navItems.map((item) => {
+        {navItemsOrdenados.map((item) => {
           const isActive = location.pathname === item.path;
           return (
             <Link
@@ -268,7 +290,7 @@ const Sidebar = ({ darkMode, toggleDarkMode, mobileOpen, setMobileOpen, usuario,
       <aside className={`fixed inset-y-0 left-0 z-50 w-72 transform transition-transform duration-300 ease-in-out ${
         mobileOpen ? 'translate-x-0' : '-translate-x-full'
       } ${sidebarOculta ? 'lg:-translate-x-full lg:fixed' : 'lg:translate-x-0 lg:static'} ${darkMode ? 'bg-[#141f0b] border-r border-[#C9EA63]/10' : 'bg-[#F2F6F0] border-r border-[#253916]/5'}`}>
-        <NavContent />
+        {navContent}
       </aside>
     </>
   );
@@ -401,19 +423,7 @@ const Layout = () => {
         toastOptions={{ style: { fontFamily: 'inherit' } }}
       />
       <div translate="no" className={`flex h-screen overflow-hidden transition-all duration-300 ${darkMode ? 'bg-[#141f0b] text-[#F2F6F0]' : 'bg-slate-50 text-[#253916]'}`}>
-        
-        {/* Botón Flotante para reabrir Sidebar */}
-        {sidebarOculta && (
-          <button 
-            onClick={() => setSidebarOculta(false)}
-            className={`fixed top-4 left-4 z-[60] p-2 rounded-xl shadow-lg transition-all border animate-in slide-in-from-left duration-300 ${darkMode ? 'bg-[#C9EA63] text-[#141f0b] border-[#C9EA63]/30' : 'bg-[#008a5e] text-white border-white/20'}`}
-            title="Mostrar menú"
-          >
-            <Menu size={24} />
-          </button>
-        )}
-
-        <Sidebar 
+        <Sidebar
             darkMode={darkMode} 
             toggleDarkMode={toggleDarkMode} 
             mobileOpen={mobileOpen} 
@@ -440,7 +450,20 @@ const Layout = () => {
 
           {/* Header desktop */}
           <header className={`hidden lg:flex items-center justify-between px-6 py-3 border-b z-30 ${darkMode ? 'bg-[#141f0b] border-[#C9EA63]/10' : 'bg-white border-slate-100 shadow-sm'}`}>
-            <BusquedaGlobal darkMode={darkMode} />
+            <div className="flex items-center gap-3">
+              {/* Sprint 10 / fix #2: el botón vive dentro del header en lugar de
+                  flotar sobre el contenido. Solo aparece cuando el sidebar está oculto. */}
+              {sidebarOculta && (
+                <button
+                  onClick={() => setSidebarOculta(false)}
+                  className={`p-2 rounded-xl transition-all ${darkMode ? 'bg-[#253916] text-[#C9EA63] hover:bg-[#314a1c]' : 'bg-slate-100 text-[#008a5e] hover:bg-slate-200'}`}
+                  title="Mostrar menú"
+                >
+                  <Menu size={20} />
+                </button>
+              )}
+              <BusquedaGlobal darkMode={darkMode} />
+            </div>
             <div className="flex items-center gap-2">
               <NotificacionesBell darkMode={darkMode} />
               <button
@@ -486,7 +509,7 @@ const Layout = () => {
               <Route path="/conversaciones" element={<Conversaciones darkMode={darkMode} usuario={usuario} />} />
               <Route path="/leads" element={<PosiblesClientes darkMode={darkMode} />} />
               <Route path="/whatsapp-qr" element={<WhatsappQR darkMode={darkMode} />} />
-              <Route path="/usuarios" element={<GestionUsuarios darkMode={darkMode} />} />
+              <Route path="/usuarios" element={<GestionUsuarios darkMode={darkMode} usuario={usuario} />} />
             </Routes>
           </main>
         </div>

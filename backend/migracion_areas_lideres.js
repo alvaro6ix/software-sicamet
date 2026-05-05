@@ -28,32 +28,26 @@ const LIDERES_AREA = [
     { nombre: 'Flor',      email: 'flor@sicamet.mx',      rol: 'entrega',       area: 'Entrega' }
 ];
 
-const AREAS_OPERATIVAS = [
-    { nombre: 'Recepción',     descripcion: 'Recepción de equipos y registro de órdenes de servicio' },
-    { nombre: 'Laboratorio',   descripcion: 'Calibración y operación metrológica' },
-    { nombre: 'Aseguramiento', descripcion: 'Aseguramiento de calidad y validación de calibración' },
-    { nombre: 'Certificación', descripcion: 'Generación y emisión de certificados' },
-    { nombre: 'Facturación',   descripcion: 'Facturación previa a entrega' },
-    { nombre: 'Entrega',       descripcion: 'Entrega final al cliente' }
-];
+// Fases del flujo operativo. NO son áreas de laboratorio; viven como `estatus_actual`
+// del equipo. Antes se insertaban en laboratorio_areas por error y aparecían en la
+// UI mezcladas con áreas reales (Temperatura, Presión, etc.). Sprint 10-A las purga.
+const FASES_OPERATIVAS = ['Recepción', 'Laboratorio', 'Aseguramiento', 'Certificación', 'Facturación', 'Entrega'];
 
-async function asegurarAreasOperativas() {
-    let creadas = 0;
-    for (const a of AREAS_OPERATIVAS) {
-        try {
-            const [rows] = await db.query('SELECT id FROM laboratorio_areas WHERE nombre = ? LIMIT 1', [a.nombre]);
-            if (rows.length === 0) {
-                await db.query(
-                    'INSERT INTO laboratorio_areas (nombre, descripcion, activa) VALUES (?, ?, 1)',
-                    [a.nombre, a.descripcion]
-                );
-                creadas++;
-            }
-        } catch (e) {
-            console.warn(`⚠️ migracion_areas_lideres area[${a.nombre}]:`, e.message);
-        }
+async function purgarFasesDeLaboratorioAreas() {
+    let removidas = 0;
+    let usuariosLimpios = 0;
+    try {
+        const placeholders = FASES_OPERATIVAS.map(() => '?').join(',');
+        const [r] = await db.query(`DELETE FROM laboratorio_areas WHERE nombre IN (${placeholders})`, FASES_OPERATIVAS);
+        removidas = r.affectedRows || 0;
+        // Vaciamos `usuarios.area` para quien tenía una fase como área. El rol y los
+        // permisos identifican su función; el área es solo para metrólogos.
+        const [r2] = await db.query(`UPDATE usuarios SET area = NULL WHERE area IN (${placeholders})`, FASES_OPERATIVAS);
+        usuariosLimpios = r2.affectedRows || 0;
+    } catch (e) {
+        console.warn('⚠️ purgarFasesDeLaboratorioAreas:', e.message);
     }
-    return creadas;
+    return { removidas, usuariosLimpios };
 }
 
 async function asegurarLideresArea() {
@@ -72,24 +66,23 @@ async function asegurarLideresArea() {
                 // Usuario no existe: crearlo con un password temporal único e irrepetible
                 // y poblar `permisos` con los defaults del rol para que la UI funcione
                 // de inmediato sin que admin tenga que tocarle nada.
+                // `area` queda NULL salvo que sea un metrólogo de área real.
                 const passwordTemporal = generarPasswordTemporal();
                 const hashTemporal = await hashPassword(passwordTemporal);
                 const permisosDefault = JSON.stringify(permisosPorDefectoParaRol(lider.rol));
                 await db.query(
-                    `INSERT INTO usuarios (nombre, email, password_hash, rol, area, es_lider_area, activo, permisos)
-                     VALUES (?, ?, ?, ?, ?, 1, 1, ?)`,
-                    [lider.nombre, lider.email, hashTemporal, lider.rol, lider.area, permisosDefault]
+                    `INSERT INTO usuarios (nombre, email, password_hash, rol, es_lider_area, activo, permisos)
+                     VALUES (?, ?, ?, ?, 1, 1, ?)`,
+                    [lider.nombre, lider.email, hashTemporal, lider.rol, permisosDefault]
                 );
                 creados++;
                 credencialesNuevas.push({ email: lider.email, passwordTemporal });
             } else {
-                // Usuario existe: actualizar área y es_lider_area solo si están vacíos
+                // Usuario existe: solo aseguramos el flag de líder. No tocamos `area`
+                // porque ya se purga en purgarFasesDeLaboratorioAreas si era una fase.
                 const u = rows[0];
-                if (!u.area || u.es_lider_area !== 1) {
-                    await db.query(
-                        'UPDATE usuarios SET area = COALESCE(NULLIF(area,\'\'), ?), es_lider_area = 1 WHERE id = ?',
-                        [lider.area, u.id]
-                    );
+                if (u.es_lider_area !== 1) {
+                    await db.query('UPDATE usuarios SET es_lider_area = 1 WHERE id = ?', [u.id]);
                     actualizados++;
                 }
             }
@@ -115,14 +108,15 @@ async function renombrarListoAFacturacion() {
 
 async function migrarAreasLideres() {
     try {
-        const areasNuevas = await asegurarAreasOperativas();
+        const { removidas, usuariosLimpios } = await purgarFasesDeLaboratorioAreas();
         const { creados, actualizados, credencialesNuevas } = await asegurarLideresArea();
         const renombrados = await renombrarListoAFacturacion();
 
-        if (areasNuevas > 0)   console.log(`🏷️  Áreas operativas creadas: ${areasNuevas}`);
-        if (creados > 0)       console.log(`👤 Líderes nuevos creados: ${creados}`);
-        if (actualizados > 0)  console.log(`👤 Líderes actualizados: ${actualizados}`);
-        if (renombrados > 0)   console.log(`📦 Equipos renombrados Listo→Facturación: ${renombrados}`);
+        if (removidas > 0)       console.log(`🧹 Fases removidas de laboratorio_areas: ${removidas}`);
+        if (usuariosLimpios > 0) console.log(`🧹 Usuarios con fase como área limpiados: ${usuariosLimpios}`);
+        if (creados > 0)         console.log(`👤 Líderes nuevos creados: ${creados}`);
+        if (actualizados > 0)    console.log(`👤 Líderes actualizados: ${actualizados}`);
+        if (renombrados > 0)     console.log(`📦 Equipos renombrados Listo→Facturación: ${renombrados}`);
 
         if (credencialesNuevas.length > 0) {
             console.log('');

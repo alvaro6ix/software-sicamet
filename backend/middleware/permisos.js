@@ -77,4 +77,32 @@ async function tienePermiso(usuario, permiso) {
     return set.has(permiso);
 }
 
-module.exports = { requirePermiso, tienePermiso, invalidarCachePermisos };
+// Sprint 11-E — jerarquía de visibilidad para metrología.
+// Tres niveles:
+//   - global: ve TODOS los equipos (admin o permiso `metrologia.ver_todos`).
+//   - area:   ve los equipos de TODOS los metrólogos de su área (es_lider_area + area).
+//   - propio: solo ve los equipos asignados a sí mismo.
+//
+// Devuelve también arrays de userIds visibles, útiles para queries con `IN (...)`.
+async function obtenerScopeMetrologia(usuario) {
+    const userId = usuario?.id;
+    if (!userId) return { tipo: 'propio', userId: null, userIdsVisibles: [] };
+
+    if (usuario.rol === 'admin' || await tienePermiso(usuario, 'metrologia.ver_todos')) {
+        const [todos] = await db.query("SELECT id FROM usuarios WHERE rol IN ('metrologo','operador') OR es_lider_area = 1");
+        return { tipo: 'global', userId, userIdsVisibles: todos.map(r => r.id) };
+    }
+
+    const [filas] = await db.query('SELECT es_lider_area, area FROM usuarios WHERE id = ? LIMIT 1', [userId]);
+    const u = filas[0];
+    if (u?.es_lider_area && u.area) {
+        const [enArea] = await db.query("SELECT id FROM usuarios WHERE area = ? AND (rol IN ('metrologo','operador') OR es_lider_area = 1)", [u.area]);
+        const ids = enArea.map(r => r.id);
+        if (!ids.includes(userId)) ids.push(userId);
+        return { tipo: 'area', area: u.area, userId, userIdsVisibles: ids };
+    }
+
+    return { tipo: 'propio', userId, userIdsVisibles: [userId] };
+}
+
+module.exports = { requirePermiso, tienePermiso, invalidarCachePermisos, obtenerScopeMetrologia };

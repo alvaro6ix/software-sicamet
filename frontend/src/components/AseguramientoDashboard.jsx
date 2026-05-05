@@ -207,7 +207,7 @@ const AseguramientoDashboard = ({ darkMode, usuario }) => {
                 {/* AI Insights & Alerts */}
                 <div className="space-y-6">
                     <div className={`${cardStyle(darkMode)} relative overflow-hidden group`}>
-                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none">
                             <Zap size={64} fill="currentColor" className="text-amber-500" />
                         </div>
                         <h4 className={`text-sm font-black mb-4 flex items-center gap-2 ${darkMode ? 'text-[#C9EA63]' : 'text-emerald-600'}`}>

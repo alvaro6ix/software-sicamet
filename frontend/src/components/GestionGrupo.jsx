@@ -563,42 +563,47 @@ const GestionGrupo = ({ darkMode, usuario }) => {
                                 
                                 <div className="p-4 space-y-4 flex-1 overflow-y-auto custom-scrollbar">
                                     {itemsCol.map(eq => (
-                                        <div 
+                                        <div
                                             key={eq.id}
                                             className={`p-3 rounded-2xl border transition-all cursor-pointer group relative overflow-hidden ${seleccionados.includes(eq.id) ? (darkMode ? 'bg-[#C9EA63]/10 border-[#C9EA63]' : 'bg-emerald-50 border-emerald-500') : (darkMode ? 'bg-white/[0.02] border-white/5 hover:bg-white/[0.08] hover:border-[#C9EA63]/40 shadow-inner' : 'bg-white border-slate-100 hover:bg-emerald-50/30 hover:border-emerald-500/30 hover:shadow-xl shadow-sm')}`}
                                             onClick={() => { setEquipoDetalle(eq); setModalDetalle(true); }}
                                         >
-                                            <div 
-                                                className={`absolute top-2 right-2 z-10 p-1.5 rounded-lg transition-all ${seleccionados.includes(eq.id) ? 'bg-[#C9EA63] text-black' : 'bg-white/10 text-white opacity-0 group-hover:opacity-100'}`}
-                                                onClick={(e) => { e.stopPropagation(); handleSeleccionar(eq.id); }}
-                                            >
-                                                {seleccionados.includes(eq.id) ? <CheckSquare size={14} /> : <Square size={14} />}
-                                            </div>
                                             <div className={`absolute top-0 left-0 w-1 h-full ${col.bg.replace('/10', '')} opacity-40`} />
-                                            
+
                                             <div className="flex justify-between items-start gap-2 mb-2">
                                                 <h4 className={`text-[11px] font-black uppercase leading-[1.3] flex-1 tracking-tight ${textMain}`}>
                                                     {eq.nombre_instrumento}
                                                 </h4>
-                                                <div className="flex gap-1">
+                                                {/* Sprint 11 / fix UX: caja de selección antes era absolute top-2 right-2 y
+                                                    tapaba el botón de borrar. Ahora vive dentro del row de acciones
+                                                    para que no haya superposición posible. */}
+                                                <div className="flex gap-1 items-center">
+                                                    <button
+                                                        type="button"
+                                                        className={`p-1.5 rounded-lg transition-all ${seleccionados.includes(eq.id) ? (darkMode ? 'bg-[#C9EA63] text-black' : 'bg-emerald-600 text-white') : (darkMode ? 'bg-white/10 text-white/60 hover:bg-white/20' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}`}
+                                                        onClick={(e) => { e.stopPropagation(); handleSeleccionar(eq.id); }}
+                                                        title={seleccionados.includes(eq.id) ? 'Deseleccionar' : 'Seleccionar'}
+                                                    >
+                                                        {seleccionados.includes(eq.id) ? <CheckSquare size={12} /> : <Square size={12} />}
+                                                    </button>
                                                     {eq.estatus_actual === 'Laboratorio' && (
-                                                        <button 
-                                                            className={`p-1.5 rounded-lg transition-all ${darkMode ? 'hover:bg-emerald-500/20 text-emerald-400' : 'hover:bg-emerald-500/10 text-emerald-600'}`} 
+                                                        <button
+                                                            className={`p-1.5 rounded-lg transition-all ${darkMode ? 'hover:bg-emerald-500/20 text-emerald-400' : 'hover:bg-emerald-500/10 text-emerald-600'}`}
                                                             onClick={(e) => { e.stopPropagation(); handleFinalizarMetrologo(eq.id); }}
                                                             title="Finalizar y Enviar a QA"
                                                         >
                                                             <CheckCircle size={12} />
                                                         </button>
                                                     )}
-                                                    <button 
-                                                        className={`p-1.5 rounded-lg transition-all ${darkMode ? 'hover:bg-[#C9EA63]/20 text-[#C9EA63]' : 'hover:bg-emerald-500/10 text-emerald-600'}`} 
+                                                    <button
+                                                        className={`p-1.5 rounded-lg transition-all ${darkMode ? 'hover:bg-[#C9EA63]/20 text-[#C9EA63]' : 'hover:bg-emerald-500/10 text-emerald-600'}`}
                                                         onClick={(e) => { e.stopPropagation(); setEquipoEditando(eq); setModalEditar(true); }}
                                                         title="Editar"
                                                     >
                                                         <Edit3 size={12} />
                                                     </button>
-                                                    <button 
-                                                        className={`p-1.5 rounded-lg transition-all ${darkMode ? 'hover:bg-rose-500/20 text-rose-400' : 'hover:bg-rose-500/10 text-rose-600'}`} 
+                                                    <button
+                                                        className={`p-1.5 rounded-lg transition-all ${darkMode ? 'hover:bg-rose-500/20 text-rose-400' : 'hover:bg-rose-500/10 text-rose-600'}`}
                                                         onClick={(e) => { e.stopPropagation(); eliminarInstrumento(eq.id); }}
                                                         title="Eliminar"
                                                     >

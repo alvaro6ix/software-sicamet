@@ -9,6 +9,7 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
     const [modalDetalle, setModalDetalle] = useState(false);
     const [equipoDetalle, setEquipoDetalle] = useState(null);
     const [rechazosDetalle, setRechazosDetalle] = useState([]);
+    const [scope, setScope] = useState({ tipo: 'propio', area: null }); // Sprint 11-E
 
     // Two-step correction flow: Set of IDs marked as "corrected" locally
     const [corregidos, setCorregidos] = useState(new Set());
@@ -26,6 +27,10 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
             setCargando(true);
             const res = await axios.get('/api/metrologia/correcciones');
             setEquipos(Array.isArray(res.data) ? res.data : []);
+            setScope({
+                tipo: res.headers['x-metrologia-scope'] || 'propio',
+                area: res.headers['x-metrologia-area'] || null
+            });
         } catch (error) {
             console.error('Error al cargar correcciones:', error);
             setEquipos([]);
@@ -123,9 +128,22 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
                         Equipos rechazados por Aseguramiento que requieren tu corrección técnica.
                     </p>
                 </div>
-                <div className={`px-4 py-2 rounded-2xl text-sm font-black flex items-center gap-2 ${darkMode ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-orange-50 text-orange-700 border border-orange-200'}`}>
-                    <AlertTriangle size={16} />
-                    {equipos.length} pendiente{equipos.length !== 1 ? 's' : ''}
+                <div className="flex flex-col items-end gap-1">
+                    <div className={`px-4 py-2 rounded-2xl text-sm font-black flex items-center gap-2 ${darkMode ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-orange-50 text-orange-700 border border-orange-200'}`}>
+                        <AlertTriangle size={16} />
+                        {equipos.length} pendiente{equipos.length !== 1 ? 's' : ''}
+                    </div>
+                    {/* Sprint 11-E — scope visual */}
+                    {scope.tipo === 'global' && (
+                        <div className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${darkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
+                            👑 Jefe global · TODAS las correcciones
+                        </div>
+                    )}
+                    {scope.tipo === 'area' && (
+                        <div className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${darkMode ? 'bg-sky-500/20 text-sky-300' : 'bg-sky-100 text-sky-700'}`}>
+                            🛡️ Encargado · Área {scope.area}
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -185,9 +203,16 @@ const CorreccionesMetrologia = ({ darkMode, usuario }) => {
                                     <h4 className={`font-black text-lg leading-tight mb-1 ${darkMode ? 'text-[#F2F6F0]' : 'text-slate-800'}`}>
                                         {eq.nombre_instrumento}
                                     </h4>
-                                    <p className={`text-xs font-semibold mb-6 truncate opacity-60 ${darkMode ? 'text-white' : 'text-slate-500'}`}>
+                                    <p className={`text-xs font-semibold mb-2 truncate opacity-60 ${darkMode ? 'text-white' : 'text-slate-500'}`}>
                                         {eq.empresa}
                                     </p>
+                                    {/* Sprint 11-F — metrólogo asignado (visible para jefe global y de área) */}
+                                    {eq.asignado_a_nombre && (
+                                        <p className={`text-[11px] font-bold mb-6 flex items-center gap-1.5 ${darkMode ? 'text-sky-300' : 'text-sky-700'}`}>
+                                            <span className="opacity-50">Asignado a:</span> {eq.asignado_a_nombre}
+                                            {eq.area_laboratorio && <span className="opacity-50">· {eq.area_laboratorio}</span>}
+                                        </p>
+                                    )}
 
                                     {/* Action buttons */}
                                     <div className="flex flex-col gap-3 mt-auto">

@@ -786,13 +786,14 @@ const Validacion = ({ darkMode, usuario }) => {
                                         </div>
                                     </section>
 
-                                    {(equipoDetalle.cotizacion_referencia || equipoDetalle.fecha_recepcion || equipoDetalle.servicio_solicitado) && (
+                                    {(equipoDetalle.cotizacion_referencia || equipoDetalle.fecha_recepcion || equipoDetalle.servicio_solicitado || equipoDetalle.tipo_servicio) && (
                                         <section>
                                             <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 opacity-50 ${darkMode ? 'text-white' : 'text-slate-900'}`}>Datos de la Orden</h4>
                                             <div className={`p-4 rounded-xl border grid grid-cols-2 gap-3 ${darkMode ? 'bg-emerald-950/20 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'}`}>
                                                 {equipoDetalle.cotizacion_referencia && (<div><p className="text-[9px] font-black uppercase opacity-40">Cotización Ref.</p><p className="text-sm font-black font-mono">{equipoDetalle.cotizacion_referencia}</p></div>)}
                                                 {equipoDetalle.fecha_recepcion && (<div><p className="text-[9px] font-black uppercase opacity-40">Fecha Recepción</p><p className="text-sm font-bold">{equipoDetalle.fecha_recepcion}</p></div>)}
-                                                {equipoDetalle.servicio_solicitado && (<div><p className="text-[9px] font-black uppercase opacity-40">Servicio</p><p className="text-sm font-bold">{equipoDetalle.servicio_solicitado}</p></div>)}
+                                                {equipoDetalle.servicio_solicitado && (<div><p className="text-[9px] font-black uppercase opacity-40">Servicio (OS)</p><p className="text-sm font-bold">{equipoDetalle.servicio_solicitado}</p></div>)}
+                                                {equipoDetalle.tipo_servicio && (<div><p className="text-[9px] font-black uppercase opacity-40">Tipo (este equipo)</p><span className={`inline-block px-2 py-0.5 rounded text-xs font-black ${darkMode ? 'bg-[#C9EA63] text-[#141f0b]' : 'bg-emerald-600 text-white'}`}>{equipoDetalle.tipo_servicio}</span></div>)}
                                             </div>
                                         </section>
                                     )}
