@@ -30,8 +30,10 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Exponer puerto 80 (Caddy hace reverse proxy desde :443/:80 público)
 EXPOSE 80
 
-# Healthcheck: nginx responde la página principal
+# Healthcheck: nginx responde la página principal.
+# Usamos 127.0.0.1 explícito porque en Alpine `localhost` puede resolverse a IPv6
+# y nginx escucha por default en IPv4.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost/ > /dev/null || exit 1
+    CMD wget -qO- http://127.0.0.1/ > /dev/null || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
